@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"log"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/marcboeker/go-duckdb"
 	_ "github.com/marcboeker/go-duckdb"
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/ti-mo/conntrack"
@@ -27,16 +30,27 @@ func main() {
 	// 	done <- true
 	// }()
 
-	db, err := sql.Open("duckdb", "flows.db")
+	connector, err := duckdb.NewConnector("flows.db?allow_unsigned_extensions=true", func(execer driver.ExecerContext) error {
+		bootQueries := []string{
+			"INSTALL 'inet'",
+			"LOAD 'inet'",
+		}
+
+		for _, query := range bootQueries {
+			_, err := execer.ExecContext(context.Background(), query, nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
-	// _, err = db.Exec(`INSTALL inet; LOAD inet;`)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	// db, err := sql.Open("duckdb", "flows.db")
+	db := sql.OpenDB(connector)
+	defer db.Close()
 
 	migrations := migrate.EmbedFileSystemMigrationSource{
 		FileSystem: dbMigrations,

@@ -17,7 +17,7 @@ func runHTTPServer(db *sql.DB) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		log.Println("Returning list of flows")
 
-		rows, err := db.Query("SELECT src_ip::STRING, dst_ip::STRING, ip_proto, port, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows GROUP BY src_ip, dst_ip, ip_proto, port")
+		rows, err := db.Query("SELECT src_ip, dst_ip, ip_proto, port, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows GROUP BY src_ip, dst_ip, ip_proto, port")
 		if err != nil {
 			log.Fatal(err)
 		}
