@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Main</title>
+  </head>
+
+  <body>
+    <table>
+      <tr>
+        <td>Source</td>
+        <td>Destination</td>
+        <td>Proto</td>
+        <td>Port</td>
+        <td>In bytes</td>
+        <td>In packets</td>
+        <td>Out bytes</td>
+        <td>Out packets</td>
+      </tr>
+      {{ range $key, $value := .flows }}
+      <tr>
+        <td>{{$value.SourceIPAddress}}</td>
+        <td>{{$value.DestinationIPAddress}}</td>
+        <td>{{$value.IPProto}}</td>
+        <td>{{$value.Port}}</td>
+        <td>{{$value.InBytes}}</td>
+        <td>{{$value.InPackets}}</td>
+        <td>{{$value.OutBytes}}</td>
+        <td>{{$value.OutPackets}}</td>
+      </tr>
+      {{ end }}
+    </table>
+  </body>
+</html>
