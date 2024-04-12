@@ -31,10 +31,7 @@ func main() {
 	// }()
 
 	connector, err := duckdb.NewConnector("flows.db?allow_unsigned_extensions=true", func(execer driver.ExecerContext) error {
-		bootQueries := []string{
-			"INSTALL 'inet'",
-			"LOAD 'inet'",
-		}
+		var bootQueries []string
 
 		for _, query := range bootQueries {
 			_, err := execer.ExecContext(context.Background(), query, nil)
@@ -116,8 +113,8 @@ func main() {
 			spew.Dump(ev)
 			// spew.Dump(ev.Flow)
 
-			srcIp := ev.Flow.TupleOrig.IP.SourceAddress.String()
-			dstIp := ev.Flow.TupleOrig.IP.DestinationAddress.String()
+			srcIp := ev.Flow.TupleOrig.IP.SourceAddress.AsSlice()
+			dstIp := ev.Flow.TupleOrig.IP.DestinationAddress.AsSlice()
 			ipProto := ev.Flow.TupleOrig.Proto.Protocol
 			dstPort := ev.Flow.TupleOrig.Proto.DestinationPort
 			inBytes := ev.Flow.CountersReply.Bytes
@@ -125,7 +122,7 @@ func main() {
 			outBytes := ev.Flow.CountersOrig.Bytes
 			outPackets := ev.Flow.CountersOrig.Packets
 
-			_, err = db.Exec(`INSERT INTO flows VALUES (?::INET, ?::INET, ?, ?, ?, ?, ?, ?, current_timestamp)`, srcIp, dstIp, ipProto, dstPort, inBytes, inPackets, outBytes, outPackets)
+			_, err = db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, srcIp, dstIp, ipProto, dstPort, inBytes, inPackets, outBytes, outPackets)
 			if err != nil {
 				log.Fatal(err)
 			}

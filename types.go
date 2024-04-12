@@ -20,21 +20,18 @@ type Flow struct {
 	OutPackets           uint64
 }
 
-func (ipAddress *IpAddress) Scan(value []uint8) error {
-	// // if value is nil, false
-	// if value == nil {
-	// 	// set the value of the pointer yne to YesNoEnum(false)
-	// 	*yne = YesNoEnum(false)
-	// 	return nil
-	// }
-	// if bv, err := driver.Bool.ConvertValue(value); err == nil {
-	// 	// if this is a bool type
-	// 	if v, ok := bv.(bool); ok {
-	// 		// set the value of the pointer yne to YesNoEnum(v)
-	// 		*yne = YesNoEnum(v)
-	// 		return nil
-	// 	}
-	// }
-	// otherwise, return an error
-	return errors.New("failed to scan IpAddress")
+func (ipAddress *IpAddress) Scan(value interface{}) error {
+	switch value.(type) {
+	case []byte:
+		addr, ok := netip.AddrFromSlice(value.([]byte))
+
+		if !ok {
+			return errors.New("unable to parse IP address")
+		}
+
+		*ipAddress = IpAddress{&addr}
+		return nil
+	}
+
+	return errors.New("invalid IP address (must be []byte)")
 }

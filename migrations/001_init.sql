@@ -1,7 +1,7 @@
 -- +migrate Up
 CREATE TABLE flows (
-    src_ip INET,
-    dst_ip INET,
+    src_ip BLOB,
+    dst_ip BLOB,
     ip_proto UTINYINT,
     port USMALLINT,
     in_bytes UHUGEINT,
