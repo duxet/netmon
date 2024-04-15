@@ -20,6 +20,20 @@ type Flow struct {
 	OutPackets           uint64
 }
 
+type Client struct {
+	SourceIPAddress IpAddress
+	InBytes         uint64
+	InPackets       uint64
+	OutBytes        uint64
+	OutPackets      uint64
+}
+
+type Stats struct {
+	TotalClients uint64
+	TotalBytes   *uint64
+	TotalPackets *uint64
+}
+
 func (ipAddress *IpAddress) Scan(value interface{}) error {
 	switch value.(type) {
 	case []byte:
