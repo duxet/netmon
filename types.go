@@ -10,14 +10,16 @@ type IpAddress struct {
 }
 
 type Flow struct {
-	SourceIPAddress      IpAddress
-	DestinationIPAddress IpAddress
-	IPProto              uint8
-	Port                 uint16
-	InBytes              uint64
-	InPackets            uint64
-	OutBytes             uint64
-	OutPackets           uint64
+	SourceMACAddress      string
+	DestinationMACAddress string
+	SourceIPAddress       IpAddress
+	DestinationIPAddress  IpAddress
+	IPProto               uint8
+	Port                  uint16
+	InBytes               uint64
+	InPackets             uint64
+	OutBytes              uint64
+	OutPackets            uint64
 }
 
 type Client struct {

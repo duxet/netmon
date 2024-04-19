@@ -12,7 +12,7 @@ type Pagination struct {
 	Offset uint32
 }
 
-func runHTTPServer(db *sql.DB) {
+func runHTTPServer(db *sql.DB) *fiber.App {
 	app := fiber.New(fiber.Config{
 		Views: html.New("./views", ".html"),
 	})
@@ -20,7 +20,7 @@ func runHTTPServer(db *sql.DB) {
 	app.Get("/api/flows", func(c *fiber.Ctx) error {
 		log.Println("Returning list of flows")
 
-		rows, err := db.Query("SELECT src_ip, dst_ip, ip_proto, port, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows GROUP BY src_ip, dst_ip, ip_proto, port ORDER BY created_at DESC")
+		rows, err := db.Query("SELECT src_mac, dst_mac, src_ip, dst_ip, ip_proto, port, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets), created_at FROM flows GROUP BY src_mac, dst_mac, src_ip, dst_ip, ip_proto, port")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -31,6 +31,8 @@ func runHTTPServer(db *sql.DB) {
 		for rows.Next() {
 			var flow Flow
 			if err := rows.Scan(
+				&flow.SourceMACAddress,
+				&flow.DestinationMACAddress,
 				&flow.SourceIPAddress,
 				&flow.DestinationIPAddress,
 				&flow.IPProto,
@@ -126,4 +128,6 @@ func runHTTPServer(db *sql.DB) {
 	})
 
 	log.Fatal(app.Listen(":2137"))
+
+	return app
 }

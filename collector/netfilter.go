@@ -45,11 +45,12 @@ func queryMacAddress(ipAddress netip.Addr) (net.HardwareAddr, error) {
 	return nil, errors.New("no neighbor found with specified ip address")
 }
 
-func CollectTraffic(db *sql.DB) {
+func CollectTraffic(db *sql.DB) (*Collector, error) {
+	shutdownChan := make(chan bool, 1)
+
 	c, err := conntrack.Dial(nil)
 	if err != nil {
-		fmt.Println("Failed to connect to Netfilter", err)
-		return
+		return nil, err
 	}
 
 	evChan := make(chan conntrack.Event)
@@ -58,8 +59,7 @@ func CollectTraffic(db *sql.DB) {
 		netfilter.GroupCTDestroy,
 	})
 	if err != nil {
-		fmt.Println("Failed to subscribe for Netfilter events", err)
-		return
+		return nil, err
 	}
 
 	go func() {
@@ -69,7 +69,6 @@ func CollectTraffic(db *sql.DB) {
 			return
 		}
 	}()
-	defer close(errChan)
 
 	fmt.Println("Listening for events...")
 
@@ -96,4 +95,11 @@ func CollectTraffic(db *sql.DB) {
 			}
 		}
 	}()
+
+	go func() {
+		<-shutdownChan
+		c.Close()
+	}()
+
+	return &Collector{shutdownChan}, nil
 }

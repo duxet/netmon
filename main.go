@@ -7,7 +7,11 @@ import (
 	"embed"
 	"fmt"
 	"github.com/duxet/netmon/collector"
+	"golang.org/x/sync/errgroup"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/marcboeker/go-duckdb"
 	_ "github.com/marcboeker/go-duckdb"
@@ -18,15 +22,10 @@ import (
 var dbMigrations embed.FS
 
 func main() {
-	// done := make(chan bool, 1)
-	// sigs := make(chan os.Signal, 1)
-	// signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	// go func() {
-	// 	sig := <-sigs
-	// 	fmt.Println(sig)
-	// 	done <- true
-	// }()
+	g, gCtx := errgroup.WithContext(ctx)
 
 	connector, err := duckdb.NewConnector("flows.db?allow_unsigned_extensions=true", func(execer driver.ExecerContext) error {
 		var bootQueries []string
@@ -77,6 +76,19 @@ func main() {
 	// }
 	// defer appender.Close()
 
-	collector.CollectTraffic(db)
-	runHTTPServer(db)
+	coll, _ := collector.CollectTraffic(db)
+	app := runHTTPServer(db)
+
+	g.Go(func() error {
+		<-gCtx.Done()
+
+		log.Println("Shutting down gracefully")
+
+		coll.Shutdown()
+		return app.ShutdownWithContext(context.Background())
+	})
+
+	if err := g.Wait(); err != nil {
+		fmt.Printf("Exit reason: %s \n", err)
+	}
 }
