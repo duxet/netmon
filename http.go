@@ -65,20 +65,65 @@ func runHTTPServer(db *sql.DB) {
 		return c.JSON(stats)
 	})
 
-	/*
-		app.Get("/api/clients", func(c *fiber.Ctx) error {
-			log.Println("Returning list of clients")
+	app.Get("/api/clients", func(c *fiber.Ctx) error {
+		log.Println("Returning list of clients")
 
-			rows, err := db.Query("SELECT src_ip, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows GROUP BY src_ip ORDER BY SUM(in_bytes + out_bytes) DESC")
-			if err != nil {
+		rows, err := db.Query("SELECT src_ip, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows GROUP BY src_ip ORDER BY SUM(in_bytes + out_bytes) DESC")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+
+		var clients []Client
+		for rows.Next() {
+			var client Client
+			if err := rows.Scan(
+				&client.SourceIPAddress,
+				&client.InBytes,
+				&client.InPackets,
+				&client.OutBytes,
+				&client.OutPackets,
+			); err != nil {
 				log.Fatal(err)
 			}
-			defer rows.Close()
+			clients = append(clients, client)
+		}
 
-		})
+		return c.JSON(clients)
+	})
 
+	app.Get("/api/clients/:clientId/flows", func(c *fiber.Ctx) error {
+		log.Println("Returning list of client flows")
 
-	*/
+		clientId := c.Params("clientId")
+
+		rows, err := db.Query("SELECT src_ip, dst_ip, ip_proto, port, SUM(in_bytes), SUM(in_packets), SUM(out_bytes), SUM(out_packets) FROM flows WHERE src_ip = ? OR dst_ip = ? GROUP BY src_ip, dst_ip, ip_proto, port ORDER BY created_at DESC", clientId, clientId)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+
+		var flows []Flow
+
+		for rows.Next() {
+			var flow Flow
+			if err := rows.Scan(
+				&flow.SourceIPAddress,
+				&flow.DestinationIPAddress,
+				&flow.IPProto,
+				&flow.Port,
+				&flow.InBytes,
+				&flow.InPackets,
+				&flow.OutBytes,
+				&flow.OutPackets,
+			); err != nil {
+				log.Fatal(err)
+			}
+			flows = append(flows, flow)
+		}
+
+		return c.JSON(flows)
+	})
 
 	log.Fatal(app.Listen(":2137"))
 }

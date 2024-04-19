@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"embed"
 	"fmt"
+	"github.com/duxet/netmon/collector"
 	"log"
 
 	"github.com/marcboeker/go-duckdb"
@@ -76,6 +77,6 @@ func main() {
 	// }
 	// defer appender.Close()
 
-	// collector.CollectTraffic(db)
+	collector.CollectTraffic(db)
 	runHTTPServer(db)
 }
