@@ -12,7 +12,10 @@
   "dependencies": {
     "@tanstack/react-query": "^5.29.2",
     "@tanstack/react-router": "^1.27.0",
+    "human-format": "^1.2.0",
+    "lucide-react": "^0.368.0",
     "preline": "^2.1.0",
+    "pretty-bytes": "^6.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

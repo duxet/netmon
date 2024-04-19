@@ -1,5 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
 import {useQuery, useQueryClient} from "@tanstack/react-query";
+import prettyBytes from "pretty-bytes";
+import {formatBytes, formatNumber} from "../utils/formatters.ts";
 
 export const Route = createLazyFileRoute('/')({
   component: Index,
@@ -63,7 +65,7 @@ function Index() {
 
                           <div className="mt-1 flex items-center gap-x-2">
                               <h3 className="text-xl sm:text-2xl font-medium text-gray-800 dark:text-gray-200">
-                                  {query.data?.TotalBytes}
+                                  {formatBytes(query.data?.TotalBytes || 0)}
                               </h3>
                           </div>
                       </div>
@@ -80,7 +82,7 @@ function Index() {
 
                           <div className="mt-1 flex items-center gap-x-2">
                               <h3 className="text-xl sm:text-2xl font-medium text-gray-800 dark:text-gray-200">
-                                  {query.data?.TotalPackets}
+                                  {formatNumber(query.data?.TotalPackets || 0)}
                               </h3>
                           </div>
                       </div>
@@ -91,7 +93,7 @@ function Index() {
                       <div className="p-4 md:p-5">
                           <div className="flex items-center gap-x-2">
                               <p className="text-xs uppercase tracking-wide text-gray-500">
-                                  Pageviews
+                                  TBD
                               </p>
                           </div>
 
