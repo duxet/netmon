@@ -19,6 +19,8 @@ import (
 func queryMacAddress(ipAddress netip.Addr) (net.HardwareAddr, error) {
 	var family int
 
+	fmt.Printf("Looking for MAC address of: %s\n", ipAddress.String())
+
 	switch {
 	case ipAddress.Is6():
 		family = netlink.FAMILY_V6
@@ -46,10 +48,9 @@ func queryMacAddress(ipAddress netip.Addr) (net.HardwareAddr, error) {
 func CollectTraffic(db *sql.DB) {
 	c, err := conntrack.Dial(nil)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Failed to connect to Netfilter", err)
 		return
 	}
-	defer c.Close()
 
 	evChan := make(chan conntrack.Event)
 	errChan, err := c.Listen(evChan, 1, []netfilter.NetlinkGroup{
@@ -57,14 +58,14 @@ func CollectTraffic(db *sql.DB) {
 		netfilter.GroupCTDestroy,
 	})
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Failed to subscribe for Netfilter events", err)
 		return
 	}
 
 	go func() {
 		err, ok := <-errChan
 		if !ok {
-			fmt.Println(err)
+			fmt.Println("Error while listening for Netfilter events", err)
 			return
 		}
 	}()
@@ -75,6 +76,7 @@ func CollectTraffic(db *sql.DB) {
 	go func() {
 		for {
 			ev := <-evChan
+			fmt.Println("Received event")
 			spew.Dump(ev)
 			// spew.Dump(ev.Flow)
 			srcMAC, _ := queryMacAddress(ev.Flow.TupleOrig.IP.SourceAddress)
