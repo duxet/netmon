@@ -38,6 +38,7 @@ func queryMacAddress(ipAddress netip.Addr) (net.HardwareAddr, error) {
 
 	for _, neighbor := range neighbors {
 		if bytes.Equal(neighbor.IP, ipAddress.AsSlice()) {
+			log.Printf("%s MAC address is %s", ipAddress, neighbor.HardwareAddr)
 			return neighbor.HardwareAddr, nil
 		}
 	}

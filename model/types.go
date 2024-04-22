@@ -1,19 +1,25 @@
-package main
+package model
 
 import (
+	"encoding/json"
 	"errors"
+	"net"
 	"net/netip"
 )
 
-type IpAddress struct {
+type MACAddress struct {
+	net.HardwareAddr
+}
+
+type IPAddress struct {
 	*netip.Addr
 }
 
 type Flow struct {
-	SourceMACAddress      string
-	DestinationMACAddress string
-	SourceIPAddress       IpAddress
-	DestinationIPAddress  IpAddress
+	SourceMACAddress      MACAddress
+	DestinationMACAddress MACAddress
+	SourceIPAddress       IPAddress
+	DestinationIPAddress  IPAddress
 	IPProto               uint8
 	Port                  uint16
 	InBytes               uint64
@@ -23,7 +29,7 @@ type Flow struct {
 }
 
 type Client struct {
-	SourceIPAddress IpAddress
+	SourceIPAddress IPAddress
 	InBytes         uint64
 	InPackets       uint64
 	OutBytes        uint64
@@ -36,7 +42,21 @@ type Stats struct {
 	TotalPackets *uint64
 }
 
-func (ipAddress *IpAddress) Scan(value interface{}) error {
+func (macAddress *MACAddress) Scan(value interface{}) error {
+	switch value.(type) {
+	case []byte:
+		*macAddress = MACAddress{value.([]byte)}
+		return nil
+	}
+
+	return errors.New("invalid IP address (must be []byte)")
+}
+
+func (macAddress *MACAddress) MarshalJSON() ([]byte, error) {
+	return json.Marshal(macAddress.String())
+}
+
+func (ipAddress *IPAddress) Scan(value interface{}) error {
 	switch value.(type) {
 	case []byte:
 		addr, ok := netip.AddrFromSlice(value.([]byte))
@@ -45,7 +65,7 @@ func (ipAddress *IpAddress) Scan(value interface{}) error {
 			return errors.New("unable to parse IP address")
 		}
 
-		*ipAddress = IpAddress{&addr}
+		*ipAddress = IPAddress{&addr}
 		return nil
 	}
 

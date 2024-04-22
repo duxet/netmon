@@ -7,7 +7,6 @@ import (
 	"embed"
 	"fmt"
 	"github.com/duxet/netmon/collector"
-	"golang.org/x/sync/errgroup"
 	"log"
 	"os"
 	"os/signal"
@@ -25,7 +24,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	g, gCtx := errgroup.WithContext(ctx)
+	// g, gCtx := errgroup.WithContext(ctx)
 
 	connector, err := duckdb.NewConnector("flows.db?allow_unsigned_extensions=true", func(execer driver.ExecerContext) error {
 		var bootQueries []string
@@ -77,18 +76,17 @@ func main() {
 	// defer appender.Close()
 
 	coll, _ := collector.CollectTraffic(db)
-	app := runHTTPServer(db)
+	app := createHTTPServer(db)
 
-	g.Go(func() error {
-		<-gCtx.Done()
+	log.Println("running")
 
+	go func() {
+		<-ctx.Done()
 		log.Println("Shutting down gracefully")
 
 		coll.Shutdown()
-		return app.ShutdownWithContext(context.Background())
-	})
+		_ = app.ShutdownWithContext(context.Background())
+	}()
 
-	if err := g.Wait(); err != nil {
-		fmt.Printf("Exit reason: %s \n", err)
-	}
+	log.Fatal(app.Listen(":2137"))
 }

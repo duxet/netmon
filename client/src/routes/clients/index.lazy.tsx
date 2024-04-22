@@ -1,5 +1,5 @@
 import {createLazyFileRoute, Link} from '@tanstack/react-router'
-import {useQuery, useQueryClient} from "@tanstack/react-query";
+import {useQuery} from "@tanstack/react-query";
 import {formatBytes, formatNumber} from "../../utils/formatters.ts";
 
 export const Route = createLazyFileRoute('/clients/')({
@@ -12,7 +12,6 @@ async function getClients() {
 }
 
 function Clients() {
-    const queryClient = useQueryClient()
     const query = useQuery({queryKey: ['clients'], queryFn: getClients})
 
     return (
