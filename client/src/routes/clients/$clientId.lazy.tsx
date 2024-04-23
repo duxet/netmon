@@ -1,5 +1,5 @@
 import {createLazyFileRoute, Link} from '@tanstack/react-router'
-import {formatBytes, formatNumber} from "../../utils/formatters.ts";
+import {formatBytes, formatIPProtocol, formatNumber} from "../../utils/formatters.ts";
 import {useQuery} from "@tanstack/react-query";
 
 export const Route = createLazyFileRoute('/clients/$clientId')({
@@ -267,7 +267,7 @@ function Client() {
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2 text-sm">
-                            {client.IPProto}/{client.Port}
+                            {formatIPProtocol(client.IPProto)}/{client.Port}
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
