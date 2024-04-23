@@ -1,4 +1,4 @@
-package model
+package common
 
 import (
 	"encoding/json"
@@ -13,33 +13,6 @@ type MACAddress struct {
 
 type IPAddress struct {
 	*netip.Addr
-}
-
-type Flow struct {
-	SourceMACAddress      MACAddress
-	DestinationMACAddress MACAddress
-	SourceIPAddress       IPAddress
-	DestinationIPAddress  IPAddress
-	IPProto               uint8
-	Port                  uint16
-	InBytes               uint64
-	InPackets             uint64
-	OutBytes              uint64
-	OutPackets            uint64
-}
-
-type Client struct {
-	SourceIPAddress IPAddress
-	InBytes         uint64
-	InPackets       uint64
-	OutBytes        uint64
-	OutPackets      uint64
-}
-
-type Stats struct {
-	TotalClients uint64
-	TotalBytes   *uint64
-	TotalPackets *uint64
 }
 
 func (macAddress *MACAddress) Scan(value interface{}) error {

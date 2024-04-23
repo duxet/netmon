@@ -205,6 +205,22 @@ function Client() {
                     <th scope="col" className="px-6 py-3 text-start">
                       <div className="flex items-center gap-x-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-800 dark:text-gray-200">
+                      Hostname
+                    </span>
+                      </div>
+                    </th>
+
+                    <th scope="col" className="px-6 py-3 text-start">
+                      <div className="flex items-center gap-x-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-800 dark:text-gray-200">
+                      Proto/Port
+                    </span>
+                      </div>
+                    </th>
+
+                    <th scope="col" className="px-6 py-3 text-start">
+                      <div className="flex items-center gap-x-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-800 dark:text-gray-200">
                       In bytes
                     </span>
                       </div>
@@ -241,34 +257,44 @@ function Client() {
                       <tr>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
-                            <Link to={`/clients/${client.DestinationIPAddress}`} className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{client.DestinationIPAddress}</Link>
+                            <Link to={`/clients/${client.Destination.IPAddress}`} className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{client.Destination.IPAddress}</Link>
+                          </div>
+                        </td>
+                        <td className="size-px whitespace-nowrap">
+                          <div className="px-6 py-2 text-sm">
+                            {client.Destination.Hostname.slice(0, -1)}
+                          </div>
+                        </td>
+                        <td className="size-px whitespace-nowrap">
+                          <div className="px-6 py-2 text-sm">
+                            {client.IPProto}/{client.Port}
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatBytes(client.InBytes)}
+                                                        {formatBytes(client.Traffic.InBytes)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatNumber(client.InPackets)}
+                                                        {formatNumber(client.Traffic.InPackets)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatBytes(client.OutBytes)}
+                                                        {formatBytes(client.Traffic.OutBytes)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatNumber(client.OutPackets)}
+                                                        {formatNumber(client.Traffic.OutPackets)}
                                                     </span>
                           </div>
                         </td>

@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"embed"
 	"fmt"
+	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
 	"log"
 	"os"
@@ -76,7 +77,7 @@ func main() {
 	// defer appender.Close()
 
 	coll, _ := collector.CollectTraffic(db)
-	app := createHTTPServer(db)
+	app := api.CreateHTTPApp(db)
 
 	log.Println("running")
 

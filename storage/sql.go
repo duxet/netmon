@@ -2,12 +2,11 @@ package storage
 
 import (
 	"database/sql"
-	"github.com/duxet/netmon/model"
 	"log"
 	"net/netip"
 )
 
-func GetFlows(db *sql.DB) []model.Flow {
+func GetFlows(db *sql.DB) []FlowRecord {
 	rows, err := db.Query(`
 		SELECT src_mac, dst_mac, src_ip, dst_ip, ip_proto, port, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
 		FROM flows
@@ -18,10 +17,10 @@ func GetFlows(db *sql.DB) []model.Flow {
 	}
 	defer rows.Close()
 
-	var flows []model.Flow
+	var flows []FlowRecord
 
 	for rows.Next() {
-		var flow model.Flow
+		var flow FlowRecord
 		if err := rows.Scan(
 			&flow.SourceMACAddress,
 			&flow.DestinationMACAddress,
@@ -42,7 +41,7 @@ func GetFlows(db *sql.DB) []model.Flow {
 	return flows
 }
 
-func GetClientFlows(db *sql.DB, clientId string) []model.Flow {
+func GetClientFlows(db *sql.DB, clientId string) []FlowRecord {
 	id, _ := netip.ParseAddr(clientId)
 
 	rows, err := db.Query(`
@@ -57,10 +56,10 @@ func GetClientFlows(db *sql.DB, clientId string) []model.Flow {
 	}
 	defer rows.Close()
 
-	var flows []model.Flow
+	var flows []FlowRecord
 
 	for rows.Next() {
-		var flow model.Flow
+		var flow FlowRecord
 		if err := rows.Scan(
 			&flow.SourceIPAddress,
 			&flow.DestinationIPAddress,
@@ -79,13 +78,13 @@ func GetClientFlows(db *sql.DB, clientId string) []model.Flow {
 	return flows
 }
 
-func GetStats(db *sql.DB) model.Stats {
+func GetStats(db *sql.DB) StatsRecord {
 	row := db.QueryRow(
 		`SELECT count(DISTINCT src_ip), sum(in_bytes + out_bytes)::INT64, sum(in_packets + out_packets)::INT64
 		FROM flows
 	`)
 
-	var stats model.Stats
+	var stats StatsRecord
 	if err := row.Scan(
 		&stats.TotalClients,
 		&stats.TotalBytes,
@@ -97,11 +96,11 @@ func GetStats(db *sql.DB) model.Stats {
 	return stats
 }
 
-func GetClients(db *sql.DB) []model.Client {
+func GetClients(db *sql.DB) []ClientRecord {
 	rows, err := db.Query(`
-		SELECT src_ip, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
+		SELECT src_mac, src_ip, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
 		FROM flows
-		GROUP BY src_ip
+		GROUP BY src_mac, src_ip
 		ORDER BY SUM(in_bytes + out_bytes) DESC
 	`)
 	if err != nil {
@@ -109,10 +108,11 @@ func GetClients(db *sql.DB) []model.Client {
 	}
 	defer rows.Close()
 
-	var clients []model.Client
+	var clients []ClientRecord
 	for rows.Next() {
-		var client model.Client
+		var client ClientRecord
 		if err := rows.Scan(
+			&client.SourceMACAddress,
 			&client.SourceIPAddress,
 			&client.InBytes,
 			&client.InPackets,
