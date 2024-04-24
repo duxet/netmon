@@ -2,16 +2,37 @@ package storage
 
 import (
 	"database/sql"
+	sq "github.com/Masterminds/squirrel"
+	"github.com/duxet/netmon/common"
 	"log"
 	"net/netip"
 )
 
-func GetFlows(db *sql.DB) []FlowRecord {
-	rows, err := db.Query(`
-		SELECT src_mac, dst_mac, src_ip, dst_ip, ip_proto, port, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
-		FROM flows
-		GROUP BY src_mac, dst_mac, src_ip, dst_ip, ip_proto, port
-	`)
+type FlowsFilter struct {
+	MAC *common.MACAddress
+	IP  *common.IPAddress
+}
+
+func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
+	var query = sq.
+		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		From("flows").
+		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port")
+
+	if filter.MAC != nil {
+		var mac []byte = filter.MAC.HardwareAddr
+		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
+	}
+
+	if filter.IP != nil {
+		ip := filter.IP.AsSlice()
+		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
+	}
+
+	sql, _, _ := query.ToSql()
+	log.Println("Query:", sql)
+
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		log.Fatal(err)
 	}

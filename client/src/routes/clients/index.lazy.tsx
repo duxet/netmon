@@ -8,7 +8,9 @@ export const Route = createLazyFileRoute('/clients/')({
 
 async function getClients() {
     const response = await fetch('http://localhost:2137/api/clients');
-    return await response.json();
+    const json = await response.json();
+
+    return Object.groupBy(json, ({ Endpoint }) => Endpoint.MACAddress);
 }
 
 function Clients() {
@@ -196,6 +198,13 @@ function Clients() {
                                     <th scope="col" className="px-6 py-3 text-start">
                                         <div className="flex items-center gap-x-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-gray-800 dark:text-gray-200">
+                      MAC Address
+                    </span>
+                                        </div>
+                                    </th>
+                                    <th scope="col" className="px-6 py-3 text-start">
+                                        <div className="flex items-center gap-x-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-800 dark:text-gray-200">
                       IP Address
                     </span>
                                         </div>
@@ -236,11 +245,23 @@ function Clients() {
                                 </thead>
 
                                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {query.data && query.data.map(client =>
+                                {query.data && Object.entries(query.data).map(([ mac, clients ]) =>
+                                    clients.map(client =>
                                     <tr>
+                                        {clients[0].Endpoint.IPAddress === client.Endpoint.IPAddress &&
+                                            <td className="size-px whitespace-nowrap" rowSpan={clients.length}>
+                                                <div className="px-6 py-2">
+                                                    <Link to={`/clients/${mac}`}
+                                                          className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{mac}</Link>
+                                                </div>
+                                            </td>
+                                        }
                                         <td className="size-px whitespace-nowrap">
                                             <div className="px-6 py-2">
-                                                <Link to={`/clients/${client.Endpoint.IPAddress}`} className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{client.Endpoint.IPAddress}</Link>
+                                                <Link to={`/clients/${client.Endpoint.IPAddress}`}
+                                                      className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">
+                                                    {client.Endpoint.IPAddress} {client.Endpoint.Hostname && `[${client.Endpoint.Hostname.slice(0, -1)}]`}
+                                                </Link>
                                             </div>
                                         </td>
                                         <td className="size-px whitespace-nowrap">
@@ -272,42 +293,9 @@ function Clients() {
                                             </div>
                                         </td>
                                     </tr>
-                                )}
+                                ))}
                                 </tbody>
                             </table>
-
-                            <div
-                                className="px-6 py-4 grid gap-3 md:flex md:justify-between md:items-center border-t border-gray-200 dark:border-gray-700">
-                                <div className="max-w-sm space-y-3">
-
-                                </div>
-
-                                <div>
-                                    <div className="inline-flex gap-x-2">
-                                        <button type="button"
-                                                className="py-2 px-3 inline-flex items-center gap-x-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
-                                            <svg className="flex-shrink-0 size-4" xmlns="http://www.w3.org/2000/svg"
-                                                 width="24" height="24" viewBox="0 0 24 24" fill="none"
-                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                 stroke-linejoin="round">
-                                                <path d="m15 18-6-6 6-6"/>
-                                            </svg>
-                                            Prev
-                                        </button>
-
-                                        <button type="button"
-                                                className="py-2 px-3 inline-flex items-center gap-x-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
-                                            Next
-                                            <svg className="flex-shrink-0 size-4" xmlns="http://www.w3.org/2000/svg"
-                                                 width="24" height="24" viewBox="0 0 24 24" fill="none"
-                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                 stroke-linejoin="round">
-                                                <path d="m9 18 6-6-6-6"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>

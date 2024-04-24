@@ -15,6 +15,24 @@ type IPAddress struct {
 	*netip.Addr
 }
 
+func ParseMACAddress(s string) (*MACAddress, error) {
+	hwAddr, err := net.ParseMAC(s)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MACAddress{hwAddr}, nil
+}
+
+func ParseIPAddress(s string) (*IPAddress, error) {
+	ipAddr, err := netip.ParseAddr(s)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IPAddress{&ipAddr}, nil
+}
+
 func (macAddress *MACAddress) Scan(value interface{}) error {
 	switch value.(type) {
 	case []byte:

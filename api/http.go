@@ -56,7 +56,23 @@ func CreateHTTPApp(db *sql.DB) *fiber.App {
 
 	app.Get("/api/flows", func(c *fiber.Ctx) error {
 		log.Println("Returning list of flows")
-		records := storage.GetFlows(db)
+
+		var mac *common.MACAddress
+
+		if c.Query("mac") != "" {
+			mac, _ = common.ParseMACAddress(c.Query("mac"))
+		}
+
+		var ip *common.IPAddress
+
+		if c.Query("ip") != "" {
+			ip, _ = common.ParseIPAddress(c.Query("ip"))
+		}
+
+		records := storage.GetFlows(db, storage.FlowsFilter{
+			MAC: mac,
+			IP:  ip,
+		})
 
 		var flows []FlowDTO
 
@@ -106,11 +122,12 @@ func CreateHTTPApp(db *sql.DB) *fiber.App {
 		var clients []ClientDTO
 
 		for _, record := range records {
+			hostname := getHostname(record.SourceIPAddress)
 			client := ClientDTO{
 				Endpoint: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   nil,
+					Hostname:   &hostname,
 				},
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
