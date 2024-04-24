@@ -17,7 +17,14 @@ type Pagination struct {
 }
 
 func getHostname(ipAddress common.IPAddress) string {
-	r := &net.Resolver{
+	localResolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{}
+			return d.DialContext(ctx, "udp", "192.168.1.1:54")
+		},
+	}
+	globalResolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{}
@@ -25,16 +32,18 @@ func getHostname(ipAddress common.IPAddress) string {
 		},
 	}
 
-	var hostname string
+	var hostnames []string
 
 	if ipAddress.IsPrivate() {
-		hostname = "missing"
+		hostnames, _ = localResolver.LookupAddr(context.Background(), ipAddress.String())
 	} else {
-		hostnames, _ := r.LookupAddr(context.Background(), ipAddress.String())
+		hostnames, _ = globalResolver.LookupAddr(context.Background(), ipAddress.String())
+	}
 
-		if len(hostnames) > 0 {
-			hostname = hostnames[0]
-		}
+	var hostname string
+
+	if len(hostnames) > 0 {
+		hostname = hostnames[0]
 	}
 
 	return hostname

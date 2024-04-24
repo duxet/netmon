@@ -80,7 +80,7 @@ func GetClientFlows(db *sql.DB, clientId string) []FlowRecord {
 
 func GetStats(db *sql.DB) StatsRecord {
 	row := db.QueryRow(
-		`SELECT count(DISTINCT src_ip), sum(in_bytes + out_bytes)::INT64, sum(in_packets + out_packets)::INT64
+		`SELECT count(DISTINCT src_mac), sum(in_bytes + out_bytes)::INT64, sum(in_packets + out_packets)::INT64
 		FROM flows
 	`)
 

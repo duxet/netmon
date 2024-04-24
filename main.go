@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"embed"
-	"fmt"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
 	"log"
@@ -25,9 +24,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// g, gCtx := errgroup.WithContext(ctx)
-
-	connector, err := duckdb.NewConnector("flows.db?allow_unsigned_extensions=true", func(execer driver.ExecerContext) error {
+	connector, err := duckdb.NewConnector("flows.db", func(execer driver.ExecerContext) error {
 		var bootQueries []string
 
 		for _, query := range bootQueries {
@@ -55,37 +52,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Applied %d migrations!\n", n)
+	log.Printf("Applied %d migrations", n)
 
-	// connector, err := duckdb.NewConnector("test.db", nil)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
+	coll, err := collector.CollectTraffic(db)
+	if err != nil {
+		log.Println("Collector failed to start:", err)
+	}
 
-	// conn, err := connector.Connect(context.Background())
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-
-	// appender, err := NewAppenderFromConn(conn, "", "test")
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-	// defer appender.Close()
-
-	coll, _ := collector.CollectTraffic(db)
 	app := api.CreateHTTPApp(db)
-
-	log.Println("running")
 
 	go func() {
 		<-ctx.Done()
 		log.Println("Shutting down gracefully")
 
-		coll.Shutdown()
+		if coll != nil {
+			coll.Shutdown()
+		}
+
 		_ = app.ShutdownWithContext(context.Background())
 	}()
 

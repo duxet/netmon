@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
 	"github.com/vishvananda/netlink"
@@ -19,7 +18,7 @@ import (
 func queryMacAddress(ipAddress netip.Addr) (net.HardwareAddr, error) {
 	var family int
 
-	fmt.Printf("Looking for MAC address of: %s\n", ipAddress.String())
+	log.Printf("Looking for MAC address of: %s\n", ipAddress.String())
 
 	switch {
 	case ipAddress.Is6():
@@ -66,19 +65,17 @@ func CollectTraffic(db *sql.DB) (*Collector, error) {
 	go func() {
 		err, ok := <-errChan
 		if !ok {
-			fmt.Println("Error while listening for Netfilter events", err)
+			log.Println("Error while listening for Netfilter events", err)
 			return
 		}
 	}()
 
-	fmt.Println("Listening for events...")
+	log.Println("Listening for Netfilter events...")
 
 	go func() {
 		for {
 			ev := <-evChan
-			fmt.Println("Received event")
-			spew.Dump(ev)
-			// spew.Dump(ev.Flow)
+			// spew.Dump(ev)
 			srcMAC, _ := queryMacAddress(ev.Flow.TupleOrig.IP.SourceAddress)
 			dstMAC, _ := queryMacAddress(ev.Flow.TupleOrig.IP.DestinationAddress)
 			srcIP := ev.Flow.TupleOrig.IP.SourceAddress.AsSlice()
