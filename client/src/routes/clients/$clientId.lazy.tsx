@@ -7,7 +7,9 @@ export const Route = createLazyFileRoute('/clients/$clientId')({
 })
 
 async function getFlows(clientId: string) {
-  const response = await fetch(`http://localhost:2137/api/clients/${clientId}/flows`);
+  const response = await fetch(`http://localhost:2137/api/flows?` + new URLSearchParams({
+    ip: clientId
+  }));
   return await response.json();
 }
 
@@ -262,7 +264,7 @@ function Client() {
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2 text-sm">
-                            {client.Destination.Hostname.slice(0, -1)}
+                            {client.Destination.Hostname && client.Destination.Hostname.slice(0, -1)} [{client.Destination.Country}]
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">

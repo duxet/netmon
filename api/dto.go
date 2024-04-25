@@ -6,6 +6,7 @@ type EndpointDTO struct {
 	MACAddress common.MACAddress
 	IPAddress  common.IPAddress
 	Hostname   *string
+	Country    *string
 }
 
 type TrafficDTO struct {

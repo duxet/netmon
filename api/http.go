@@ -7,6 +7,7 @@ import (
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html/v2"
+	"github.com/oschwald/geoip2-golang"
 	"log"
 	"net"
 )
@@ -16,7 +17,22 @@ type Pagination struct {
 	Offset uint32
 }
 
-func getHostname(ipAddress common.IPAddress) string {
+func getCountry(ipAddress common.IPAddress) *string {
+	db, err := geoip2.Open("GeoLite2-Country.mmdb")
+	if err != nil {
+		log.Println("Failed to open GeoIP2-Country.mmdb", err)
+		return nil
+	}
+
+	country, err := db.Country(ipAddress.AsSlice())
+	if err != nil {
+		log.Println("Failed to get country", err)
+	}
+
+	return &country.Country.IsoCode
+}
+
+func getHostname(ipAddress common.IPAddress) *string {
 	localResolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -40,13 +56,11 @@ func getHostname(ipAddress common.IPAddress) string {
 		hostnames, _ = globalResolver.LookupAddr(context.Background(), ipAddress.String())
 	}
 
-	var hostname string
-
 	if len(hostnames) > 0 {
-		hostname = hostnames[0]
+		return &hostnames[0]
 	}
 
-	return hostname
+	return nil
 }
 
 func CreateHTTPApp(db *sql.DB) *fiber.App {
@@ -81,12 +95,14 @@ func CreateHTTPApp(db *sql.DB) *fiber.App {
 				Source: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   nil,
+					Hostname:   getHostname(record.SourceIPAddress),
+					Country:    getCountry(record.SourceIPAddress),
 				},
 				Destination: EndpointDTO{
 					MACAddress: record.DestinationMACAddress,
 					IPAddress:  record.DestinationIPAddress,
-					Hostname:   nil,
+					Hostname:   getHostname(record.DestinationIPAddress),
+					Country:    getCountry(record.DestinationIPAddress),
 				},
 				IPProto: record.IPProto,
 				Port:    record.Port,
@@ -122,12 +138,11 @@ func CreateHTTPApp(db *sql.DB) *fiber.App {
 		var clients []ClientDTO
 
 		for _, record := range records {
-			hostname := getHostname(record.SourceIPAddress)
 			client := ClientDTO{
 				Endpoint: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   &hostname,
+					Hostname:   getHostname(record.SourceIPAddress),
 				},
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
@@ -149,18 +164,16 @@ func CreateHTTPApp(db *sql.DB) *fiber.App {
 
 		var flows []FlowDTO
 		for _, record := range records {
-			sourceHostname := getHostname(record.SourceIPAddress)
-			destinationHostname := getHostname(record.DestinationIPAddress)
 			flow := FlowDTO{
 				Source: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   &sourceHostname,
+					Hostname:   getHostname(record.SourceIPAddress),
 				},
 				Destination: EndpointDTO{
 					MACAddress: record.DestinationMACAddress,
 					IPAddress:  record.DestinationIPAddress,
-					Hostname:   &destinationHostname,
+					Hostname:   getHostname(record.DestinationIPAddress),
 				},
 				IPProto: record.IPProto,
 				Port:    record.Port,
