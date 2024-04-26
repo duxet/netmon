@@ -3,13 +3,15 @@ package api
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/template/html/v2"
+	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/oschwald/geoip2-golang"
 	"log"
 	"net"
+	"net/http"
 )
 
 type Pagination struct {
@@ -63,10 +65,14 @@ func getHostname(ipAddress common.IPAddress) *string {
 	return nil
 }
 
-func CreateHTTPApp(db *sql.DB) *fiber.App {
-	app := fiber.New(fiber.Config{
-		Views: html.New("./views", ".html"),
-	})
+func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
+	app := fiber.New()
+
+	app.Use("/", filesystem.New(filesystem.Config{
+		Root:       http.FS(clientAssets),
+		PathPrefix: "client/dist",
+		Browse:     true,
+	}))
 
 	app.Get("/api/flows", func(c *fiber.Ctx) error {
 		log.Println("Returning list of flows")

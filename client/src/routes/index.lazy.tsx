@@ -1,6 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
 import {useQuery, useQueryClient} from "@tanstack/react-query";
-import prettyBytes from "pretty-bytes";
 import {formatBytes, formatNumber} from "../utils/formatters.ts";
 
 export const Route = createLazyFileRoute('/')({
@@ -13,7 +12,6 @@ async function getStats() {
 }
 
 function Index() {
-    const queryClient = useQueryClient()
     const query = useQuery({ queryKey: ['stats'], queryFn: getStats })
 
   return (

@@ -20,6 +20,9 @@ import (
 //go:embed migrations/*
 var dbMigrations embed.FS
 
+//go:embed client/dist/*
+var clientAssets embed.FS
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -59,7 +62,7 @@ func main() {
 		log.Println("Collector failed to start:", err)
 	}
 
-	app := api.CreateHTTPApp(db)
+	app := api.CreateHTTPApp(db, clientAssets)
 
 	go func() {
 		<-ctx.Done()
