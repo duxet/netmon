@@ -7,6 +7,7 @@ import (
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/oschwald/geoip2-golang"
 	"log"
@@ -67,6 +68,8 @@ func getHostname(ipAddress common.IPAddress) *string {
 
 func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 	app := fiber.New()
+
+	app.Use(cors.New())
 
 	app.Use("/", filesystem.New(filesystem.Config{
 		Root:       http.FS(clientAssets),
