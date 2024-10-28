@@ -14,6 +14,7 @@ async function getFlows(clientId: string) {
 }
 
 function Client() {
+  // @ts-ignore
   const { clientId } = Route.useParams()
   const query = useQuery({queryKey: ['flows', clientId], queryFn: () => getFlows(clientId)})
 
@@ -255,7 +256,7 @@ function Client() {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {query.data && query.data.map(client =>
+                  {query.data && query.data.map((client: any) =>
                       <tr>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">

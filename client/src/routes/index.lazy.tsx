@@ -1,5 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
-import {useQuery, useQueryClient} from "@tanstack/react-query";
+import {useQuery} from "@tanstack/react-query";
 import {formatBytes, formatNumber} from "../utils/formatters.ts";
 
 export const Route = createLazyFileRoute('/')({

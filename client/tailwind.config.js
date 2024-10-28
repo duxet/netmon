@@ -1,3 +1,6 @@
+import forms from '@tailwindcss/forms';
+import preline from 'preline/plugin';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -9,8 +12,8 @@ export default {
     extend: {},
   },
   plugins: [
-    require('@tailwindcss/forms'),
-    require('preline/plugin'),
+    forms,
+    preline,
   ],
 }
 

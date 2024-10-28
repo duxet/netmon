@@ -10,12 +10,14 @@ async function getClients() {
     const response = await fetch('http://localhost:2137/api/clients');
     const json = await response.json();
 
+    // @ts-ignore
     return Object.groupBy(json, ({ Endpoint }) => Endpoint.MACAddress);
 }
 
 function Clients() {
     const query = useQuery({queryKey: ['clients'], queryFn: getClients})
 
+    // @ts-ignore
     return (
         <div className="max-w-[85rem] px-4 py-10 sm:px-6 lg:px-8 lg:py-14 mx-auto">
             <div className="flex flex-col">
@@ -245,8 +247,8 @@ function Clients() {
                                 </thead>
 
                                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {query.data && Object.entries(query.data).map(([ mac, clients ]) =>
-                                    clients.map(client =>
+                                {query.data && Object.entries(query.data).map(([ mac, clients ]: [string, any]) =>
+                                    clients.map((client: any) =>
                                     <tr>
                                         {clients[0].Endpoint.IPAddress === client.Endpoint.IPAddress &&
                                             <td className="size-px whitespace-nowrap" rowSpan={clients.length}>
