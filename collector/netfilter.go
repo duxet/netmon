@@ -13,6 +13,7 @@ import (
 	"github.com/ti-mo/netfilter"
 	"github.com/vishvananda/netlink"
 	"log"
+	"net"
 	"net/netip"
 	"sync"
 )
@@ -134,7 +135,18 @@ func dumpFlows(db *sql.DB) error {
 	}
 
 	for key, snapshot := range snapshots {
-		_, err = db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, snapshot.srcMAC, snapshot.dstMAC, key.srcIP, key.dstIP, key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
+		var srcMAC *net.HardwareAddr
+		var dstMAC *net.HardwareAddr
+
+		if snapshot.srcMAC != nil {
+			srcMAC = &snapshot.srcMAC.HardwareAddr
+		}
+
+		if snapshot.dstMAC != nil {
+			dstMAC = &snapshot.dstMAC.HardwareAddr
+		}
+
+		_, err = db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, srcMAC, dstMAC, key.srcIP.Addr.AsSlice(), key.dstIP.Addr.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -155,7 +167,7 @@ func CollectTraffic(db *sql.DB) (*Collector, error) {
 	}
 
 	_, _ = s.NewJob(
-		gocron.CronJob("*/5 * * * *", false),
+		gocron.CronJob("*/1 * * * *", false),
 		gocron.NewTask(func() {
 			if err := dumpFlows(db); err != nil {
 				log.Println("Failed to process flows:", err)

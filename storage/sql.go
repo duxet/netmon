@@ -17,7 +17,8 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 	var query = sq.
 		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
 		From("flows").
-		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port")
+		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
+		OrderBy("sum(in_bytes) + sum(out_bytes) DESC")
 
 	if filter.MAC != nil {
 		var mac []byte = filter.MAC.HardwareAddr
@@ -122,7 +123,7 @@ func GetClients(db *sql.DB) []ClientRecord {
 		SELECT src_mac, src_ip, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
 		FROM flows
 		GROUP BY src_mac, src_ip
-		ORDER BY SUM(in_bytes + out_bytes) DESC
+		ORDER BY sum(in_bytes + out_bytes) DESC
 	`)
 	if err != nil {
 		log.Fatal(err)

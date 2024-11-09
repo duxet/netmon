@@ -38,9 +38,11 @@ func (macAddress *MACAddress) Scan(value interface{}) error {
 	case []byte:
 		*macAddress = MACAddress{value.([]byte)}
 		return nil
+	case nil:
+		return nil
 	}
 
-	return errors.New("invalid IP address (must be []byte)")
+	return errors.New("invalid MAC address (must be []byte or nil)")
 }
 
 func (macAddress *MACAddress) MarshalJSON() ([]byte, error) {
