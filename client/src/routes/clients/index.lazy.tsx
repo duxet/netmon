@@ -7,7 +7,7 @@ export const Route = createLazyFileRoute('/clients/')({
 })
 
 async function getClients() {
-    const response = await fetch('http://localhost:2137/api/clients');
+    const response = await fetch('/api/clients');
     const json = await response.json();
 
     // @ts-ignore

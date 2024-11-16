@@ -7,7 +7,7 @@ export const Route = createLazyFileRoute('/clients/$clientId')({
 })
 
 async function getFlows(clientId: string) {
-  const response = await fetch(`http://localhost:2137/api/flows?` + new URLSearchParams({
+  const response = await fetch(`/api/flows?` + new URLSearchParams({
     ip: clientId
   }));
   return await response.json();

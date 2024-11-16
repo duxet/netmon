@@ -7,7 +7,7 @@ export const Route = createLazyFileRoute('/')({
 })
 
 async function getStats() {
-    const response = await fetch('http://localhost:2137/api/stats');
+    const response = await fetch('/api/stats');
     return await response.json();
 }
 
