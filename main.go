@@ -20,7 +20,7 @@ import (
 //go:embed migrations/*
 var dbMigrations embed.FS
 
-//go:embed client/dist/*
+//go:embed all:client/dist/*
 var clientAssets embed.FS
 
 func main() {
