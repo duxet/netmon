@@ -19,12 +19,12 @@ type FlowRecord struct {
 }
 
 type ClientRecord struct {
-	SourceMACAddress common.MACAddress
-	SourceIPAddress  common.IPAddress
-	InBytes          uint64
-	InPackets        uint64
-	OutBytes         uint64
-	OutPackets       uint64
+	MACAddress common.MACAddress
+	IPAddress  common.IPAddress
+	InBytes    uint64
+	InPackets  uint64
+	OutBytes   uint64
+	OutPackets uint64
 }
 
 type StatsRecord struct {

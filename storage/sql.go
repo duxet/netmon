@@ -123,9 +123,16 @@ func GetStats(db *sql.DB) StatsRecord {
 
 func GetClients(db *sql.DB) []ClientRecord {
 	rows, err := db.Query(`
-		SELECT src_mac, src_ip, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
+		SELECT
+		    CASE WHEN src_mac IS NOT NULL THEN src_mac ELSE dst_mac END AS mac,
+		    CASE WHEN src_mac IS NOT NULL THEN src_ip ELSE dst_ip END AS ip,
+		    sum(in_bytes)::INT64,
+		    sum(in_packets)::INT64,
+		    sum(out_bytes)::INT64,
+		    sum(out_packets)::INT64
 		FROM flows
-		GROUP BY src_mac, src_ip
+		GROUP BY mac, ip
+		HAVING mac IS NOT NULL
 		ORDER BY sum(in_bytes + out_bytes) DESC
 	`)
 	if err != nil {
@@ -137,8 +144,8 @@ func GetClients(db *sql.DB) []ClientRecord {
 	for rows.Next() {
 		var client ClientRecord
 		if err := rows.Scan(
-			&client.SourceMACAddress,
-			&client.SourceIPAddress,
+			&client.MACAddress,
+			&client.IPAddress,
 			&client.InBytes,
 			&client.InPackets,
 			&client.OutBytes,
