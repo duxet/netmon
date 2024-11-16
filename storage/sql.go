@@ -148,3 +148,34 @@ func GetClients(db *sql.DB) []ClientRecord {
 
 	return clients
 }
+
+func GetTrafficMeasurements(db *sql.DB) []TrafficMeasurementRecord {
+	rows, err := db.Query(`
+		SELECT
+			sum(in_bytes)::INT64 as in_bytes,
+			sum(out_bytes)::INT64 out_bytes,
+			time_bucket(interval '1 hour', created_at::TIMESTAMP) as bucket
+		FROM FLOWS
+		GROUP BY bucket
+		ORDER BY bucket ASC
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	var measurements []TrafficMeasurementRecord
+	for rows.Next() {
+		var measurement TrafficMeasurementRecord
+		if err := rows.Scan(
+			&measurement.InBytes,
+			&measurement.OutBytes,
+			&measurement.Date,
+		); err != nil {
+			log.Fatal(err)
+		}
+		measurements = append(measurements, measurement)
+	}
+
+	return measurements
+}

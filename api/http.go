@@ -140,6 +140,24 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 		return c.JSON(stats)
 	})
 
+	app.Get("/api/traffic-measurements", func(c *fiber.Ctx) error {
+		log.Println("Returning traffic measurements")
+		records := storage.GetTrafficMeasurements(db)
+
+		var trafficMeasurements []TrafficMeasurementDTO
+
+		for _, record := range records {
+			trafficMeasurement := TrafficMeasurementDTO{
+				InBytes:  record.InBytes,
+				OutBytes: record.OutBytes,
+				Date:     record.Date,
+			}
+			trafficMeasurements = append(trafficMeasurements, trafficMeasurement)
+		}
+
+		return c.JSON(trafficMeasurements)
+	})
+
 	app.Get("/api/clients", func(c *fiber.Ctx) error {
 		log.Println("Returning list of clients")
 		records := storage.GetClients(db)

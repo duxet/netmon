@@ -1,6 +1,9 @@
 package storage
 
-import "github.com/duxet/netmon/common"
+import (
+	"github.com/duxet/netmon/common"
+	"time"
+)
 
 type FlowRecord struct {
 	SourceMACAddress      common.MACAddress
@@ -28,4 +31,10 @@ type StatsRecord struct {
 	TotalClients uint64
 	TotalBytes   *uint64
 	TotalPackets *uint64
+}
+
+type TrafficMeasurementRecord struct {
+	InBytes  uint64
+	OutBytes uint64
+	Date     time.Time
 }

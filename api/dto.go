@@ -1,6 +1,9 @@
 package api
 
-import "github.com/duxet/netmon/common"
+import (
+	"github.com/duxet/netmon/common"
+	"time"
+)
 
 type EndpointDTO struct {
 	MACAddress common.MACAddress
@@ -33,4 +36,10 @@ type StatsDTO struct {
 	TotalClients uint64
 	TotalBytes   *uint64
 	TotalPackets *uint64
+}
+
+type TrafficMeasurementDTO struct {
+	InBytes  uint64
+	OutBytes uint64
+	Date     time.Time
 }
