@@ -5,7 +5,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/duxet/netmon/common"
 	"log"
-	"net/netip"
+	"net"
 )
 
 type FlowsFilter struct {
@@ -29,9 +29,6 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 		ip := filter.IP.AsSlice()
 		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
 	}
-
-	sql, _, _ := query.ToSql()
-	log.Println("Query:", sql)
 
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
@@ -64,15 +61,21 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 }
 
 func GetClientFlows(db *sql.DB, clientId string) []FlowRecord {
-	id, _ := netip.ParseAddr(clientId)
+	var query = sq.
+		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		From("flows").
+		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
+		OrderBy("sum(in_bytes + out_bytes) DESC")
 
-	rows, err := db.Query(`
-		SELECT src_ip, dst_ip, ip_proto, port, sum(in_bytes)::INT64, sum(in_packets)::INT64, sum(out_bytes)::INT64, sum(out_packets)::INT64
-		FROM flows
-		WHERE src_ip = ? OR dst_ip = ?
-		GROUP BY src_ip, dst_ip, ip_proto, port
-		ORDER BY sum(in_bytes + out_bytes) DESC
-	`, id.AsSlice(), id.AsSlice())
+	if mac, err := net.ParseMAC(clientId); err == nil {
+		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
+	}
+
+	if ip := net.ParseIP(clientId); ip != nil {
+		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
+	}
+
+	rows, err := query.RunWith(db).Query()
 	if err != nil {
 		log.Fatal(err)
 	}
