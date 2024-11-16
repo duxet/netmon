@@ -262,7 +262,7 @@ function Clients() {
                                             <div className="px-6 py-2">
                                                 <Link to={`/clients/${client.Endpoint.IPAddress}`}
                                                       className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">
-                                                    {client.Endpoint.IPAddress} {client.Endpoint.Hostname && `[${client.Endpoint.Hostname.slice(0, -1)}]`}
+                                                    {client.Endpoint.IPAddress} {client.Hostname && `[${client.Hostname.slice(0, -1)}]`}
                                                 </Link>
                                             </div>
                                         </td>

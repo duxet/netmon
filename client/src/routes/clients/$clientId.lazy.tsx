@@ -265,7 +265,7 @@ function Client() {
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2 text-sm">
-                            {client.Destination.Hostname && client.Destination.Hostname.slice(0, -1)} [{client.Destination.Country}]
+                            {client.Hostname && client.Hostname.slice(0, -1)} [{client.Destination.Country}]
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">

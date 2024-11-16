@@ -8,7 +8,6 @@ import (
 type EndpointDTO struct {
 	MACAddress common.MACAddress
 	IPAddress  common.IPAddress
-	Hostname   *string
 	Country    *string
 }
 
@@ -20,6 +19,7 @@ type TrafficDTO struct {
 }
 
 type ClientDTO struct {
+	Hostname *string
 	Endpoint EndpointDTO
 	Traffic  TrafficDTO
 }
@@ -42,4 +42,9 @@ type TrafficMeasurementDTO struct {
 	InBytes  uint64
 	OutBytes uint64
 	Date     time.Time
+}
+
+type HostnameDTO struct {
+	IPAddress common.IPAddress
+	Hostname  *string
 }

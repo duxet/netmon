@@ -104,13 +104,11 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 				Source: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   getHostname(record.SourceIPAddress),
 					Country:    getCountry(record.SourceIPAddress),
 				},
 				Destination: EndpointDTO{
 					MACAddress: record.DestinationMACAddress,
 					IPAddress:  record.DestinationIPAddress,
-					Hostname:   getHostname(record.DestinationIPAddress),
 					Country:    getCountry(record.DestinationIPAddress),
 				},
 				IPProto: record.IPProto,
@@ -166,10 +164,10 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 
 		for _, record := range records {
 			client := ClientDTO{
+				Hostname: getHostname(record.IPAddress),
 				Endpoint: EndpointDTO{
-					MACAddress: record.SourceMACAddress,
-					IPAddress:  record.SourceIPAddress,
-					Hostname:   getHostname(record.SourceIPAddress),
+					MACAddress: record.MACAddress,
+					IPAddress:  record.IPAddress,
 				},
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
@@ -195,12 +193,10 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 				Source: EndpointDTO{
 					MACAddress: record.SourceMACAddress,
 					IPAddress:  record.SourceIPAddress,
-					Hostname:   getHostname(record.SourceIPAddress),
 				},
 				Destination: EndpointDTO{
 					MACAddress: record.DestinationMACAddress,
 					IPAddress:  record.DestinationIPAddress,
-					Hostname:   getHostname(record.DestinationIPAddress),
 				},
 				IPProto: record.IPProto,
 				Port:    record.Port,
@@ -215,6 +211,32 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 		}
 
 		return c.JSON(flows)
+	})
+
+	type HostnamesBody struct {
+		IPAddresses []string `json:"ip_addresses"`
+	}
+
+	app.Post("/api/hostnames", func(c *fiber.Ctx) error {
+		log.Println("Returning hostnames")
+
+		r := new(HostnamesBody)
+		if err := c.BodyParser(r); err != nil {
+			return err
+		}
+
+		var hostnames []HostnameDTO
+
+		for _, ipAddressString := range r.IPAddresses {
+			if ipAddress, err := common.ParseIPAddress(ipAddressString); err == nil {
+				hostnames = append(hostnames, HostnameDTO{
+					IPAddress: *ipAddress,
+					Hostname:  getHostname(*ipAddress),
+				})
+			}
+		}
+
+		return c.JSON(hostnames)
 	})
 
 	return app

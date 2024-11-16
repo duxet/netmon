@@ -85,23 +85,6 @@ function Index() {
                           </div>
                       </div>
                   </div>
-
-                  <div
-                      className="flex flex-col bg-white border shadow-sm rounded-xl dark:bg-slate-900 dark:border-gray-800">
-                      <div className="p-4 md:p-5">
-                          <div className="flex items-center gap-x-2">
-                              <p className="text-xs uppercase tracking-wide text-gray-500">
-                                  TBD
-                              </p>
-                          </div>
-
-                          <div className="mt-1 flex items-center gap-x-2">
-                              <h3 className="text-xl sm:text-2xl font-medium text-gray-800 dark:text-gray-200">
-                                  0
-                              </h3>
-                          </div>
-                      </div>
-                  </div>
               </div>
           </div>
       </>
