@@ -5,7 +5,25 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 )
+
+type ClientID uint32
+
+func (clientID ClientID) Value() int {
+	return int(clientID)
+}
+
+func ParseClientID(text string) (ClientID, error) {
+	value, err := strconv.ParseUint(text, 10, 32)
+
+	if err != nil {
+		return ClientID(0), err
+	}
+
+	uint32ID := uint32(value)
+	return ClientID(uint32ID), nil
+}
 
 type MACAddress struct {
 	net.HardwareAddr

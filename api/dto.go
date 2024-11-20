@@ -25,11 +25,12 @@ type ClientDTO struct {
 }
 
 type FlowDTO struct {
-	Source      EndpointDTO
-	Destination EndpointDTO
-	IPProto     uint8
-	Port        uint16
-	Traffic     TrafficDTO
+	ClientID  uint32
+	IPAddress common.IPAddress
+	Country   *string
+	IPProto   uint8
+	Port      uint16
+	Traffic   TrafficDTO
 }
 
 type StatsDTO struct {

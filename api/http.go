@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"github.com/duxet/netmon/common"
@@ -9,61 +8,13 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/oschwald/geoip2-golang"
 	"log"
-	"net"
 	"net/http"
 )
 
 type Pagination struct {
 	Limit  uint32
 	Offset uint32
-}
-
-func getCountry(ipAddress common.IPAddress) *string {
-	db, err := geoip2.Open("GeoLite2-Country.mmdb")
-	if err != nil {
-		log.Println("Failed to open GeoIP2-Country.mmdb", err)
-		return nil
-	}
-
-	country, err := db.Country(ipAddress.AsSlice())
-	if err != nil {
-		log.Println("Failed to get country", err)
-	}
-
-	return &country.Country.IsoCode
-}
-
-func getHostname(ipAddress common.IPAddress) *string {
-	localResolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{}
-			return d.DialContext(ctx, "udp", "192.168.1.1:54")
-		},
-	}
-	globalResolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{}
-			return d.DialContext(ctx, "udp", "8.8.8.8:53")
-		},
-	}
-
-	var hostnames []string
-
-	if ipAddress.IsPrivate() {
-		hostnames, _ = localResolver.LookupAddr(context.Background(), ipAddress.String())
-	} else {
-		hostnames, _ = globalResolver.LookupAddr(context.Background(), ipAddress.String())
-	}
-
-	if len(hostnames) > 0 {
-		return &hostnames[0]
-	}
-
-	return nil
 }
 
 func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
@@ -80,10 +31,11 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 	app.Get("/api/flows", func(c *fiber.Ctx) error {
 		log.Println("Returning list of flows")
 
-		var mac *common.MACAddress
+		var clientID *common.ClientID
 
-		if c.Query("mac") != "" {
-			mac, _ = common.ParseMACAddress(c.Query("mac"))
+		if c.Query("clientID") != "" {
+			parsedID, _ := common.ParseClientID(c.Query("clientID"))
+			clientID = &parsedID
 		}
 
 		var ip *common.IPAddress
@@ -93,26 +45,19 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 		}
 
 		records := storage.GetFlows(db, storage.FlowsFilter{
-			MAC: mac,
-			IP:  ip,
+			ClientID: clientID,
+			IP:       ip,
 		})
 
 		var flows []FlowDTO
 
 		for _, record := range records {
 			flow := FlowDTO{
-				Source: EndpointDTO{
-					MACAddress: record.SourceMACAddress,
-					IPAddress:  record.SourceIPAddress,
-					Country:    getCountry(record.SourceIPAddress),
-				},
-				Destination: EndpointDTO{
-					MACAddress: record.DestinationMACAddress,
-					IPAddress:  record.DestinationIPAddress,
-					Country:    getCountry(record.DestinationIPAddress),
-				},
-				IPProto: record.IPProto,
-				Port:    record.Port,
+				ClientID:  record.ClientID,
+				IPAddress: record.IPAddress,
+				Country:   common.GetCountryCode(record.IPAddress),
+				IPProto:   record.IPProto,
+				Port:      record.Port,
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
 					InPackets:  record.InPackets,
@@ -164,10 +109,10 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 
 		for _, record := range records {
 			client := ClientDTO{
-				Hostname: getHostname(record.IPAddress),
+				Hostname: record.Hostname,
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
-					IPAddress:  record.IPAddress,
+					IPAddress:  record.IPAddresses.Get()[0],
 				},
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
@@ -184,22 +129,18 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 
 	app.Get("/api/clients/:clientId/flows", func(c *fiber.Ctx) error {
 		log.Println("Returning list of client flows")
-		clientId := c.Params("clientId")
-		records := storage.GetClientFlows(db, clientId)
+		clientId, _ := common.ParseClientID(c.Params("clientId"))
+		filter := storage.FlowsFilter{ClientID: &clientId}
+		records := storage.GetFlows(db, filter)
 
 		var flows []FlowDTO
 		for _, record := range records {
 			flow := FlowDTO{
-				Source: EndpointDTO{
-					MACAddress: record.SourceMACAddress,
-					IPAddress:  record.SourceIPAddress,
-				},
-				Destination: EndpointDTO{
-					MACAddress: record.DestinationMACAddress,
-					IPAddress:  record.DestinationIPAddress,
-				},
-				IPProto: record.IPProto,
-				Port:    record.Port,
+				ClientID:  record.ClientID,
+				IPAddress: record.IPAddress,
+				Country:   common.GetCountryCode(record.IPAddress),
+				IPProto:   record.IPProto,
+				Port:      record.Port,
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
 					InPackets:  record.InPackets,
@@ -231,7 +172,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 			if ipAddress, err := common.ParseIPAddress(ipAddressString); err == nil {
 				hostnames = append(hostnames, HostnameDTO{
 					IPAddress: *ipAddress,
-					Hostname:  getHostname(*ipAddress),
+					Hostname:  common.GetHostname(*ipAddress),
 				})
 			}
 		}

@@ -8,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/storage"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
 	"github.com/vishvananda/netlink"
 	"log"
-	"net"
 	"net/netip"
+	"slices"
 	"sync"
 )
 
@@ -41,7 +42,7 @@ var lock = sync.RWMutex{}
 func queryMacAddress(ipAddress netip.Addr) (*common.MACAddress, error) {
 	var family int
 
-	log.Printf("Looking for MAC address of: %s\n", ipAddress.String())
+	// log.Printf("Looking for MAC address of: %s\n", ipAddress.String())
 
 	switch {
 	case ipAddress.Is6():
@@ -60,7 +61,7 @@ func queryMacAddress(ipAddress netip.Addr) (*common.MACAddress, error) {
 
 	for _, neighbor := range neighbors {
 		if bytes.Equal(neighbor.IP, ipAddress.AsSlice()) {
-			log.Printf("%s MAC address is %s", ipAddress, neighbor.HardwareAddr)
+			// log.Printf("%s MAC address is %s", ipAddress, neighbor.HardwareAddr)
 			return &common.MACAddress{HardwareAddr: neighbor.HardwareAddr}, nil
 		}
 	}
@@ -108,10 +109,10 @@ func dumpFlows(db *sql.DB) error {
 		}
 
 		key := FlowSnapshotKey{
-			common.IPAddress{&flow.TupleOrig.IP.SourceAddress},
-			common.IPAddress{&flow.TupleOrig.IP.DestinationAddress},
-			flow.TupleOrig.Proto.Protocol,
-			flow.TupleOrig.Proto.DestinationPort,
+			srcIP: common.IPAddress{Addr: &flow.TupleOrig.IP.SourceAddress},
+			dstIP: common.IPAddress{Addr: &flow.TupleOrig.IP.DestinationAddress},
+			proto: flow.TupleOrig.Proto.Protocol,
+			port:  flow.TupleOrig.Proto.DestinationPort,
 		}
 
 		if snapshot, ok := snapshots[key]; ok {
@@ -135,27 +136,70 @@ func dumpFlows(db *sql.DB) error {
 	}
 
 	for key, snapshot := range snapshots {
-		var srcMAC *net.HardwareAddr
-		var dstMAC *net.HardwareAddr
-
-		if snapshot.srcMAC != nil {
-			srcMAC = &snapshot.srcMAC.HardwareAddr
-		}
-
-		if snapshot.dstMAC != nil {
-			dstMAC = &snapshot.dstMAC.HardwareAddr
-		}
-
-		_, err = db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, srcMAC, dstMAC, key.srcIP.Addr.AsSlice(), key.dstIP.Addr.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
-		if err != nil {
-			log.Fatal(err)
-		}
+		saveSnapshot(db, key, *snapshot)
 	}
 
 	closedFlows = map[uint32]conntrack.Flow{}
 	continuedFlows = map[uint32]conntrack.Flow{}
 
 	return nil
+}
+
+func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) uint32 {
+	var client, err = storage.GetClientByMAC(db, mac)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if client != nil {
+		if ip.IsGlobalUnicast() && !slices.Contains(client.IPAddresses.Get(), ip) {
+			_, err := db.Exec("UPDATE clients SET ip_addresses = list_append(ip_addresses, ?) WHERE mac = ?", ip.AsSlice(), mac.HardwareAddr)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		return client.ID
+	}
+
+	var ipAddress []byte
+
+	if ip.IsGlobalUnicast() {
+		ipAddress = ip.AsSlice()
+	}
+
+	hostname := common.GetHostname(ip)
+
+	var clientId uint32
+
+	if err := db.QueryRow("INSERT INTO clients (mac_address, ip_addresses, hostname) VALUES (?, [?], ?) RETURNING id", mac.HardwareAddr, ipAddress, hostname).Scan(&clientId); err != nil {
+		log.Fatal(err)
+	}
+	return clientId
+}
+
+func saveSnapshot(db *sql.DB, key FlowSnapshotKey, snapshot FlowSnapshot) {
+	var mac common.MACAddress
+	var ip common.IPAddress
+
+	if snapshot.srcMAC != nil {
+		mac = *snapshot.srcMAC
+		ip = key.srcIP
+	} else if snapshot.dstMAC != nil {
+		mac = *snapshot.dstMAC
+		ip = key.dstIP
+	} else {
+		log.Printf("Skipping flow %s -> %s: MAC address not found ", key.srcIP, key.dstIP)
+		return
+	}
+
+	clientId := upsertClient(db, mac, ip)
+
+	_, err := db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, clientId, ip.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func CollectTraffic(db *sql.DB) (*Collector, error) {
