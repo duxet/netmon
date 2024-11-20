@@ -3,3 +3,4 @@ flows.db.wal
 netmon
 netmon_arm64
 node_modules/
+GeoLite2-Country.mmdb
