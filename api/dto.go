@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-type EndpointDTO struct {
-	MACAddress common.MACAddress
-	IPAddress  common.IPAddress
-	Country    *string
-}
-
 type TrafficDTO struct {
 	InBytes    uint64
 	InPackets  uint64
@@ -19,18 +13,21 @@ type TrafficDTO struct {
 }
 
 type ClientDTO struct {
-	Hostname *string
-	Endpoint EndpointDTO
-	Traffic  TrafficDTO
+	ID          common.ClientID
+	MACAddress  common.MACAddress
+	IPAddresses common.IPAddresses
+	Hostname    *string
+	Traffic     TrafficDTO
 }
 
 type FlowDTO struct {
-	ClientID  uint32
-	IPAddress common.IPAddress
-	Country   *string
-	IPProto   uint8
-	Port      uint16
-	Traffic   TrafficDTO
+	ClientID common.ClientID
+	LocalIP  common.IPAddress
+	RemoteIP common.IPAddress
+	Country  *string
+	IPProto  uint8
+	Port     uint16
+	Traffic  TrafficDTO
 }
 
 type StatsDTO struct {

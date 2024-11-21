@@ -15,7 +15,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"log"
 	"net/netip"
-	"slices"
 	"sync"
 )
 
@@ -153,26 +152,13 @@ func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) common
 	}
 
 	if client != nil {
-		if ip.IsGlobalUnicast() && !slices.Contains(client.IPAddresses, ip) {
-			_, err := db.Exec("UPDATE clients SET ip_addresses = list_append(ip_addresses, ?) WHERE mac_address = ?", ip.AsSlice(), mac.HardwareAddr)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
 		return client.ID
 	}
 
-	var ipAddress []byte
-
-	if ip.IsGlobalUnicast() {
-		ipAddress = ip.AsSlice()
-	}
-
 	hostname := common.GetHostname(ip)
-	var clientId common.ClientID
 
-	if err := db.QueryRow("INSERT INTO clients (mac_address, ip_addresses, hostname) VALUES (?, [?], ?) RETURNING id", mac.HardwareAddr, ipAddress, hostname).Scan(&clientId); err != nil {
+	var clientId common.ClientID
+	if err := db.QueryRow("INSERT INTO clients (mac_address, hostname) VALUES (?, ?) RETURNING id", mac.HardwareAddr, hostname).Scan(&clientId); err != nil {
 		log.Fatal(err)
 	}
 	return clientId
@@ -180,26 +166,25 @@ func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) common
 
 func saveSnapshot(db *sql.DB, key FlowSnapshotKey, snapshot FlowSnapshot) {
 	var mac common.MACAddress
-	var ip common.IPAddress
+	var localIP common.IPAddress
+	var remoteIP common.IPAddress
 
 	if snapshot.srcMAC != nil {
 		mac = *snapshot.srcMAC
-		ip = key.srcIP
+		localIP = key.srcIP
+		remoteIP = key.dstIP
 	} else if snapshot.dstMAC != nil {
 		mac = *snapshot.dstMAC
-		ip = key.dstIP
+		localIP = key.dstIP
+		remoteIP = key.srcIP
 	} else {
 		log.Printf("Skipping flow %s -> %s: MAC address not found ", key.srcIP, key.dstIP)
 		return
 	}
 
-	log.Println("Looking for client")
+	clientId := upsertClient(db, mac, localIP)
 
-	clientId := upsertClient(db, mac, ip)
-
-	log.Println("Saving flow")
-
-	_, err := db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, clientId, ip.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
+	_, err := db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, clientId, localIP.AsSlice(), remoteIP.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
 	if err != nil {
 		log.Fatal(err)
 	}

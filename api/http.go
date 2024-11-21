@@ -53,11 +53,12 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 
 		for _, record := range records {
 			flow := FlowDTO{
-				ClientID:  record.ClientID,
-				IPAddress: record.IPAddress,
-				Country:   common.GetCountryCode(record.IPAddress),
-				IPProto:   record.IPProto,
-				Port:      record.Port,
+				ClientID: record.ClientID,
+				LocalIP:  record.LocalIP,
+				RemoteIP: record.RemoteIP,
+				Country:  common.GetCountryCode(record.RemoteIP),
+				IPProto:  record.IPProto,
+				Port:     record.Port,
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
 					InPackets:  record.InPackets,
@@ -109,11 +110,10 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 
 		for _, record := range records {
 			client := ClientDTO{
-				Hostname: record.Hostname,
-				Endpoint: EndpointDTO{
-					MACAddress: record.MACAddress,
-					IPAddress:  record.IPAddresses[0],
-				},
+				ID:          record.ID,
+				Hostname:    record.Hostname,
+				MACAddress:  record.MACAddress,
+				IPAddresses: record.IPAddresses,
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
 					InPackets:  record.InPackets,
@@ -136,11 +136,12 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 		var flows []FlowDTO
 		for _, record := range records {
 			flow := FlowDTO{
-				ClientID:  record.ClientID,
-				IPAddress: record.IPAddress,
-				Country:   common.GetCountryCode(record.IPAddress),
-				IPProto:   record.IPProto,
-				Port:      record.Port,
+				ClientID: record.ClientID,
+				LocalIP:  record.LocalIP,
+				RemoteIP: record.RemoteIP,
+				Country:  common.GetCountryCode(record.RemoteIP),
+				IPProto:  record.IPProto,
+				Port:     record.Port,
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,
 					InPackets:  record.InPackets,

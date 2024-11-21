@@ -7,9 +7,7 @@ export const Route = createLazyFileRoute('/clients/$clientId')({
 })
 
 async function getFlows(clientId: string) {
-  const response = await fetch(`/api/flows?` + new URLSearchParams({
-    ip: clientId
-  }));
+  const response = await fetch(`/api/clients/${clientId}/flows?`);
   return await response.json();
 }
 
@@ -256,48 +254,48 @@ function Client() {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {query.data && query.data.map((client: any) =>
+                  {query.data && query.data.map((flow: any) =>
                       <tr>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
-                            <Link to={`/clients/${client.Destination.IPAddress}`} className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{client.Destination.IPAddress}</Link>
+                            <Link to={`/clients/${flow.RemoteIP}`} className="text-sm text-blue-600 decoration-2 hover:underline dark:text-blue-500">{flow.RemoteIP}</Link>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2 text-sm">
-                            {client.Hostname && client.Hostname.slice(0, -1)} [{client.Destination.Country}]
+                            {flow.Hostname && flow.Hostname.slice(0, -1)} [{flow.Country}]
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2 text-sm">
-                            {formatIPProtocol(client.IPProto)}/{client.Port}
+                            {formatIPProtocol(flow.IPProto)}/{flow.Port}
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatBytes(client.Traffic.InBytes)}
+                                                        {formatBytes(flow.Traffic.InBytes)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatNumber(client.Traffic.InPackets)}
+                                                        {formatNumber(flow.Traffic.InPackets)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatBytes(client.Traffic.OutBytes)}
+                                                        {formatBytes(flow.Traffic.OutBytes)}
                                                     </span>
                           </div>
                         </td>
                         <td className="size-px whitespace-nowrap">
                           <div className="px-6 py-2">
                                                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                        {formatNumber(client.Traffic.OutPackets)}
+                                                        {formatNumber(flow.Traffic.OutPackets)}
                                                     </span>
                           </div>
                         </td>

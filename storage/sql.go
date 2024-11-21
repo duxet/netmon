@@ -15,9 +15,9 @@ type FlowsFilter struct {
 
 func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 	var query = sq.
-		Select("client_id", "ip_address", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		Select("client_id", "local_ip", "remote_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
 		From("flows").
-		GroupBy("client_id", "ip_address", "ip_proto", "port").
+		GroupBy("client_id", "local_ip", "remote_ip", "ip_proto", "port").
 		OrderBy("sum(in_bytes) + sum(out_bytes) DESC")
 
 	if filter.ClientID != nil {
@@ -26,7 +26,7 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 
 	if filter.IP != nil {
 		ip := filter.IP.AsSlice()
-		query = query.Where(sq.Eq{"ip_address": ip})
+		query = query.Where(sq.Or{sq.Eq{"local_ip": ip}, sq.Eq{"remote_ip": ip}})
 	}
 
 	rows, err := query.RunWith(db).Query()
@@ -41,7 +41,8 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 		var flow FlowRecord
 		if err := rows.Scan(
 			&flow.ClientID,
-			&flow.IPAddress,
+			&flow.LocalIP,
+			&flow.RemoteIP,
 			&flow.IPProto,
 			&flow.Port,
 			&flow.InBytes,
@@ -78,7 +79,7 @@ func GetStats(db *sql.DB) StatsRecord {
 func GetClientByMAC(db *sql.DB, mac common.MACAddress) (*ClientRecord, error) {
 	var macByte []byte = mac.HardwareAddr
 	query := sq.
-		Select("id", "mac_address", "ip_addresses", "hostname").
+		Select("id", "mac_address", "hostname").
 		Where(sq.Eq{"mac_address": macByte}).
 		From("clients")
 
@@ -86,7 +87,6 @@ func GetClientByMAC(db *sql.DB, mac common.MACAddress) (*ClientRecord, error) {
 	switch err := query.RunWith(db).QueryRow().Scan(
 		&client.ID,
 		&client.MACAddress,
-		&client.IPAddresses,
 		&client.Hostname,
 	); {
 	case errors.Is(err, sql.ErrNoRows):
@@ -100,10 +100,10 @@ func GetClientByMAC(db *sql.DB, mac common.MACAddress) (*ClientRecord, error) {
 
 func GetClients(db *sql.DB) []ClientWithStatsRecord {
 	var query = sq.
-		Select("id", "mac_address", "ip_addresses", "hostname", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		Select("id", "any_value(mac_address)", "list(DISTINCT local_ip)", "any_value(hostname)", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
 		From("clients").
 		Join("flows ON id = client_id").
-		GroupBy("id", "mac_address", "ip_addresses", "hostname")
+		GroupBy("id")
 
 	rows, err := query.RunWith(db).Query()
 	if err != nil {
@@ -115,6 +115,7 @@ func GetClients(db *sql.DB) []ClientWithStatsRecord {
 	for rows.Next() {
 		var client ClientWithStatsRecord
 		if err := rows.Scan(
+			&client.ID,
 			&client.MACAddress,
 			&client.IPAddresses,
 			&client.Hostname,

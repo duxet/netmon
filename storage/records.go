@@ -6,8 +6,9 @@ import (
 )
 
 type FlowRecord struct {
-	ClientID   uint32
-	IPAddress  common.IPAddress
+	ClientID   common.ClientID
+	LocalIP    common.IPAddress
+	RemoteIP   common.IPAddress
 	IPProto    uint8
 	Port       uint16
 	InBytes    uint64
@@ -17,10 +18,9 @@ type FlowRecord struct {
 }
 
 type ClientRecord struct {
-	ID          common.ClientID
-	MACAddress  common.MACAddress
-	IPAddresses common.IPAddresses
-	Hostname    string
+	ID         common.ClientID
+	MACAddress common.MACAddress
+	Hostname   *string
 }
 
 type ClientWithStatsRecord struct {
