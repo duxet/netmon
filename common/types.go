@@ -33,6 +33,8 @@ type IPAddress struct {
 	*netip.Addr
 }
 
+type IPAddresses []IPAddress
+
 func ParseMACAddress(s string) (*MACAddress, error) {
 	hwAddr, err := net.ParseMAC(s)
 	if err != nil {
@@ -81,4 +83,24 @@ func (ipAddress *IPAddress) Scan(value interface{}) error {
 	}
 
 	return errors.New("invalid IP address (must be []byte)")
+}
+
+func (ipAddresses *IPAddresses) Scan(value interface{}) error {
+	*ipAddresses = IPAddresses{}
+
+	switch value.(type) {
+	case []interface{}:
+		for _, v := range value.([]interface{}) {
+			addr, ok := netip.AddrFromSlice(v.([]byte))
+
+			if !ok {
+				return errors.New("unable to parse IP address")
+			}
+
+			*ipAddresses = append(*ipAddresses, IPAddress{&addr})
+		}
+		return nil
+	}
+
+	return errors.New("invalid IP address (must be [][]byte)")
 }

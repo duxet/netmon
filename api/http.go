@@ -112,7 +112,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 				Hostname: record.Hostname,
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
-					IPAddress:  record.IPAddresses.Get()[0],
+					IPAddress:  record.IPAddresses[0],
 				},
 				Traffic: TrafficDTO{
 					InBytes:    record.InBytes,

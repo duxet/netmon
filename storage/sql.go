@@ -76,9 +76,10 @@ func GetStats(db *sql.DB) StatsRecord {
 }
 
 func GetClientByMAC(db *sql.DB, mac common.MACAddress) (*ClientRecord, error) {
-	var query = sq.
+	var macByte []byte = mac.HardwareAddr
+	query := sq.
 		Select("id", "mac_address", "ip_addresses", "hostname").
-		Where(sq.Eq{"mac_address": mac.HardwareAddr}).
+		Where(sq.Eq{"mac_address": macByte}).
 		From("clients")
 
 	var client ClientRecord

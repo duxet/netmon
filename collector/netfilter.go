@@ -145,7 +145,7 @@ func dumpFlows(db *sql.DB) error {
 	return nil
 }
 
-func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) uint32 {
+func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) common.ClientID {
 	var client, err = storage.GetClientByMAC(db, mac)
 
 	if err != nil {
@@ -153,8 +153,8 @@ func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) uint32
 	}
 
 	if client != nil {
-		if ip.IsGlobalUnicast() && !slices.Contains(client.IPAddresses.Get(), ip) {
-			_, err := db.Exec("UPDATE clients SET ip_addresses = list_append(ip_addresses, ?) WHERE mac = ?", ip.AsSlice(), mac.HardwareAddr)
+		if ip.IsGlobalUnicast() && !slices.Contains(client.IPAddresses, ip) {
+			_, err := db.Exec("UPDATE clients SET ip_addresses = list_append(ip_addresses, ?) WHERE mac_address = ?", ip.AsSlice(), mac.HardwareAddr)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -170,8 +170,7 @@ func upsertClient(db *sql.DB, mac common.MACAddress, ip common.IPAddress) uint32
 	}
 
 	hostname := common.GetHostname(ip)
-
-	var clientId uint32
+	var clientId common.ClientID
 
 	if err := db.QueryRow("INSERT INTO clients (mac_address, ip_addresses, hostname) VALUES (?, [?], ?) RETURNING id", mac.HardwareAddr, ipAddress, hostname).Scan(&clientId); err != nil {
 		log.Fatal(err)
@@ -194,7 +193,11 @@ func saveSnapshot(db *sql.DB, key FlowSnapshotKey, snapshot FlowSnapshot) {
 		return
 	}
 
+	log.Println("Looking for client")
+
 	clientId := upsertClient(db, mac, ip)
+
+	log.Println("Saving flow")
 
 	_, err := db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, clientId, ip.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
 	if err != nil {

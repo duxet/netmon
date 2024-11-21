@@ -2,7 +2,6 @@ package storage
 
 import (
 	"github.com/duxet/netmon/common"
-	"github.com/marcboeker/go-duckdb"
 	"time"
 )
 
@@ -18,16 +17,16 @@ type FlowRecord struct {
 }
 
 type ClientRecord struct {
-	ID          uint32
+	ID          common.ClientID
 	MACAddress  common.MACAddress
-	IPAddresses duckdb.Composite[[]common.IPAddress]
+	IPAddresses common.IPAddresses
 	Hostname    string
 }
 
 type ClientWithStatsRecord struct {
-	ID          uint32
+	ID          common.ClientID
 	MACAddress  common.MACAddress
-	IPAddresses duckdb.Composite[[]common.IPAddress]
+	IPAddresses common.IPAddresses
 	Hostname    *string
 	InBytes     uint64
 	InPackets   uint64
