@@ -1,6 +1,7 @@
 import {createLazyFileRoute, Link} from '@tanstack/react-router'
 import {formatBytes, formatIPProtocol, formatNumber} from "../../utils/formatters.ts";
 import {useQuery} from "@tanstack/react-query";
+import {AppTrafficCard} from "@/components/app-traffic.tsx";
 
 export const Route = createLazyFileRoute('/clients/$clientId')({
   component: Client,
@@ -20,6 +21,9 @@ function Client() {
 
   return (
       <div className="max-w-[85rem] px-4 py-10 sm:px-6 lg:px-8 lg:py-14 mx-auto">
+        <div className="mb-8">
+          <AppTrafficCard ip={clientId}/>
+        </div>
         <div className="flex flex-col">
           <div className="-m-1.5 overflow-x-auto">
             <div className="p-1.5 min-w-full inline-block align-middle">

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v2"
@@ -136,6 +137,24 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 		}
 
 		return c.JSON(stats)
+	})
+
+	app.Get("/api/apps", func(c *fiber.Ctx) error {
+		log.Println("Returning traffic per app")
+
+		var filter storage.FlowsFilter
+
+		if c.Query("mac") != "" {
+			filter.MAC, _ = common.ParseMACAddress(c.Query("mac"))
+		}
+
+		if c.Query("ip") != "" {
+			filter.IP, _ = common.ParseIPAddress(c.Query("ip"))
+		}
+
+		records := storage.GetEndpointPairTraffic(db, filter)
+
+		return c.JSON(aggregateAppTraffic(apps.Default(), records))
 	})
 
 	app.Get("/api/traffic-measurements", func(c *fiber.Ctx) error {

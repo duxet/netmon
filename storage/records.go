@@ -38,3 +38,12 @@ type TrafficMeasurementRecord struct {
 	OutBytes uint64
 	Date     time.Time
 }
+
+type EndpointPairTrafficRecord struct {
+	SourceIPAddress      common.IPAddress
+	DestinationIPAddress common.IPAddress
+	InBytes              uint64
+	InPackets            uint64
+	OutBytes             uint64
+	OutPackets           uint64
+}

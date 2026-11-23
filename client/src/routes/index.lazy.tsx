@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/chart.tsx';
 import {Bar, BarChart, CartesianGrid, XAxis} from "recharts";
 import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card.tsx";
+import {AppTrafficCard} from "@/components/app-traffic.tsx";
 
 export const Route = createLazyFileRoute('/')({
     component: Index,
@@ -124,6 +125,10 @@ function Index() {
                     </ChartContainer>
                 </CardContent>
             </Card>
+
+            <div className="mt-8">
+                <AppTrafficCard/>
+            </div>
         </>
     )
 }
