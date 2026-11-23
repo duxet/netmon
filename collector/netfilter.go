@@ -214,5 +214,5 @@ func CollectTraffic(db *sql.DB) (*Collector, error) {
 		c.Close()
 	}()
 
-	return &Collector{shutdownChan}, nil
+	return &Collector{shutdownChan: shutdownChan}, nil
 }

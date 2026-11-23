@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package collector
 
@@ -8,6 +8,7 @@ import (
 )
 
 func CollectTraffic(db *sql.DB) (*Collector, error) {
-	// TODO: implement pcap collector for non-linux targets
+	// TODO: implement a collector for this platform (Linux uses Netfilter,
+	// macOS uses libpcap)
 	return nil, errors.New("collector not implemented")
 }

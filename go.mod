@@ -8,6 +8,7 @@ require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/go-co-op/gocron/v2 v2.12.3
 	github.com/gofiber/fiber/v2 v2.52.5
+	github.com/gopacket/gopacket v1.3.1
 	github.com/marcboeker/go-duckdb v1.8.3
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/rubenv/sql-migrate v1.7.0
