@@ -45,8 +45,37 @@ Google services; Facebook, Instagram and WhatsApp), and traffic served from shar
 CDNs such as Cloudflare or Akamai is reported as "Other".
 
 ## TODO
+
+### Stability
+- [ ] Return errors from storage queries as HTTP 500s instead of calling `log.Fatal`, which stops the server
+- [ ] Fix or remove `/api/clients/:clientId/flows`: it scans 8 of the 10 selected columns, so every call fails
+- [ ] Open the GeoIP database once at startup: `getCountry` opens it for every endpoint, never closes it, and crashes when a lookup fails
+- [ ] Make reverse DNS configurable (the local resolver is hard-coded to `192.168.1.1:54`), cached, parallel and with short timeouts
+
+### API
+- [ ] Add `from`/`to` time ranges to stats, clients, flows and apps, so the dashboard range filter scopes the whole page
+- [ ] Add `mac`/`ip` filters to `/api/traffic-measurements` for traffic over time per client and per app
+- [ ] Add data retention and hourly rollups so the flows table doesn't grow forever
+- [ ] Use server-side pagination for flows (the `Pagination` type is unused)
+
+### Devices
+- [ ] Let users rename devices, stored in the database
+- [ ] Show the device manufacturer from an offline MAC vendor (OUI) database when there is no hostname
+- [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
+
+### Features
+- [ ] Live view of current bandwidth per device
+- [ ] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
+- [ ] Monthly usage per device, for ISP data caps
+- [ ] CSV export
+
+### Security and operations
+- [ ] Add optional authentication and restrict CORS (currently any origin is allowed)
+- [ ] Add CI: Go tests and vet; frontend lint, typecheck and build
+- [ ] Add frontend unit tests for flow direction and time-series code
+- [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`
+- [ ] Make port, database path, GeoIP paths and DNS servers configurable via flags or environment variables
 - [ ] Add collectors for other platforms (Windows, BSD)
-- [ ] Get local hostnames from DNS server
 
 ## Development
 
