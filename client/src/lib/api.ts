@@ -1,0 +1,109 @@
+// Types mirror the Go DTOs in api/dto.go. The Go structs have no JSON tags,
+// so field names are serialized exactly as declared there.
+
+export interface Endpoint {
+  /** Colon-separated MAC, or an empty string when the collector had none. */
+  MACAddress: string
+  IPAddress: string
+  /** ISO 3166-1 alpha-2 code from GeoIP. Only set by /api/flows. */
+  Country?: string | null
+}
+
+export interface Traffic {
+  InBytes: number
+  InPackets: number
+  OutBytes: number
+  OutPackets: number
+}
+
+export interface Client {
+  /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
+  Hostname: string | null
+  Endpoint: Endpoint
+  Traffic: Traffic
+}
+
+export interface Flow {
+  Source: Endpoint
+  Destination: Endpoint
+  IPProto: number
+  Port: number
+  Traffic: Traffic
+}
+
+export interface Stats {
+  TotalClients: number
+  TotalBytes: number | null
+  TotalPackets: number | null
+}
+
+export interface TrafficMeasurement {
+  InBytes: number
+  OutBytes: number
+  /** Start of an hourly bucket. */
+  Date: string
+}
+
+export interface HostnameEntry {
+  IPAddress: string
+  Hostname: string | null
+}
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init)
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status} ${response.statusText}`.trim()
+    )
+  }
+  return (await response.json()) as T
+}
+
+// Go encodes an empty slice as `null`, so list endpoints normalize to [].
+async function requestList<T>(path: string, init?: RequestInit): Promise<T[]> {
+  return (await request<T[] | null>(path, init)) ?? []
+}
+
+export function fetchStats() {
+  return request<Stats>("/api/stats")
+}
+
+export function fetchTrafficMeasurements() {
+  return requestList<TrafficMeasurement>("/api/traffic-measurements")
+}
+
+export function fetchClients() {
+  return requestList<Client>("/api/clients")
+}
+
+export interface FlowsFilter {
+  mac?: string
+  ip?: string
+}
+
+export function fetchFlows(filter: FlowsFilter) {
+  const params = new URLSearchParams()
+  if (filter.mac) params.set("mac", filter.mac)
+  if (filter.ip) params.set("ip", filter.ip)
+  const query = params.size > 0 ? `?${params}` : ""
+  return requestList<Flow>(`/api/flows${query}`)
+}
+
+export function fetchHostnames(ipAddresses: string[]) {
+  return requestList<HostnameEntry>("/api/hostnames", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ip_addresses: ipAddresses }),
+  })
+}

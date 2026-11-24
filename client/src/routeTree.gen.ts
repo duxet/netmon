@@ -8,41 +8,63 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { createFileRoute } from '@tanstack/react-router'
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as ClientsRouteRouteImport } from './routes/clients/route'
+import { Route as ClientsIndexRouteImport } from './routes/clients/index'
+import { Route as ClientsClientIdRouteImport } from './routes/clients/$clientId'
 
-// Import Routes
-
-import { Route as rootRoute } from './routes/__root'
-
-// Create Virtual Routes
-
-const IndexLazyImport = createFileRoute('/')()
-const ClientsIndexLazyImport = createFileRoute('/clients/')()
-const ClientsClientIdLazyImport = createFileRoute('/clients/$clientId')()
-
-// Create/Update Routes
-
-const IndexLazyRoute = IndexLazyImport.update({
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRoute,
-} as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientsRouteRoute = ClientsRouteRouteImport.update({
+  id: '/clients',
+  path: '/clients',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientsIndexRoute = ClientsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ClientsRouteRoute,
+} as any)
+const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
+  id: '/$clientId',
+  path: '/$clientId',
+  getParentRoute: () => ClientsRouteRoute,
+} as any)
 
-const ClientsIndexLazyRoute = ClientsIndexLazyImport.update({
-  id: '/clients/',
-  path: '/clients/',
-  getParentRoute: () => rootRoute,
-} as any).lazy(() => import('./routes/clients/index.lazy').then((d) => d.Route))
-
-const ClientsClientIdLazyRoute = ClientsClientIdLazyImport.update({
-  id: '/clients/$clientId',
-  path: '/clients/$clientId',
-  getParentRoute: () => rootRoute,
-} as any).lazy(() =>
-  import('./routes/clients/$clientId.lazy').then((d) => d.Route),
-)
-
-// Populate the FileRoutesByPath interface
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/clients': typeof ClientsRouteRouteWithChildren
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/clients/': typeof ClientsIndexRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/clients': typeof ClientsIndexRoute
+}
+export interface FileRoutesById {
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/clients': typeof ClientsRouteRouteWithChildren
+  '/clients/$clientId': typeof ClientsClientIdRoute
+  '/clients/': typeof ClientsIndexRoute
+}
+export interface FileRouteTypes {
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/clients' | '/clients/$clientId' | '/clients/'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/clients/$clientId' | '/clients'
+  id: '__root__' | '/' | '/clients' | '/clients/$clientId' | '/clients/'
+  fileRoutesById: FileRoutesById
+}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+  ClientsRouteRoute: typeof ClientsRouteRouteWithChildren
+}
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
@@ -50,92 +72,51 @@ declare module '@tanstack/react-router' {
       id: '/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexLazyImport
-      parentRoute: typeof rootRoute
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/clients/$clientId': {
-      id: '/clients/$clientId'
-      path: '/clients/$clientId'
-      fullPath: '/clients/$clientId'
-      preLoaderRoute: typeof ClientsClientIdLazyImport
-      parentRoute: typeof rootRoute
+    '/clients': {
+      id: '/clients'
+      path: '/clients'
+      fullPath: '/clients'
+      preLoaderRoute: typeof ClientsRouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/clients/': {
       id: '/clients/'
-      path: '/clients'
-      fullPath: '/clients'
-      preLoaderRoute: typeof ClientsIndexLazyImport
-      parentRoute: typeof rootRoute
+      path: '/'
+      fullPath: '/clients/'
+      preLoaderRoute: typeof ClientsIndexRouteImport
+      parentRoute: typeof ClientsRouteRoute
+    }
+    '/clients/$clientId': {
+      id: '/clients/$clientId'
+      path: '/$clientId'
+      fullPath: '/clients/$clientId'
+      preLoaderRoute: typeof ClientsClientIdRouteImport
+      parentRoute: typeof ClientsRouteRoute
     }
   }
 }
 
-// Create and export the route tree
-
-export interface FileRoutesByFullPath {
-  '/': typeof IndexLazyRoute
-  '/clients/$clientId': typeof ClientsClientIdLazyRoute
-  '/clients': typeof ClientsIndexLazyRoute
+interface ClientsRouteRouteChildren {
+  ClientsClientIdRoute: typeof ClientsClientIdRoute
+  ClientsIndexRoute: typeof ClientsIndexRoute
 }
 
-export interface FileRoutesByTo {
-  '/': typeof IndexLazyRoute
-  '/clients/$clientId': typeof ClientsClientIdLazyRoute
-  '/clients': typeof ClientsIndexLazyRoute
+const ClientsRouteRouteChildren: ClientsRouteRouteChildren = {
+  ClientsClientIdRoute: ClientsClientIdRoute,
+  ClientsIndexRoute: ClientsIndexRoute,
 }
 
-export interface FileRoutesById {
-  __root__: typeof rootRoute
-  '/': typeof IndexLazyRoute
-  '/clients/$clientId': typeof ClientsClientIdLazyRoute
-  '/clients/': typeof ClientsIndexLazyRoute
-}
-
-export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/clients/$clientId' | '/clients'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/clients/$clientId' | '/clients'
-  id: '__root__' | '/' | '/clients/$clientId' | '/clients/'
-  fileRoutesById: FileRoutesById
-}
-
-export interface RootRouteChildren {
-  IndexLazyRoute: typeof IndexLazyRoute
-  ClientsClientIdLazyRoute: typeof ClientsClientIdLazyRoute
-  ClientsIndexLazyRoute: typeof ClientsIndexLazyRoute
-}
+const ClientsRouteRouteWithChildren = ClientsRouteRoute._addFileChildren(
+  ClientsRouteRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexLazyRoute: IndexLazyRoute,
-  ClientsClientIdLazyRoute: ClientsClientIdLazyRoute,
-  ClientsIndexLazyRoute: ClientsIndexLazyRoute,
+  IndexRoute: IndexRoute,
+  ClientsRouteRoute: ClientsRouteRouteWithChildren,
 }
-
-export const routeTree = rootRoute
+export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-/* ROUTE_MANIFEST_START
-{
-  "routes": {
-    "__root__": {
-      "filePath": "__root.tsx",
-      "children": [
-        "/",
-        "/clients/$clientId",
-        "/clients/"
-      ]
-    },
-    "/": {
-      "filePath": "index.lazy.tsx"
-    },
-    "/clients/$clientId": {
-      "filePath": "clients/$clientId.lazy.tsx"
-    },
-    "/clients/": {
-      "filePath": "clients/index.lazy.tsx"
-    }
-  }
-}
-ROUTE_MANIFEST_END */
