@@ -1,0 +1,243 @@
+// Package config loads netmon's settings.
+//
+// Settings come from three places, each overriding the one before it:
+//
+//  1. the defaults in [Defaults],
+//  2. a YAML file, if there is one (see [Load]),
+//  3. NETMON_* environment variables, such as NETMON_RETENTION_DAYS for the
+//     retention_days setting.
+//
+// Every setting is a top-level key whose environment variable is its name in
+// upper case with the NETMON_ prefix.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"net"
+	"os"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env/v2"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
+)
+
+const (
+	// EnvPrefix starts the name of every environment variable that sets a
+	// setting.
+	EnvPrefix = "NETMON_"
+
+	// FileEnv names the environment variable that points to the YAML file.
+	FileEnv = EnvPrefix + "CONFIG"
+
+	// DefaultFile is the YAML file looked for in the working directory when
+	// no other one is given. It is optional, unlike a file that is asked for.
+	DefaultFile = "netmon.yaml"
+)
+
+// Config is netmon's configuration. The koanf tag of a field is its key in the
+// YAML file.
+type Config struct {
+	// Listen is the address the API and web UI are served on, as "host:port"
+	// or ":port".
+	Listen string `koanf:"listen"`
+
+	// Database is the path of the database file. It is created if needed.
+	Database string `koanf:"database"`
+
+	// GeoIPCountry is the path of the GeoLite2-Country database. Without the
+	// file, or when it is empty, flows have no country.
+	GeoIPCountry string `koanf:"geoip_country"`
+
+	// LocalDNS and PublicDNS are the servers that reverse lookups of local and
+	// public addresses go to: "host", "host:port" or "system" for the
+	// operating system's resolver.
+	LocalDNS  string `koanf:"local_dns"`
+	PublicDNS string `koanf:"public_dns"`
+
+	// RetentionDays is how long hourly flow data is kept, with 0 keeping it
+	// forever. AlertRetentionDays is the same for resolved alerts.
+	RetentionDays      int `koanf:"retention_days"`
+	AlertRetentionDays int `koanf:"alert_retention_days"`
+
+	// PublicURL is where people reach the web UI, which notifications link
+	// to. By default it is the machine's hostname on the Listen port, see
+	// [Config.BaseURL].
+	PublicURL string `koanf:"public_url"`
+
+	// Interface is the network interface to capture on, on macOS. By default
+	// it is the one the default route goes through. Linux doesn't capture
+	// packets, so ignores it.
+	Interface string `koanf:"interface"`
+
+	// File is the YAML file the configuration was read from, empty when there
+	// was none.
+	File string `koanf:"-"`
+}
+
+// Defaults returns the configuration without a file or environment variables.
+func Defaults() Config {
+	return Config{
+		Listen:             ":2137",
+		Database:           "flows.db",
+		GeoIPCountry:       "GeoLite2-Country.mmdb",
+		LocalDNS:           "192.168.1.1:54",
+		PublicDNS:          "8.8.8.8:53",
+		AlertRetentionDays: 30,
+	}
+}
+
+// Retention is how long hourly flow data is kept, or 0 for forever.
+func (c Config) Retention() time.Duration {
+	return time.Duration(c.RetentionDays) * 24 * time.Hour
+}
+
+// AlertRetention is how long resolved alerts are kept, or 0 for forever.
+func (c Config) AlertRetention() time.Duration {
+	return time.Duration(c.AlertRetentionDays) * 24 * time.Hour
+}
+
+// BaseURL is where people reach the web UI, without a trailing slash: the
+// public URL, or else the machine's hostname on the port netmon listens on.
+// It is empty when neither is known.
+func (c Config) BaseURL() string {
+	if c.PublicURL != "" {
+		return strings.TrimSuffix(c.PublicURL, "/")
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(c.Listen)
+	if err != nil {
+		return ""
+	}
+
+	return "http://" + net.JoinHostPort(hostname, port)
+}
+
+// validate checks the settings that can be wrong in a way that would only
+// show up later, or not at all.
+func (c Config) validate() error {
+	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
+		return fmt.Errorf("listen must be an address like :2137 or 127.0.0.1:2137: %w", err)
+	}
+	if c.Database == "" {
+		return errors.New("database must be the path of a file")
+	}
+	if c.RetentionDays < 0 {
+		return fmt.Errorf("retention_days must be a number of days, with 0 keeping everything: %d", c.RetentionDays)
+	}
+	if c.AlertRetentionDays < 0 {
+		return fmt.Errorf("alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
+	}
+	return nil
+}
+
+// Load reads the configuration.
+//
+// The YAML file is path, or when that is empty the one NETMON_CONFIG names.
+// A file that is asked for in either way has to exist. Without one, netmon.yaml
+// in the working directory is read if there is such a file. Environment
+// variables override what the file sets.
+//
+// A key in the file that isn't a setting is an error, so that a typo doesn't
+// go unnoticed. Environment variables that aren't settings are ignored, as
+// are empty ones.
+func Load(path string) (*Config, error) {
+	required := path != ""
+	if !required {
+		path = os.Getenv(FileEnv)
+		required = path != ""
+	}
+	if !required {
+		path = DefaultFile
+	}
+
+	k := koanf.New(".")
+	loaded, err := loadFile(k, path, required)
+	if err != nil {
+		return nil, err
+	}
+
+	err = k.Load(env.Provider(".", env.Opt{Prefix: EnvPrefix, TransformFunc: envSetting}), nil)
+	if err != nil {
+		return nil, fmt.Errorf("reading environment variables: %w", err)
+	}
+
+	cfg := Defaults()
+	if err := k.Unmarshal("", &cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	if loaded {
+		cfg.File = path
+	}
+
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// loadFile merges the YAML file at path into k and reports whether there was
+// one. A missing file is only an error when it is required.
+func loadFile(k *koanf.Koanf, path string, required bool) (bool, error) {
+	fileK := koanf.New(".")
+	if err := fileK.Load(file.Provider(path), yaml.Parser()); err != nil {
+		if errors.Is(err, fs.ErrNotExist) && !required {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	var unknown []string
+	for _, key := range fileK.Keys() {
+		if !isSetting(key) {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) > 0 {
+		return false, fmt.Errorf("%s has unknown settings: %s (known settings: %s)",
+			path, strings.Join(unknown, ", "), strings.Join(settings(), ", "))
+	}
+
+	if err := k.Merge(fileK); err != nil {
+		return false, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return true, nil
+}
+
+// envSetting maps the environment variable NETMON_RETENTION_DAYS to the
+// setting retention_days. It skips variables that aren't settings, such as
+// NETMON_CONFIG, and empty ones, so that an unset option in a service
+// definition falls back to the file or the default.
+func envSetting(name, value string) (string, any) {
+	key := strings.ToLower(strings.TrimPrefix(name, EnvPrefix))
+	if value == "" || !isSetting(key) {
+		return "", nil
+	}
+	return key, value
+}
+
+func isSetting(key string) bool {
+	return slices.Contains(settings(), key)
+}
+
+// settings lists the keys of the settings, from the koanf tags of Config.
+func settings() []string {
+	var keys []string
+	for field := range reflect.TypeFor[Config]().Fields() {
+		if key := field.Tag.Get("koanf"); key != "" && key != "-" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}

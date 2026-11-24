@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -27,10 +26,6 @@ import (
 // Opening a BPF device requires root, so netmon has to be started with sudo.
 
 const (
-	// interfaceEnv names the interface to capture on. By default it is the
-	// one the default route goes through.
-	interfaceEnv = "NETMON_INTERFACE"
-
 	// Only the headers are needed to tell flows apart.
 	snapLen = 256
 
@@ -133,7 +128,7 @@ func (c *pcapCollector) refreshLocalPrefixes() {
 
 // open starts a capture on the interface.
 func (c *pcapCollector) open() (*pcap.Handle, error) {
-	name, err := captureInterface()
+	name, err := captureInterface(c.opts.Interface)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +162,11 @@ func (c *pcapCollector) open() (*pcap.Handle, error) {
 	return handle, nil
 }
 
-func captureInterface() (string, error) {
-	if name := os.Getenv(interfaceEnv); name != "" {
-		return name, nil
+// captureInterface is the interface asked for, or else the one the default
+// route goes through.
+func captureInterface(requested string) (string, error) {
+	if requested != "" {
+		return requested, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -177,7 +174,7 @@ func captureInterface() (string, error) {
 
 	name, err := defaultRouteInterface(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to find the interface to capture on, set %s to choose one: %w", interfaceEnv, err)
+		return "", fmt.Errorf("failed to find the interface to capture on, set interface (or NETMON_INTERFACE) to choose one: %w", err)
 	}
 
 	return name, nil

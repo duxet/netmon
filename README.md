@@ -16,7 +16,8 @@ platform, which holds the `netmon` binary (the web UI is built in), and a
 | macOS, Apple silicon  | `netmon_<version>_darwin_arm64.tar.gz` |
 | OpenWrt               | a `.ipk` or `.apk` package, see [below](#running-on-openwrt) |
 
-netmon keeps its database (`flows.db`) in the directory it is started from.
+By default netmon keeps its database (`flows.db`) in the directory it is started
+from; see [Configuration](#configuration) to change that.
 Windows is not supported, as there is no collector for it yet.
 
 The Linux binaries are statically linked, so they don't depend on the C library
@@ -215,21 +216,48 @@ Things to know:
 
 ## Configuration
 
+netmon is configured with a YAML file, environment variables, or both. A
+setting is read from the first of these that has it:
+
+1. the environment variable, such as `NETMON_RETENTION_DAYS`,
+2. the YAML file,
+3. the default.
+
+The file is the one given with `-config path/to/netmon.yaml` or in
+`NETMON_CONFIG`, which has to exist, or else `netmon.yaml` in the working
+directory, if there is one. Every setting is a top-level key in the file, and
+its environment variable is the key in upper case behind `NETMON_`. Empty
+environment variables are ignored. A key that isn't a setting is an error, so
+a typo doesn't go unnoticed.
+
+| YAML key               | Environment variable          | Default                  |                                                                    |
+|------------------------|-------------------------------|--------------------------|--------------------------------------------------------------------|
+| `listen`               | `NETMON_LISTEN`               | `:2137`                  | Address of the API and web UI, as `host:port` or `:port`           |
+| `database`             | `NETMON_DATABASE`             | `flows.db`               | Path of the database file                                          |
+| `geoip_country`        | `NETMON_GEOIP_COUNTRY`        | `GeoLite2-Country.mmdb`  | Path of the GeoIP country database; empty in the file turns countries off |
+| `local_dns`            | `NETMON_LOCAL_DNS`            | `192.168.1.1:54`         | DNS server for reverse lookups of local addresses                  |
+| `public_dns`           | `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`             | DNS server for reverse lookups of public addresses                 |
+| `retention_days`       | `NETMON_RETENTION_DAYS`       | `0` (keep all)           | Days to keep hourly flow data                                      |
+| `alert_retention_days` | `NETMON_ALERT_RETENTION_DAYS` | `30`                     | Days to keep resolved alerts, `0` keeps them                       |
+| `public_url`           | `NETMON_PUBLIC_URL`           | `http://<hostname>:2137` | Where notifications link to; the port is the one of `listen`       |
+| `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
+
+For example, in `netmon.yaml`:
+
+```yaml
+listen: 0.0.0.0:2137
+database: /srv/netmon/flows.db
+local_dns: 192.168.1.1:53
+retention_days: 90
+public_url: http://router.lan:2137
+```
+
 Hostnames are looked up with reverse DNS: local addresses on a server that
 knows your DHCP names, public addresses on a public resolver. Set either to
-`host`, `host:port` or `system` (the OS resolver):
-
-| Variable                      | Default                        |
-|-------------------------------|--------------------------------|
-| `NETMON_LOCAL_DNS`            | `192.168.1.1:54`               |
-| `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`                   |
-| `NETMON_RETENTION_DAYS`       | `0` (keep all)                 |
-| `NETMON_ALERT_RETENTION_DAYS` | `30`                           |
-| `NETMON_PUBLIC_URL`           | `http://<hostname>:2137`       |
-
-Lookups time out after 2 seconds and are cached (names for an hour, failures
-for a minute). Countries need `GeoLite2-Country.mmdb` next to the binary when
-it starts.
+`host`, `host:port` or `system` (the OS resolver). Lookups time out after 2
+seconds and are cached (names for an hour, failures for a minute). Countries
+need the GeoIP database at `geoip_country` (by default `GeoLite2-Country.mmdb`
+in the working directory) when netmon starts.
 
 Flows are recorded every minute. At startup and then every hour, the minutes
 of complete hours are rolled up into one row per flow and hour, so the
@@ -375,7 +403,8 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 - [x] Add CI: Go tests and vet; frontend lint, typecheck and build
 - [ ] Add frontend unit tests for flow direction and time-series code
 - [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`
-- [ ] Make port, database path, GeoIP paths and DNS servers configurable via flags or environment variables
+- [x] Make port, database path, the GeoIP country path and DNS servers configurable via a YAML file or environment variables
+- [ ] Make the path of `GeoLite2-ASN.mmdb` configurable too
 - [ ] Add collectors for other platforms (Windows, BSD)
 
 ## Development

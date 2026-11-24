@@ -10,6 +10,11 @@ require (
 	github.com/go-co-op/gocron/v2 v2.23.2
 	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/gopacket/gopacket v1.8.0
+	github.com/knadh/koanf/parsers/yaml v1.1.1
+	github.com/knadh/koanf/providers/env/v2 v2.0.2
+	github.com/knadh/koanf/providers/file v1.2.1
+	github.com/knadh/koanf/v2 v2.4.1
+	github.com/nicholas-fedor/shoutrrr v0.25.0
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	github.com/rubenv/sql-migrate v1.8.1
 	github.com/ti-mo/conntrack v0.6.0
@@ -22,6 +27,7 @@ require (
 	github.com/apache/arrow-go/v18 v18.9.0 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.20001.0 // indirect
 	github.com/eclipse/paho.golang v0.23.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/goccy/go-json v0.12.0 // indirect
@@ -34,14 +40,16 @@ require (
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/klauspost/compress v1.20.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.2 // indirect
+	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/socket v0.8.0 // indirect
+	github.com/mitchellh/copystructure v1.2.0 // indirect
+	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
-	github.com/nicholas-fedor/shoutrrr v0.25.0 // indirect
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.34 // indirect
@@ -57,6 +65,7 @@ require (
 	go.duckdb.org/libduckdb/linux-amd64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/linux-arm64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/windows-amd64 v0.20001.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261124000051-d6646c509b6d // indirect
 	golang.org/x/mod v0.43.0 // indirect

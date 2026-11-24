@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"embed"
+	"flag"
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
+	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/notify"
@@ -16,8 +18,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -28,9 +28,6 @@ import (
 //go:embed migrations/*
 var dbMigrations embed.FS
 
-// listenPort is where the API and web UI are served.
-const listenPort = ":2137"
-
 // notifyShutdownTimeout bounds how long shutting down waits for queued
 // notifications to be sent.
 const notifyShutdownTimeout = 5 * time.Second
@@ -39,10 +36,21 @@ const notifyShutdownTimeout = 5 * time.Second
 var clientAssets embed.FS
 
 func main() {
+	configFile := flag.String("config", "", "YAML configuration file (default: $"+config.FileEnv+", or "+config.DefaultFile+" if it exists)")
+	flag.Parse()
+
+	cfg, err := config.Load(*configFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if cfg.File != "" {
+		log.Printf("Read configuration from %s", cfg.File)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	connector, err := duckdb.NewConnector("flows.db", func(execer driver.ExecerContext) error {
+	connector, err := duckdb.NewConnector(cfg.Database, func(execer driver.ExecerContext) error {
 		var bootQueries []string
 
 		for _, query := range bootQueries {
@@ -57,7 +65,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// db, err := sql.Open("duckdb", "flows.db")
+	// db, err := sql.Open("duckdb", cfg.Database)
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
@@ -72,20 +80,17 @@ func main() {
 	}
 	log.Printf("Applied %d migrations", n)
 
-	retention := daysFromEnv("NETMON_RETENTION_DAYS", 0)
-	alertRetention := daysFromEnv("NETMON_ALERT_RETENTION_DAYS", 30)
-
 	// Catch up on devices in flows written before a crash, before compaction
 	// rolls those rows up.
 	if err := storage.SyncDevices(db, time.Time{}); err != nil {
 		log.Println("Failed to update devices:", err)
 	}
 
-	compactionDone := compactPeriodically(ctx, db, retention, alertRetention)
+	compactionDone := compactPeriodically(ctx, db, cfg.Retention(), cfg.AlertRetention())
 
-	countries := lookup.OpenCountries("GeoLite2-Country.mmdb")
+	countries := lookup.OpenCountries(cfg.GeoIPCountry)
 	defer countries.Close()
-	hostnames := lookup.NewHostnames(envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"), envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"))
+	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
 
 	// Alert rules are evaluated after every collection round, which also
 	// brings the devices up to date, and the notifications they raise are
@@ -94,7 +99,7 @@ func main() {
 	engine := alerting.NewEngine(db, dispatcher, alerting.Options{
 		Hostnames: hostnames,
 		Countries: countries,
-		PublicURL: publicURL(),
+		PublicURL: cfg.BaseURL(),
 	})
 	engineDone := make(chan struct{})
 	go func() {
@@ -106,7 +111,7 @@ func main() {
 	// the API serves what the meter measured to the live view.
 	meter := live.NewMeter()
 
-	coll, err := collector.CollectTraffic(db, meter, collector.Options{OnFlush: engine.Trigger})
+	coll, err := collector.CollectTraffic(db, meter, collector.Options{OnFlush: engine.Trigger, Interface: cfg.Interface})
 	if err != nil {
 		log.Println("Collector failed to start:", err)
 	}
@@ -134,7 +139,7 @@ func main() {
 
 	// Listen returns nil after a graceful shutdown; returning normally (rather
 	// than log.Fatal) lets the deferred db.Close run.
-	if err := app.Listen(listenPort); err != nil {
+	if err := app.Listen(cfg.Listen); err != nil {
 		log.Fatal(err)
 	}
 
@@ -183,34 +188,4 @@ func compactPeriodically(ctx context.Context, db *sql.DB, retention, alertRetent
 	}()
 
 	return done
-}
-
-// daysFromEnv reads a number of days from an environment variable, with 0
-// for "keep everything", and stops netmon when it isn't one.
-func daysFromEnv(name string, fallback int) time.Duration {
-	days, err := strconv.Atoi(envOr(name, strconv.Itoa(fallback)))
-	if err != nil || days < 0 {
-		log.Fatalf("%s must be a number of days (0 keeps everything): %q", name, os.Getenv(name))
-	}
-	return time.Duration(days) * 24 * time.Hour
-}
-
-// publicURL is where people reach the web UI, for links in notifications:
-// NETMON_PUBLIC_URL, or the machine's hostname on netmon's port.
-func publicURL() string {
-	if url := os.Getenv("NETMON_PUBLIC_URL"); url != "" {
-		return strings.TrimSuffix(url, "/")
-	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		return ""
-	}
-	return "http://" + hostname + listenPort
-}
-
-func envOr(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return fallback
 }

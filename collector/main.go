@@ -11,6 +11,11 @@ type Options struct {
 	// failed; that round's traffic is written with the next one. OnFlush runs
 	// on the collector's goroutine and should return quickly.
 	OnFlush func(time.Time)
+
+	// Interface is the network interface to capture packets on, for the
+	// collectors that capture them (macOS). Empty is the interface the
+	// default route goes through.
+	Interface string
 }
 
 // flushed reports a completed flush to OnFlush.

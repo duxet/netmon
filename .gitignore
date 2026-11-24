@@ -1,5 +1,6 @@
 flows.db
 flows.db.wal
+/netmon.yaml
 /netmon
 /netmon_arm64
 node_modules/
