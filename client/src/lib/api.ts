@@ -90,6 +90,23 @@ export interface FlowSummary {
   Countries: Groups
 }
 
+/** What one device used during a live sample, in bytes per second from its own side. */
+export interface LiveDevice {
+  MACAddress: string
+  /** An address the device used; empty when unknown. */
+  IPAddress: string
+  Download: number
+  Upload: number
+}
+
+/** The traffic of one second (or so) on the local network. */
+export interface LiveSample {
+  /** When the interval ended, as the server prints it: hand it back as `since` unchanged. */
+  Time: string
+  /** Devices that had traffic; none in a quiet second. */
+  Devices: LiveDevice[]
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -194,6 +211,15 @@ export function fetchFlowSummary(filter: FlowsFilter, top: number) {
 
 export function fetchAppTraffic(filter: FlowsFilter = {}) {
   return requestList<AppTraffic>(withQuery("/api/apps", filterParams(filter)))
+}
+
+/**
+ * The samples of the last couple of minutes or, given the time of the newest
+ * one already known, only the samples after it. Asking also makes the server
+ * measure, so stop asking when nobody is looking.
+ */
+export function fetchLive(since?: string, signal?: AbortSignal) {
+  return requestList<LiveSample>(withQuery("/api/live", { since }), { signal })
 }
 
 export function fetchHostnames(ipAddresses: string[]) {

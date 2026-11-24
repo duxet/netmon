@@ -49,6 +49,10 @@ export function formatTime(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
+export function formatClock(date: Date): string {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
+
 export function formatDay(date: Date): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
