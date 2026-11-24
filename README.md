@@ -2,6 +2,28 @@
 
 Easy to set up tool for monitoring network traffic flows in your home network.
 
+## Installing
+
+Every [release](https://github.com/duxet/netmon/releases) has an archive per
+platform, which holds the `netmon` binary (the web UI is built in), and a
+`SHA256SUMS` file to check them against:
+
+| Platform              | File                                 |
+|-----------------------|--------------------------------------|
+| Linux, x86-64         | `netmon_<version>_linux_amd64.tar.gz`  |
+| Linux, arm64          | `netmon_<version>_linux_arm64.tar.gz`  |
+| macOS, Intel          | `netmon_<version>_darwin_amd64.tar.gz` |
+| macOS, Apple silicon  | `netmon_<version>_darwin_arm64.tar.gz` |
+| OpenWrt               | a `.ipk` or `.apk` package, see [below](#running-on-openwrt) |
+
+netmon keeps its database (`flows.db`) in the directory it is started from.
+Windows is not supported, as there is no collector for it yet.
+
+The Linux binaries are statically linked, so they don't depend on the C library
+of your distribution. The macOS binaries aren't signed, so Gatekeeper blocks
+them when they were downloaded with a browser; allow them with
+`xattr -d com.apple.quarantine netmon`.
+
 ## Running on macOS
 
 On macOS traffic is observed by capturing packets with libpcap (which ships
@@ -31,6 +53,69 @@ Things to know:
 - Building needs cgo and the Xcode command line tools (`xcode-select --install`).
 - `flows.db` is created in the working directory, so it will be owned by root
   when started with `sudo`.
+
+## Running on Linux
+
+On Linux traffic is observed through the kernel's connection tracking, which
+netmon reads over netlink. Because the router sees all the traffic of your
+network, run it on the router for the whole network, or on any other Linux
+machine for its own traffic. It needs:
+
+- root (or `CAP_NET_ADMIN`),
+- the `nf_conntrack` and `nf_conntrack_netlink` kernel modules,
+- connection tracking accounting, as the kernel only keeps byte and packet
+  counters when it is on:
+
+```sh
+sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+sudo ./netmon
+```
+
+## Running on OpenWrt
+
+Packages for 64-bit targets (`x86_64` and `aarch64`) are attached to each
+release, as `netmon_<version>_openwrt-<series>_<architecture>.<ipk|apk>`.
+OpenWrt 24.10 uses `.ipk` packages and 25.12 `.apk` ones. Find your
+architecture with `grep DISTRIB_ARCH /etc/openwrt_release`, copy the matching
+package to the router and install it:
+
+```sh
+opkg install ./netmon_<version>_openwrt-24.10_<architecture>.ipk              # OpenWrt 24.10
+apk add --allow-untrusted ./netmon_<version>_openwrt-25.12_<architecture>.apk  # OpenWrt 25.12
+```
+
+This installs the `kmod-nf-conntrack-netlink` kernel module package, enables
+connection tracking accounting and sets up the `netmon` service, which starts
+at boot (start it now with `service netmon start`). The UI is then at
+`http://<router>:2137`.
+
+It is configured in `/etc/config/netmon`:
+
+| Option           | Default          |                                                       |
+|------------------|------------------|-------------------------------------------------------|
+| `enabled`        | `1`              | Start the service                                     |
+| `data_dir`       | `/srv/netmon`    | Where `flows.db` and the optional GeoIP databases live |
+| `local_dns`      | `127.0.0.1:53`   | `NETMON_LOCAL_DNS`, dnsmasq knows your DHCP names     |
+| `public_dns`     | `8.8.8.8:53`     | `NETMON_PUBLIC_DNS`                                   |
+| `retention_days` | `0` (keep all)   | `NETMON_RETENTION_DAYS`                               |
+
+```sh
+uci set netmon.main.data_dir=/mnt/sda1/netmon
+uci commit netmon
+service netmon restart
+```
+
+Things to know:
+
+- netmon embeds the DuckDB database, which makes the binary about 90 MB
+  (the package about 30 MB), and it used around 70 MB of RAM when idle with an
+  empty database on x86-64. That doesn't fit the flash of most routers. Use
+  an x86 box, or a device with extroot or enough free storage, and keep
+  `data_dir` on external storage, as the database is written every minute.
+- There are no packages for 32-bit targets (ARM, MIPS), as the DuckDB libraries
+  netmon uses are only built for 64-bit platforms.
+- netmon has no authentication. The default firewall keeps the WAN away from
+  port 2137; don't open it there.
 
 ## Traffic by app
 
@@ -127,7 +212,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
 ### Security and operations
 - [ ] Add optional authentication and restrict CORS (currently any origin is allowed)
-- [ ] Add CI: Go tests and vet; frontend lint, typecheck and build
+- [x] Add CI: Go tests and vet; frontend lint, typecheck and build
 - [ ] Add frontend unit tests for flow direction and time-series code
 - [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`
 - [ ] Make port, database path, GeoIP paths and DNS servers configurable via flags or environment variables
@@ -157,3 +242,22 @@ and MA-S listings, embedded in the binary. Refresh them with:
 ```sh
 go generate ./vendors
 ```
+
+## Releasing
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) lints and tests
+every push and pull request, and builds netmon for each platform (Linux and
+macOS on amd64 and arm64) and the OpenWrt packages. Pushing a version tag also
+publishes a release with all of them, and their checksums:
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The OpenWrt package (`openwrt/netmon`) installs the static Linux binary
+instead of compiling it: DuckDB's prebuilt libraries are built for glibc, while
+OpenWrt uses musl. To build it yourself, put the static
+`linux_amd64` or `linux_arm64` binary at `openwrt/netmon/src/netmon`, add the
+`openwrt` directory as a feed (`src-link netmon /path/to/netmon/openwrt` in
+`feeds.conf`) and run `make package/netmon/compile` in the SDK.
