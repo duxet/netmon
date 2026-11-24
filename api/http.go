@@ -13,6 +13,7 @@ import (
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
@@ -40,6 +41,9 @@ type Options struct {
 	// Auth signs people in. With it, the API and the web UI need a session;
 	// without it, anyone who can reach netmon can use all of it.
 	Auth *auth.Authenticator
+	// Config saves settings to the YAML file. Without it, /api/config
+	// isn't served.
+	Config *config.Editor
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -328,6 +332,9 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	registerSessionRoutes(app, options.Auth != nil)
 	registerDeviceRoutes(app, db, hostnames)
 	registerNetworkRoutes(app, db)
+	if options.Config != nil {
+		registerConfigRoutes(app, options.Config)
+	}
 	registerNotificationRoutes(app, db)
 	alerts := options.Alerts
 	if alerts == nil {

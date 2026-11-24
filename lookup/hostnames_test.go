@@ -185,3 +185,33 @@ func TestLookupAllIsParallelBoundedAndDeduplicated(t *testing.T) {
 		t.Errorf("LookupAll took %v; lookups don't seem to run in parallel", elapsed)
 	}
 }
+
+func TestSetServersForgetsNames(t *testing.T) {
+	local := &fakeDNS{calls: map[string]int{}, answer: answering(map[string]string{"192.168.1.10": "nas.lan."}), delay: 50 * time.Millisecond}
+	public := &fakeDNS{calls: map[string]int{}, answer: answering(nil)}
+	r := newTestResolver(local, public, &testClock{now: time.Unix(0, 0)})
+	nas := netip.MustParseAddr("192.168.1.10")
+
+	if name := r.Lookup(context.Background(), nas); name == nil || *name != "nas.lan." {
+		t.Fatalf("first lookup = %v", name)
+	}
+
+	// A lookup the old server answers after the change isn't cached.
+	done := make(chan struct{})
+	r.mu.Lock()
+	r.cache = map[netip.Addr]hostnameEntry{}
+	r.mu.Unlock()
+	go func() {
+		defer close(done)
+		r.Lookup(context.Background(), nas)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	r.SetServers("system", "system")
+	<-done
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.cache) != 0 {
+		t.Errorf("cache = %v after the servers changed, want it empty", r.cache)
+	}
+}

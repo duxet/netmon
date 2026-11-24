@@ -20,13 +20,14 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env/v2"
-	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 )
 
@@ -184,20 +185,73 @@ func isLoopback(host string) bool {
 	return err == nil && addr.IsLoopback()
 }
 
+// keyError is a problem with one setting's value.
+type keyError struct {
+	key string
+	err error
+}
+
+func (e *keyError) Error() string { return e.err.Error() }
+func (e *keyError) Unwrap() error { return e.err }
+
+func keyErrorf(key, format string, args ...any) error {
+	return &keyError{key: key, err: fmt.Errorf(format, args...)}
+}
+
+// hostnamePattern matches DNS names such as dns.lan or router.
+var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$`)
+
+// validateDNS checks a DNS server setting: "host", "host:port", or "system"
+// (or empty) for the operating system's resolver.
+func validateDNS(key, value string) error {
+	if value == "" || value == "system" {
+		return nil
+	}
+
+	host, port, err := net.SplitHostPort(value)
+	hasPort := err == nil
+	if !hasPort {
+		host = value
+	}
+	_, ipErr := netip.ParseAddr(host)
+	valid := ipErr == nil || hostnamePattern.MatchString(host)
+	if hasPort {
+		n, err := strconv.Atoi(port)
+		valid = valid && err == nil && n >= 1 && n <= 65535
+	}
+	if !valid {
+		return keyErrorf(key, "%s must be host, host:port or system, such as 192.168.1.1 or 192.168.1.1:53: %q", key, value)
+	}
+	return nil
+}
+
 // validate checks the settings that can be wrong in a way that would only
 // show up later, or not at all.
 func (c Config) validate() error {
 	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
-		return fmt.Errorf("listen must be an address like :2137 or 127.0.0.1:2137: %w", err)
+		return keyErrorf("listen", "listen must be an address like :2137 or 127.0.0.1:2137: %w", err)
 	}
 	if c.Database == "" {
-		return errors.New("database must be the path of a file")
+		return keyErrorf("database", "database must be the path of a file")
+	}
+	if err := validateDNS("local_dns", c.LocalDNS); err != nil {
+		return err
+	}
+	if err := validateDNS("public_dns", c.PublicDNS); err != nil {
+		return err
+	}
+	// Notifications link to it, which only works with the scheme and host.
+	if c.PublicURL != "" {
+		public, err := url.Parse(c.PublicURL)
+		if err != nil || public.Host == "" || (public.Scheme != "http" && public.Scheme != "https") {
+			return keyErrorf("public_url", "public_url must be an http:// or https:// URL, such as http://router.lan:2137: %q", c.PublicURL)
+		}
 	}
 	if c.RetentionDays < 0 {
-		return fmt.Errorf("retention_days must be a number of days, with 0 keeping everything: %d", c.RetentionDays)
+		return keyErrorf("retention_days", "retention_days must be a number of days, with 0 keeping everything: %d", c.RetentionDays)
 	}
 	if c.AlertRetentionDays < 0 {
-		return fmt.Errorf("alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
+		return keyErrorf("alert_retention_days", "alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
 	}
 	return c.validateOIDC()
 }
@@ -213,22 +267,50 @@ func (c Config) validate() error {
 // go unnoticed. Environment variables that aren't settings are ignored, as
 // are empty ones.
 func Load(path string) (*Config, error) {
-	required := path != ""
-	if !required {
-		path = os.Getenv(FileEnv)
-		required = path != ""
-	}
-	if !required {
-		path = DefaultFile
-	}
-
-	k := koanf.New(".")
-	loaded, err := loadFile(k, path, required)
+	path, required := resolve(path)
+	data, exists, err := readFile(path, required)
 	if err != nil {
 		return nil, err
 	}
+	return parse(path, data, exists)
+}
 
-	err = k.Load(env.Provider(".", env.Opt{Prefix: EnvPrefix, TransformFunc: envSetting}), nil)
+// resolve returns the YAML file Load reads for path, and whether it has to
+// exist.
+func resolve(path string) (string, bool) {
+	if path != "" {
+		return path, true
+	}
+	if path = os.Getenv(FileEnv); path != "" {
+		return path, true
+	}
+	return DefaultFile, false
+}
+
+// readFile returns the contents of the YAML file at path, and whether there
+// is one. A missing file is only an error when it is required.
+func readFile(path string, required bool) ([]byte, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) && !required {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return data, true, nil
+}
+
+// parse reads the configuration from the contents of the YAML file at path,
+// when it exists, and the environment, and checks it.
+func parse(path string, data []byte, exists bool) (*Config, error) {
+	k := koanf.New(".")
+	if exists {
+		if err := loadFile(k, path, data); err != nil {
+			return nil, err
+		}
+	}
+
+	err := k.Load(env.Provider(".", env.Opt{Prefix: EnvPrefix, TransformFunc: envSetting}), nil)
 	if err != nil {
 		return nil, fmt.Errorf("reading environment variables: %w", err)
 	}
@@ -237,7 +319,7 @@ func Load(path string) (*Config, error) {
 	if err := k.Unmarshal("", &cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
-	if loaded {
+	if exists {
 		cfg.File = path
 	}
 
@@ -248,15 +330,21 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// loadFile merges the YAML file at path into k and reports whether there was
-// one. A missing file is only an error when it is required.
-func loadFile(k *koanf.Koanf, path string, required bool) (bool, error) {
+// fileContents is a koanf provider for a file that was read already.
+type fileContents []byte
+
+func (b fileContents) ReadBytes() ([]byte, error) { return b, nil }
+
+func (b fileContents) Read() (map[string]any, error) {
+	return nil, errors.New("file contents need a parser")
+}
+
+// readSettings parses the contents of the YAML file at path, and checks that
+// it only has settings.
+func readSettings(path string, data []byte) (*koanf.Koanf, error) {
 	fileK := koanf.New(".")
-	if err := fileK.Load(file.Provider(path), yaml.Parser()); err != nil {
-		if errors.Is(err, fs.ErrNotExist) && !required {
-			return false, nil
-		}
-		return false, fmt.Errorf("reading %s: %w", path, err)
+	if err := fileK.Load(fileContents(data), yaml.Parser()); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
 
 	var unknown []string
@@ -266,14 +354,22 @@ func loadFile(k *koanf.Koanf, path string, required bool) (bool, error) {
 		}
 	}
 	if len(unknown) > 0 {
-		return false, fmt.Errorf("%s has unknown settings: %s (known settings: %s)",
+		return nil, fmt.Errorf("%s has unknown settings: %s (known settings: %s)",
 			path, strings.Join(unknown, ", "), strings.Join(settings(), ", "))
 	}
+	return fileK, nil
+}
 
-	if err := k.Merge(fileK); err != nil {
-		return false, fmt.Errorf("reading %s: %w", path, err)
+// loadFile merges the settings in the contents of the YAML file at path into k.
+func loadFile(k *koanf.Koanf, path string, data []byte) error {
+	fileK, err := readSettings(path, data)
+	if err != nil {
+		return err
 	}
-	return true, nil
+	if err := k.Merge(fileK); err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	return nil
 }
 
 // envSetting maps the environment variable NETMON_RETENTION_DAYS to the

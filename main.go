@@ -87,8 +87,6 @@ func main() {
 		log.Println("Failed to update devices:", err)
 	}
 
-	compactionDone := compactPeriodically(ctx, db, cfg.Retention(), cfg.AlertRetention())
-
 	countries := lookup.OpenCountries(cfg.GeoIPCountry)
 	defer countries.Close()
 	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
@@ -107,6 +105,21 @@ func main() {
 		defer close(engineDone)
 		engine.Run(ctx)
 	}()
+
+	// The configuration page saves settings to the YAML file, and the ones
+	// that can apply right away do.
+	var compactNow func()
+	applied := *cfg
+	editor := config.NewEditor(*configFile, *cfg, func(next config.Config) {
+		hostnames.SetServers(next.LocalDNS, next.PublicDNS)
+		engine.SetPublicURL(next.BaseURL())
+		if next.Retention() != applied.Retention() || next.AlertRetention() != applied.AlertRetention() {
+			compactNow()
+		}
+		applied = next
+	})
+
+	compactionDone, compactNow := compactPeriodically(ctx, db, editor.Running)
 
 	// The collector reports the traffic it sees to the meter as it happens, and
 	// the API serves what the meter measured to the live view.
@@ -147,7 +160,9 @@ func main() {
 		}()
 	}
 
-	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn})
+	app := api.CreateHTTPApp(db, assets, api.Options{
+		Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
+	})
 
 	go func() {
 		<-ctx.Done()
@@ -174,12 +189,17 @@ func main() {
 
 // compactPeriodically rolls per-minute flows up into hourly rows and applies
 // the retention of flows and alerts, and removes expired sessions, at startup
-// and then every hour, until ctx is done. The returned channel is closed once
-// a compaction in progress has finished.
-func compactPeriodically(ctx context.Context, db *sql.DB, retention, alertRetention time.Duration) <-chan struct{} {
+// and then every hour, until ctx is done. It reads the retention from current
+// each time. The returned channel is closed once a compaction in progress has
+// finished, and the function asks for a compaction now, such as after the
+// retention changed; it never blocks.
+func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.Config) (<-chan struct{}, func()) {
 	done := make(chan struct{})
+	trigger := make(chan struct{}, 1)
 
 	compact := func() {
+		cfg := current()
+		retention, alertRetention := cfg.Retention(), cfg.AlertRetention()
 		now := time.Now()
 		result, err := storage.Compact(db, now, retention)
 		if err != nil {
@@ -214,9 +234,16 @@ func compactPeriodically(ctx context.Context, db *sql.DB, retention, alertRetent
 				return
 			case <-ticker.C:
 				compact()
+			case <-trigger:
+				compact()
 			}
 		}
 	}()
 
-	return done
+	return done, func() {
+		select {
+		case trigger <- struct{}{}:
+		default:
+		}
+	}
 }

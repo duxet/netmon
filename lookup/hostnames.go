@@ -61,6 +61,9 @@ type Hostnames struct {
 
 	mu    sync.Mutex
 	cache map[netip.Addr]hostnameEntry
+	// servers counts the changes of servers, so that an answer from a server
+	// that was replaced while it was asked isn't cached.
+	servers uint64
 }
 
 // NewHostnames returns a resolver that asks localDNS about local addresses
@@ -77,6 +80,17 @@ func NewHostnames(localDNS, publicDNS string) *Hostnames {
 	}
 }
 
+// SetServers changes the DNS servers lookups go to, as NewHostnames takes
+// them, and forgets the names the old ones gave.
+func (r *Hostnames) SetServers(localDNS, publicDNS string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.local, r.public = dnsLookup(localDNS), dnsLookup(publicDNS)
+	r.cache = map[netip.Addr]hostnameEntry{}
+	r.servers++
+}
+
 func isLocalAddress(addr netip.Addr) bool {
 	return addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()
 }
@@ -88,14 +102,14 @@ func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 
 	r.mu.Lock()
 	entry, ok := r.cache[addr]
-	r.mu.Unlock()
-	if ok && r.now().Before(entry.expires) {
-		return entry.hostname
-	}
-
 	lookup := r.public
 	if isLocalAddress(addr) {
 		lookup = r.local
+	}
+	servers := r.servers
+	r.mu.Unlock()
+	if ok && r.now().Before(entry.expires) {
+		return entry.hostname
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -116,13 +130,18 @@ func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 		ttl = failureTTL
 	}
 
-	r.store(addr, hostnameEntry{hostname: hostname, expires: r.now().Add(ttl)})
+	r.store(addr, hostnameEntry{hostname: hostname, expires: r.now().Add(ttl)}, servers)
 	return hostname
 }
 
-func (r *Hostnames) store(addr netip.Addr, entry hostnameEntry) {
+// store caches an answer, unless the servers changed since it was asked for.
+func (r *Hostnames) store(addr netip.Addr, entry hostnameEntry, servers uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if servers != r.servers {
+		return
+	}
 
 	if len(r.cache) >= maxCachedHostnames {
 		now := r.now()

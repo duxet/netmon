@@ -21,6 +21,7 @@ import { Route as ClientsClientIdRouteImport } from './routes/clients/$clientId'
 import { Route as NetworksIndexRouteImport } from './routes/networks/index'
 import { Route as NetworksNetworkIdRouteImport } from './routes/networks/$networkId'
 import { Route as SettingsAlertRulesRouteImport } from './routes/settings/alert-rules'
+import { Route as SettingsConfigurationRouteImport } from './routes/settings/configuration'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
 
 const IndexRoute = IndexRouteImport.update({
@@ -83,6 +84,11 @@ const SettingsAlertRulesRoute = SettingsAlertRulesRouteImport.update({
   path: '/settings/alert-rules',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsConfigurationRoute = SettingsConfigurationRouteImport.update({
+  id: '/settings/configuration',
+  path: '/settings/configuration',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
   id: '/settings/notifications',
   path: '/settings/notifications',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
+  '/settings/configuration': typeof SettingsConfigurationRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts/': typeof AlertsIndexRoute
   '/clients/': typeof ClientsIndexRoute
@@ -111,6 +118,7 @@ export interface FileRoutesByTo {
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
+  '/settings/configuration': typeof SettingsConfigurationRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts': typeof AlertsIndexRoute
   '/clients': typeof ClientsIndexRoute
@@ -127,6 +135,7 @@ export interface FileRoutesById {
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
+  '/settings/configuration': typeof SettingsConfigurationRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts/': typeof AlertsIndexRoute
   '/clients/': typeof ClientsIndexRoute
@@ -144,6 +153,7 @@ export interface FileRouteTypes {
     | '/clients/$clientId'
     | '/networks/$networkId'
     | '/settings/alert-rules'
+    | '/settings/configuration'
     | '/settings/notifications'
     | '/alerts/'
     | '/clients/'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/clients/$clientId'
     | '/networks/$networkId'
     | '/settings/alert-rules'
+    | '/settings/configuration'
     | '/settings/notifications'
     | '/alerts'
     | '/clients'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/clients/$clientId'
     | '/networks/$networkId'
     | '/settings/alert-rules'
+    | '/settings/configuration'
     | '/settings/notifications'
     | '/alerts/'
     | '/clients/'
@@ -184,6 +196,7 @@ export interface RootRouteChildren {
   NetworksRouteRoute: typeof NetworksRouteRouteWithChildren
   LiveRoute: typeof LiveRoute
   SettingsAlertRulesRoute: typeof SettingsAlertRulesRoute
+  SettingsConfigurationRoute: typeof SettingsConfigurationRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
 }
 
@@ -273,6 +286,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAlertRulesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/configuration': {
+      id: '/settings/configuration'
+      path: '/settings/configuration'
+      fullPath: '/settings/configuration'
+      preLoaderRoute: typeof SettingsConfigurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/notifications': {
       id: '/settings/notifications'
       path: '/settings/notifications'
@@ -332,6 +352,7 @@ const rootRouteChildren: RootRouteChildren = {
   NetworksRouteRoute: NetworksRouteRouteWithChildren,
   LiveRoute: LiveRoute,
   SettingsAlertRulesRoute: SettingsAlertRulesRoute,
+  SettingsConfigurationRoute: SettingsConfigurationRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
 }
 export const routeTree = rootRouteImport

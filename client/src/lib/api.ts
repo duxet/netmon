@@ -120,12 +120,15 @@ export class ApiError extends Error {
   readonly status: number
   /** The API's own explanation, without the request it was about. */
   readonly detail: string | undefined
+  /** The setting a refused configuration change was about, if one. */
+  readonly setting: string | undefined
 
-  constructor(status: number, message: string, detail?: string) {
+  constructor(status: number, message: string, detail?: string, setting?: string) {
     super(message)
     this.name = "ApiError"
     this.status = status
     this.detail = detail
+    this.setting = setting
   }
 }
 
@@ -160,11 +163,16 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
       body && typeof body === "object" && "error" in body && typeof body.error === "string"
         ? body.error
         : undefined
+    const setting =
+      body && typeof body === "object" && "setting" in body && typeof body.setting === "string"
+        ? body.setting
+        : undefined
     const detail = reason ? `: ${reason}` : ` ${response.statusText}`
     throw new ApiError(
       response.status,
       `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status}${detail}`.trim(),
-      reason
+      reason,
+      setting
     )
   }
   return response
@@ -646,4 +654,51 @@ export function fetchNetworkSummary(filter: Pick<FlowsFilter, "from" | "to"> = {
 
 export function fetchNetworkSuggestions() {
   return requestList<NetworkSuggestion>("/api/networks/suggestions")
+}
+
+export type SettingValue = string | number
+
+/** One of netmon's settings, as /api/config describes it. */
+export interface ConfigSetting {
+  /** The setting's key in the YAML file, e.g. "local_dns". */
+  Key: string
+  /** What netmon would start with now, from the environment, the file or the default. */
+  Value: SettingValue | null
+  /** What netmon runs with; differs from Value until a restart for settings that aren't Live. */
+  Running: SettingValue | null
+  Default: SettingValue | null
+  /** The file's value, when InFile. */
+  File: SettingValue | null
+  InFile: boolean
+  /** The environment variable that sets it, overriding the file; empty when none does. */
+  Env: string
+  /** Applies as soon as it is saved, rather than when netmon starts again. */
+  Live: boolean
+  /** Why it can only be changed in the file; empty when it can be changed here. */
+  Locked: string
+  /** Secrets have no values here, only Set. */
+  Secret: boolean
+  Set: boolean
+  /** netmon has to start again to run with Value. */
+  Restart: boolean
+}
+
+export interface Configuration {
+  /** The YAML file settings are saved to, and whether it exists yet. */
+  File: string
+  Exists: boolean
+  /** The operating system netmon runs on, e.g. "linux" or "darwin". */
+  OS: string
+  /** Where notifications link to without public_url. */
+  DefaultPublicURL: string
+  Settings: ConfigSetting[]
+}
+
+export function fetchConfig() {
+  return request<Configuration>("/api/config")
+}
+
+/** Saves settings to the file: a value sets one, null takes it out of the file, back to its default. */
+export function updateConfig(changes: Record<string, SettingValue | null>) {
+  return request<Configuration>("/api/config", jsonBody("PUT", changes))
 }

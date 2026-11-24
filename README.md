@@ -119,6 +119,10 @@ Things to know:
   The default firewall keeps the WAN away from port 2137; don't open it there.
   The service starts in `data_dir`, so put the single sign-on settings in a
   `netmon.yaml` there (see [Configuration](#configuration)).
+- The service passes `local_dns`, `public_dns` and `retention_days` to netmon as
+  environment variables, which override the YAML file, so **Settings → Configuration**
+  shows them but leaves them to `/etc/config/netmon`. The other settings it changes in
+  `netmon.yaml` in `data_dir`.
 
 ## Traffic by app
 
@@ -357,6 +361,30 @@ their notifications are deleted after `NETMON_ALERT_RETENTION_DAYS` (0 keeps the
 alerts still firing are kept. `NETMON_PUBLIC_URL` is where notifications link to,
 e.g. `http://router.lan:2137`.
 
+### Changing settings in the web UI
+
+**Settings → Configuration** shows every setting, where its value comes from (the
+environment, the file or the default), and changes most of them. It saves them to the
+YAML file: the one netmon read, or else `netmon.yaml` in the working directory, which it
+creates, readable by netmon's user only. Only the lines of the settings you change are
+touched, so comments, blank lines and the rest of the file stay as they are; a setting
+taken back to its default is taken out of the file. A change is checked as netmon would
+check the file when starting, and nothing is saved when it fails.
+
+- The DNS servers, the retention of flows and alerts and the public URL apply right away.
+  Shortening a retention deletes the older data at once, after asking. The GeoIP
+  database and the capture interface apply when netmon starts again, which the page
+  reminds you of.
+- A setting an environment variable sets can't be changed there, as the variable would
+  override the file.
+- `listen`, `database` and the single sign-on settings are only shown, with the client
+  secret as set or not: a page served on the old address can't move netmon, a new
+  database path would start an empty database, and single sign-on can't be turned off or
+  pointed at another provider from the web UI. With single sign-on on, the same goes for
+  `public_url`, which the provider sends people back to.
+- Without [single sign-on](#single-sign-on), anyone who can reach netmon can change these
+  settings, and delete history by shortening the retention.
+
 ## API
 
 The web UI is built on a JSON API at `/api`. Times are RFC 3339 timestamps
@@ -404,6 +432,8 @@ rounded to whole hours.
 | `DELETE /api/alert-rules/:id` | |
 | `GET /api/alerts` | `state` (`firing` or `resolved`), `rule_id`, `limit` (default 50, at most 500), `offset` |
 | `GET /api/alerts/:id` | |
+| `GET /api/config` | |
+| `PUT /api/config` | body `{"local_dns": "192.168.1.1:53", "retention_days": 90, "public_url": null}` |
 
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
@@ -490,6 +520,16 @@ rounded to whole hours.
 Invalid parameters are answered with a 400 and `{"error": "..."}`. With
 [single sign-on](#single-sign-on) on, every request needs the session cookie, or is
 answered with a 401.
+
+`/api/config` answers `{"File", "Exists", "OS", "DefaultPublicURL", "Settings"}`, where
+each setting has its `Key` (as in the YAML file), `Value` (what netmon would start with
+now), `Running` (what it runs with), `Default`, `File` and `InFile`, `Env` (the variable
+that sets it, if one does), `Live` (applies without a restart), `Locked` (why it can only
+be changed in the file), `Secret` and `Set` (secrets have no values), and `Restart`
+(netmon runs with something else until it starts again). `PUT /api/config` changes the
+settings in its body, a string or a number as the setting is, or `null` to take one out of
+the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
+`{"error", "setting"}` for a change it refuses, which saves nothing.
 
 `/api/session` tells whether netmon asks people to sign in and who the request is from:
 `{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and

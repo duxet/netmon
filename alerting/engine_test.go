@@ -317,3 +317,21 @@ func TestBrokenRule(t *testing.T) {
 		t.Error("the working rule wasn't marked as evaluated")
 	}
 }
+
+// The public URL can change while the engine runs, from the configuration page.
+func TestSetPublicURL(t *testing.T) {
+	te := newTestEngine(t, openTestDB(t))
+	alert := storage.AlertRecord{ID: 7}
+
+	if got := te.link(alert); got != "http://netmon.lan:2137/alerts/7" {
+		t.Errorf("link = %q, want the configured URL's", got)
+	}
+	te.SetPublicURL("https://netmon.example.com")
+	if got := te.link(alert); got != "https://netmon.example.com/alerts/7" {
+		t.Errorf("link after SetPublicURL = %q", got)
+	}
+	te.SetPublicURL("")
+	if got := te.link(alert); got != "" {
+		t.Errorf("link without a URL = %q, want none", got)
+	}
+}

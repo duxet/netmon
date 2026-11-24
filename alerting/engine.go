@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/duxet/netmon/apps"
@@ -78,7 +79,9 @@ type Engine struct {
 	db         *sql.DB
 	dispatcher Dispatcher
 	opts       Options
-	trigger    chan struct{}
+	// publicURL is opts.PublicURL, which SetPublicURL changes while Run runs.
+	publicURL atomic.Pointer[string]
+	trigger   chan struct{}
 	// started is when the engine started: netmon knows nothing about
 	// traffic from before then, when it may not have been running.
 	started time.Time
@@ -94,7 +97,14 @@ func NewEngine(db *sql.DB, dispatcher Dispatcher, opts Options) *Engine {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Engine{db: db, dispatcher: dispatcher, opts: opts, trigger: make(chan struct{}, 1), started: opts.Now()}
+	e := &Engine{db: db, dispatcher: dispatcher, opts: opts, trigger: make(chan struct{}, 1), started: opts.Now()}
+	e.SetPublicURL(opts.PublicURL)
+	return e
+}
+
+// SetPublicURL changes where messages link to, as Options.PublicURL.
+func (e *Engine) SetPublicURL(url string) {
+	e.publicURL.Store(&url)
 }
 
 // Trigger asks for an evaluation, e.g. because new flows were written. It
@@ -378,10 +388,11 @@ func (e *Engine) raise(rule storage.RuleRecord, now time.Time, events []candidat
 
 // link is where a message about an alert points: its page in netmon.
 func (e *Engine) link(alert storage.AlertRecord) string {
-	if e.opts.PublicURL == "" {
+	base := *e.publicURL.Load()
+	if base == "" {
 		return ""
 	}
-	return e.opts.PublicURL + "/alerts/" + strconv.FormatInt(alert.ID, 10)
+	return base + "/alerts/" + strconv.FormatInt(alert.ID, 10)
 }
 
 // notification is a message about an alert for the rule's channels. Its

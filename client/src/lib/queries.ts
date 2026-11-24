@@ -7,6 +7,7 @@ import {
   fetchAlerts,
   fetchAppTraffic,
   fetchClients,
+  fetchConfig,
   fetchFlowsPage,
   fetchFlowSummary,
   fetchHostnames,
@@ -190,4 +191,12 @@ export function networkSummaryQuery(range: RangeKey) {
 /** Blocks of addresses known devices use that no network has yet. */
 export function networkSuggestionsQuery() {
   return queryOptions({ queryKey: ["network-suggestions"], queryFn: fetchNetworkSuggestions })
+}
+
+/**
+ * netmon's settings. They only change when someone saves them, so they aren't
+ * fetched every minute; the page keeps unsaved edits apart from them anyway.
+ */
+export function configQuery() {
+  return queryOptions({ queryKey: ["config"], queryFn: fetchConfig, refetchInterval: false })
 }

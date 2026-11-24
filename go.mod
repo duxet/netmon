@@ -13,7 +13,6 @@ require (
 	github.com/gopacket/gopacket v1.8.0
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.2
-	github.com/knadh/koanf/providers/file v1.2.1
 	github.com/knadh/koanf/v2 v2.4.1
 	github.com/nicholas-fedor/shoutrrr v0.25.0
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
@@ -21,6 +20,7 @@ require (
 	github.com/ti-mo/conntrack v0.6.0
 	github.com/ti-mo/netfilter v0.5.3
 	github.com/vishvananda/netlink v1.3.1
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/oauth2 v0.38.0
 )
 
@@ -29,7 +29,6 @@ require (
 	github.com/apache/arrow-go/v18 v18.9.0 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.20001.0 // indirect
 	github.com/eclipse/paho.golang v0.23.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -68,7 +67,6 @@ require (
 	go.duckdb.org/libduckdb/linux-amd64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/linux-arm64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/windows-amd64 v0.20001.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261124000051-d6646c509b6d // indirect
 	golang.org/x/mod v0.43.0 // indirect

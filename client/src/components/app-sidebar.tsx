@@ -8,6 +8,7 @@ import {
   NetworkIcon,
   RadarIcon,
   RadioIcon,
+  SlidersHorizontalIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 import type * as React from "react"
@@ -73,6 +74,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const settings = [
     { to: "/settings/alert-rules", label: "Alert rules", icon: ListChecksIcon },
     { to: "/settings/notifications", label: "Notifications", icon: BellIcon },
+    { to: "/settings/configuration", label: "Configuration", icon: SlidersHorizontalIcon },
   ] as const
 
   return (
