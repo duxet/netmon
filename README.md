@@ -50,14 +50,50 @@ Hostnames are looked up with reverse DNS: local addresses on a server that
 knows your DHCP names, public addresses on a public resolver. Set either to
 `host`, `host:port` or `system` (the OS resolver):
 
-| Variable            | Default          |
-|---------------------|------------------|
-| `NETMON_LOCAL_DNS`  | `192.168.1.1:54` |
-| `NETMON_PUBLIC_DNS` | `8.8.8.8:53`     |
+| Variable                | Default          |
+|-------------------------|------------------|
+| `NETMON_LOCAL_DNS`      | `192.168.1.1:54` |
+| `NETMON_PUBLIC_DNS`     | `8.8.8.8:53`     |
+| `NETMON_RETENTION_DAYS` | `0` (keep all)   |
 
 Lookups time out after 2 seconds and are cached (names for an hour, failures
 for a minute). Countries need `GeoLite2-Country.mmdb` next to the binary when
 it starts.
+
+Flows are recorded every minute. At startup and then every hour, the minutes
+of complete hours are rolled up into one row per flow and hour, so the
+database grows with the number of flows rather than with uptime. With
+`NETMON_RETENTION_DAYS` set, hourly data older than that many days is deleted.
+
+## API
+
+The web UI is built on a JSON API at `/api`. Times are RFC 3339 timestamps
+(e.g. `2026-11-24T08:00:00Z`); `from` is inclusive and `to` exclusive. Data
+older than the current hour is stored per hour, so ranges are effectively
+rounded to whole hours.
+
+| Endpoint | Parameters |
+|----------|------------|
+| `GET /api/stats` | `from`, `to` |
+| `GET /api/clients` | `from`, `to` |
+| `GET /api/apps` | `mac` or `ip`, `from`, `to` |
+| `GET /api/traffic-measurements` | `mac` or `ip`, `app`, `from`, `to` |
+| `GET /api/flows` | `mac` or `ip`, `from`, `to`, `q`, `sort`, `order`, `limit`, `offset` |
+| `GET /api/clients/:mac-or-ip/flows` | as `/api/flows` |
+| `GET /api/flows/summary` | `mac` or `ip`, `from`, `to`, `top` |
+| `POST /api/hostnames` | body `{"ip_addresses": [...]}`, at most 256 |
+
+- With `mac` or `ip`, traffic is counted from that client's side: what it
+  received is download (`InBytes`), whichever side opened the connection.
+- `app` is an app name from `/api/apps`, or `Other`.
+- Flows: `q` matches part of an IP address, a port or a protocol; `sort` is
+  `total` (default), `download`, `upload` or `packets`; `order` is `desc`
+  (default) or `asc`; `limit` is at most 1000 (all flows without it). The
+  number of matching flows is in the `X-Total-Count` header.
+- The summary has totals and the `top` (default 8) remote hosts, services
+  (`"protocol/port"`) and countries, plus the sum of the rest.
+
+Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
 ## TODO
 
@@ -68,10 +104,10 @@ it starts.
 - [x] Make reverse DNS configurable (`NETMON_LOCAL_DNS`, `NETMON_PUBLIC_DNS`), cached, parallel and with short timeouts
 
 ### API
-- [ ] Add `from`/`to` time ranges to stats, clients, flows and apps, so the dashboard range filter scopes the whole page
-- [ ] Add `mac`/`ip` filters to `/api/traffic-measurements` for traffic over time per client and per app
-- [ ] Add data retention and hourly rollups so the flows table doesn't grow forever
-- [ ] Use server-side pagination for flows (the `Pagination` type is unused)
+- [x] Add `from`/`to` time ranges to stats, clients, flows and apps, so the dashboard range filter scopes the whole page
+- [x] Add `mac`/`ip` filters to `/api/traffic-measurements` for traffic over time per client and per app
+- [x] Add data retention and hourly rollups so the flows table doesn't grow forever
+- [x] Use server-side pagination for flows (the `Pagination` type is unused)
 
 ### Devices
 - [ ] Let users rename devices, stored in the database

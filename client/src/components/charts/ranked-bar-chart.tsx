@@ -119,7 +119,8 @@ export function RankedBarChart({
             offset={8}
             className="fill-foreground"
             fontSize={12}
-            formatter={(value) => formatBytes(Number(value))}
+            // A no-break space keeps the value and its unit on one line.
+            formatter={(value) => formatBytes(Number(value)).replace(" ", "\u00a0")}
           />
         </Bar>
         <ChartLegend content={<ChartLegendContent />} />

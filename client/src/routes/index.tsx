@@ -10,10 +10,11 @@ import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts
 import { TrafficChart, TrafficTable } from "@/components/charts/traffic-chart"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
+import { RangeFilter } from "@/components/range-filter"
 import { StatCard } from "@/components/stat-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useRange } from "@/hooks/use-range"
 import {
   formatBitrate,
   formatBytes,
@@ -24,30 +25,28 @@ import {
 } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
 import { devicesQuery, statsQuery, trafficQuery } from "@/lib/queries"
-import { buildTrafficSeries, isRangeKey, RANGES, rangeInfo, type RangeKey } from "@/lib/timeseries"
+import { buildTrafficSeries, DEFAULT_RANGE, rangeInfo, rangePhrase } from "@/lib/timeseries"
 
 export const Route = createFileRoute("/")({
-  validateSearch: (search): { range?: RangeKey } =>
-    isRangeKey(search.range) ? { range: search.range } : {},
   staticData: { breadcrumb: "Dashboard" },
-  loader: ({ context: { queryClient } }) => {
-    void queryClient.prefetchQuery(trafficQuery)
-    void queryClient.prefetchQuery(statsQuery)
+  loaderDeps: ({ search }) => ({ range: search.range ?? DEFAULT_RANGE }),
+  loader: ({ context: { queryClient }, deps: { range } }) => {
+    void queryClient.prefetchQuery(trafficQuery(range))
+    void queryClient.prefetchQuery(statsQuery(range))
   },
   component: Dashboard,
 })
 
-const DEFAULT_RANGE: RangeKey = "7d"
 const TOP_DEVICES = 8
 
 function Dashboard() {
-  const { range = DEFAULT_RANGE } = Route.useSearch()
-  const navigate = useNavigate({ from: Route.fullPath })
+  const range = useRange()
+  const navigate = useNavigate()
   const info = rangeInfo(range)
 
-  const traffic = useQuery(trafficQuery)
-  const stats = useQuery(statsQuery)
-  const devices = useQuery(devicesQuery)
+  const traffic = useQuery(trafficQuery(range))
+  const stats = useQuery(statsQuery(range))
+  const devices = useQuery(devicesQuery(range))
 
   // Anchor the window to when the data was fetched, so it stays stable
   // between refreshes and moves forward with each one.
@@ -80,32 +79,8 @@ function Dashboard() {
 
   return (
     <Page>
-      <PageHeader
-        title="Dashboard"
-        description={`Traffic across your network · ${info.label.toLowerCase()}`}
-      >
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={range}
-          onValueChange={(value) =>
-            isRangeKey(value) &&
-            void navigate({ search: value === DEFAULT_RANGE ? {} : { range: value }, replace: true })
-          }
-          aria-label="Time range"
-        >
-          {RANGES.map((option) => (
-            <ToggleGroupItem
-              key={option.key}
-              value={option.key}
-              aria-label={option.label}
-              className="px-3"
-            >
-              {option.short}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+      <PageHeader title="Dashboard" description={`Traffic across your network · ${rangePhrase(range)}`}>
+        <RangeFilter />
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -133,7 +108,7 @@ function Dashboard() {
           footer={series?.peak ? formatDayTime(new Date(series.peak.time)) : "No traffic yet"}
         />
         <StatCard
-          label="Clients"
+          label="Active clients"
           icon={MonitorSmartphoneIcon}
           loading={stats.isPending}
           value={stats.data ? formatNumber(stats.data.TotalClients) : "—"}
@@ -144,7 +119,7 @@ function Dashboard() {
                 stats.data?.TotalPackets && `${formatCompact(stats.data.TotalPackets)} packets`,
               ]
                 .filter(Boolean)
-                .join(" · ") || "None seen yet"}
+                .join(" · ") || "None in this period"}
             </span>
           }
         />
@@ -154,7 +129,7 @@ function Dashboard() {
         title="Traffic"
         description={
           series
-            ? `${series.granularity === "day" ? "Daily" : "Hourly"} download and upload · ${info.label.toLowerCase()}`
+            ? `${series.granularity === "day" ? "Daily" : "Hourly"} download and upload · ${rangePhrase(range)}`
             : "Download and upload over time"
         }
         table={
@@ -187,7 +162,7 @@ function Dashboard() {
         <ChartCard
           className="lg:col-span-3"
           title="Top clients"
-          description="By total traffic · all time"
+          description={`By total traffic · ${rangePhrase(range)}`}
           table={topDevices.length > 0 && <RankedTable rows={topDevices} labelHeader="Client" />}
         >
           {devices.isError ? (
@@ -210,7 +185,7 @@ function Dashboard() {
               </Button>
             </div>
           ) : (
-            <EmptyChart icon={<MonitorSmartphoneIcon />} title="No clients seen yet" />
+            <EmptyChart icon={<MonitorSmartphoneIcon />} title="No clients active in this period" />
           )}
         </ChartCard>
 

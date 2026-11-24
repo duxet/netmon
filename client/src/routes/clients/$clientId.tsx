@@ -1,6 +1,8 @@
+import type { PaginationState, SortingState } from "@tanstack/react-table"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import {
+  ActivityIcon,
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
   CableIcon,
@@ -14,9 +16,11 @@ import * as React from "react"
 import { AppTrafficCard } from "@/components/app-traffic"
 import { ChartCard } from "@/components/chart-card"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
+import { TrafficChart, TrafficTable } from "@/components/charts/traffic-chart"
 import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
+import { RangeFilter } from "@/components/range-filter"
 import { ShareBar } from "@/components/share-bar"
 import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
@@ -24,44 +28,68 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { useRange } from "@/hooks/use-range"
+import type { FlowSort, Groups } from "@/lib/api"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import {
-  aggregateBy,
   countryFlag,
   countryName,
   findDevice,
+  parseServiceKey,
   parseSubject,
   protocolName,
+  serviceLabel,
   serviceName,
   toSubjectFlows,
-  topWithOther,
-  type Aggregate,
+  type Subject,
   type SubjectFlow,
 } from "@/lib/network"
-import { devicesQuery, flowsQuery, useHostnames } from "@/lib/queries"
+import {
+  devicesQuery,
+  flowSummaryQuery,
+  flowsPageQuery,
+  trafficQuery,
+  useHostnames,
+  type ClientFilter,
+} from "@/lib/queries"
 import { createColumns } from "@/lib/table"
+import { buildTrafficSeries, DEFAULT_RANGE, rangePhrase } from "@/lib/timeseries"
+
+/** Bars per ranked chart: the largest groups, then "Other". */
+const TOP_GROUPS = 7
+const PAGE_SIZE = 15
+const OTHER_KEY = "__other__"
+
+function clientFilterOf(subject: Subject): ClientFilter {
+  return subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip }
+}
 
 export const Route = createFileRoute("/clients/$clientId")({
   staticData: { breadcrumb: (params) => params.clientId },
-  loader: ({ context: { queryClient }, params }) => {
-    const subject = parseSubject(params.clientId)
-    void queryClient.prefetchQuery(
-      flowsQuery(subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip })
-    )
+  loaderDeps: ({ search }) => ({ range: search.range ?? DEFAULT_RANGE }),
+  loader: ({ context: { queryClient }, params, deps: { range } }) => {
+    const client = clientFilterOf(parseSubject(params.clientId))
+    void queryClient.prefetchQuery(flowSummaryQuery(range, client, TOP_GROUPS))
   },
   component: ClientDetail,
 })
 
-const TOP_ROWS = 8
-
-function toRanked(rows: Aggregate[]): RankedRow[] {
-  return rows.map(({ key, label, download, upload, total }) => ({
-    key,
-    label,
-    download,
-    upload,
-    total,
+/** Ranked chart rows from summary groups, with the rest folded into "Other". */
+function toRanked(groups: Groups | undefined, label: (key: string) => string): RankedRow[] {
+  if (!groups) return []
+  const rows: RankedRow[] = (groups.Items ?? []).map((group) => ({
+    key: group.Key,
+    label: label(group.Key),
+    download: group.Download,
+    upload: group.Upload,
+    total: group.Download + group.Upload,
   }))
+  const rest = groups.Rest.Download + groups.Rest.Upload
+  if (rest > 0) {
+    rows.push({ key: OTHER_KEY, label: "Other", download: groups.Rest.Download, upload: groups.Rest.Upload, total: rest })
+  }
+  return rows
 }
 
 function Country({ code }: { code: string | null | undefined }) {
@@ -80,6 +108,7 @@ function Country({ code }: { code: string | null | undefined }) {
 
 const column = createColumns<SubjectFlow>()
 
+// Column ids of the sortable columns are the API's sort keys.
 function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: number) {
   return React.useMemo(
     () =>
@@ -107,7 +136,7 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
         column.accessor((flow) => flow.peer.IPAddress, {
           id: "peer",
           header: "Remote host",
-          sortFn: "alphanumeric",
+          enableSorting: false,
           cell: ({ row }) => {
             const { peer } = row.original
             const hostname = hostnames.get(peer.IPAddress)
@@ -134,7 +163,7 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
         }),
         column.accessor("service", {
           header: "Service",
-          sortFn: "text",
+          enableSorting: false,
           cell: ({ row }) => {
             const { protocol, port } = row.original
             const name = serviceName(protocol, port)
@@ -153,21 +182,18 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
         }),
         column.accessor("download", {
           header: "Download",
-          sortFn: "basic",
           sortDescFirst: true,
           cell: ({ getValue }) => formatBytes(getValue()),
           meta: { align: "right" },
         }),
         column.accessor("upload", {
           header: "Upload",
-          sortFn: "basic",
           sortDescFirst: true,
           cell: ({ getValue }) => formatBytes(getValue()),
           meta: { align: "right" },
         }),
         column.accessor("packets", {
           header: "Packets",
-          sortFn: "basic",
           sortDescFirst: true,
           cell: ({ getValue }) => (
             <span title={formatNumber(getValue())}>{formatCompact(getValue())}</span>
@@ -176,7 +202,6 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
         }),
         column.accessor("total", {
           header: "Share",
-          sortFn: "basic",
           sortDescFirst: true,
           cell: ({ getValue }) => <ShareBar value={getValue()} max={subjectTotal} />,
           meta: { className: "hidden md:table-cell w-40" },
@@ -186,98 +211,83 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
   )
 }
 
-function matchesFlow(flow: SubjectFlow, query: string, hostnames: Map<string, string | null>) {
-  if (!query) return true
-  const needle = query.toLowerCase()
-  return (
-    flow.peer.IPAddress.includes(needle) ||
-    flow.service.toLowerCase().includes(needle) ||
-    String(flow.port) === needle ||
-    (flow.peer.Country?.toLowerCase() === needle) ||
-    (hostnames.get(flow.peer.IPAddress)?.toLowerCase().includes(needle) ?? false)
-  )
-}
+const SORT_KEYS = new Set<string>(["total", "download", "upload", "packets"])
 
 function ClientDetail() {
   const { clientId } = Route.useParams()
+  const range = useRange()
   const navigate = useNavigate()
   const subject = React.useMemo(() => parseSubject(clientId), [clientId])
+  const client = React.useMemo(() => clientFilterOf(subject), [subject])
 
-  const flowsResult = useQuery(
-    flowsQuery(subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip })
-  )
-  const devices = useQuery(devicesQuery)
+  const summary = useQuery(flowSummaryQuery(range, client, TOP_GROUPS))
+  const traffic = useQuery(trafficQuery(range, client))
+  // Who the client is doesn't depend on the range, so look it up in all time.
+  const devices = useQuery(devicesQuery("all"))
   const device = devices.data && findDevice(devices.data, clientId)
 
+  const series = React.useMemo(
+    () => (traffic.data ? buildTrafficSeries(traffic.data, range, traffic.dataUpdatedAt) : undefined),
+    [traffic.data, traffic.dataUpdatedAt, range]
+  )
+
+  // Connections: one page at a time from the server, sorted and searched there.
+  const [query, setQuery] = React.useState("")
+  const search = useDebouncedValue(query.trim(), 300)
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: "total", desc: true }])
+  const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: PAGE_SIZE })
+
+  // A new search, range, client or order starts from the first page.
+  const pageResetKey = `${search}|${range}|${clientId}|${JSON.stringify(sorting)}`
+  const [lastPageResetKey, setLastPageResetKey] = React.useState(pageResetKey)
+  if (pageResetKey !== lastPageResetKey) {
+    setLastPageResetKey(pageResetKey)
+    setPagination((state) => ({ ...state, pageIndex: 0 }))
+  }
+
+  const sort = sorting[0]
+  const flowsPage = useQuery(
+    flowsPageQuery(range, client, {
+      q: search || undefined,
+      sort: sort && SORT_KEYS.has(sort.id) ? (sort.id as FlowSort) : "total",
+      order: sort && !sort.desc ? "asc" : "desc",
+      limit: pagination.pageSize,
+      offset: pagination.pageIndex * pagination.pageSize,
+    })
+  )
   const flows = React.useMemo(
-    () => (flowsResult.data ? toSubjectFlows(flowsResult.data, subject) : []),
-    [flowsResult.data, subject]
+    () => (flowsPage.data ? toSubjectFlows(flowsPage.data.flows, subject) : []),
+    [flowsPage.data, subject]
   )
-
-  const totals = React.useMemo(
-    () =>
-      flows.reduce(
-        (acc, flow) => ({
-          download: acc.download + flow.download,
-          upload: acc.upload + flow.upload,
-          packets: acc.packets + flow.packets,
-        }),
-        { download: 0, upload: 0, packets: 0 }
-      ),
-    [flows]
-  )
-
-  const peers = React.useMemo(() => aggregateBy(flows, (flow) => flow.peer.IPAddress), [flows])
-  const topPeerIps = peers.slice(0, TOP_ROWS).map((peer) => peer.key)
 
   // Reverse DNS is resolved server-side one address at a time, so only ask
-  // for the hosts on screen: the top destinations and the visible table page.
-  const [pageIps, setPageIps] = React.useState<string[]>([])
+  // for the hosts on screen: the top destinations and the visible page.
+  const topPeerIps = (summary.data?.TopPeers.Items ?? []).map((group) => group.Key)
   const topHostnames = useHostnames(topPeerIps)
-  const pageHostnames = useHostnames(pageIps)
+  const pageHostnames = useHostnames(flows.map((flow) => flow.peer.IPAddress))
   const hostnames = React.useMemo(
     () => new Map([...(topHostnames.data ?? []), ...(pageHostnames.data ?? [])]),
     [topHostnames.data, pageHostnames.data]
   )
 
-  const destinations = toRanked(
-    topWithOther(
-      peers.map((peer) => ({ ...peer, label: hostnames.get(peer.key) ?? peer.key })),
-      TOP_ROWS
-    )
-  )
-  const services = toRanked(topWithOther(aggregateBy(flows, (flow) => flow.service), TOP_ROWS))
-  const countries = toRanked(
-    topWithOther(
-      aggregateBy(
-        flows,
-        (flow) => flow.peer.Country || null,
-        (code) => `${countryFlag(code)} ${countryName(code)}`
-      ),
-      TOP_ROWS
-    )
-  )
+  const destinations = toRanked(summary.data?.TopPeers, (ip) => hostnames.get(ip) ?? ip)
+  const services = toRanked(summary.data?.Services, (key) => {
+    const { protocol, port } = parseServiceKey(key)
+    return serviceLabel(protocol, port)
+  })
+  const countries = toRanked(summary.data?.Countries, (code) => `${countryFlag(code)} ${countryName(code)}`)
 
-  const [query, setQuery] = React.useState("")
-  const deferredQuery = React.useDeferredValue(query.trim())
-  const filtered = React.useMemo(
-    () => flows.filter((flow) => matchesFlow(flow, deferredQuery, hostnames)),
-    [flows, deferredQuery, hostnames]
-  )
-
-  const subjectTotal = totals.download + totals.upload
+  const subjectTotal = (summary.data?.Download ?? 0) + (summary.data?.Upload ?? 0)
   const columns = useFlowColumns(hostnames, subjectTotal)
-  const onPageRowsChange = React.useCallback(
-    (rows: SubjectFlow[]) => setPageIps(rows.map((row) => row.peer.IPAddress)),
-    []
-  )
 
   const isLocal = subject.kind === "mac" || device !== undefined
-  const title = device?.hostname ?? (subject.kind === "ip" ? (hostnames.get(subject.ip) ?? clientId) : clientId)
-  const loading = flowsResult.isPending
+  const title =
+    device?.hostname ?? (subject.kind === "ip" ? (hostnames.get(subject.ip) ?? clientId) : clientId)
+  const loading = summary.isPending
+  const period = rangePhrase(range)
 
   const openPeer = (row: RankedRow) =>
-    row.key !== "__other__" &&
+    row.key !== OTHER_KEY &&
     void navigate({ to: "/clients/$clientId", params: { clientId: row.key } })
 
   return (
@@ -308,10 +318,12 @@ function ClientDetail() {
             ))}
           </div>
         }
-      />
+      >
+        <RangeFilter />
+      </PageHeader>
 
-      {flowsResult.isError ? (
-        <ErrorState error={flowsResult.error} onRetry={() => void flowsResult.refetch()} />
+      {summary.isError ? (
+        <ErrorState error={summary.error} onRetry={() => void summary.refetch()} />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -319,31 +331,51 @@ function ClientDetail() {
               label="Downloaded"
               seriesColor="var(--chart-1)"
               loading={loading}
-              value={formatBytes(totals.download)}
-              footer="Received by this host · all time"
+              value={formatBytes(summary.data?.Download ?? 0)}
+              footer={`Received by this host · ${period}`}
             />
             <StatCard
               label="Uploaded"
               seriesColor="var(--chart-2)"
               loading={loading}
-              value={formatBytes(totals.upload)}
-              footer="Sent by this host · all time"
+              value={formatBytes(summary.data?.Upload ?? 0)}
+              footer={`Sent by this host · ${period}`}
             />
             <StatCard
               label="Connections"
               icon={NetworkIcon}
               loading={loading}
-              value={formatNumber(flows.length)}
-              footer={`With ${formatNumber(peers.length)} remote hosts`}
+              value={formatNumber(summary.data?.Connections ?? 0)}
+              footer={`With ${formatNumber(summary.data?.Peers ?? 0)} remote hosts`}
             />
             <StatCard
               label="Packets"
               icon={ServerIcon}
               loading={loading}
-              value={formatCompact(totals.packets)}
-              footer={`${formatNumber(totals.packets)} in total`}
+              value={formatCompact(summary.data?.Packets ?? 0)}
+              footer={`${formatNumber(summary.data?.Packets ?? 0)} in total`}
             />
           </div>
+
+          <ChartCard
+            title="Traffic"
+            description={
+              series
+                ? `${series.granularity === "day" ? "Daily" : "Hourly"} download and upload · ${period}`
+                : "Download and upload over time"
+            }
+            table={series?.hasData && <TrafficTable buckets={series.buckets} granularity={series.granularity} />}
+          >
+            {traffic.isError ? (
+              <ErrorState error={traffic.error} onRetry={() => void traffic.refetch()} />
+            ) : !series ? (
+              <Skeleton className="h-64 w-full sm:h-72" />
+            ) : series.hasData ? (
+              <TrafficChart buckets={series.buckets} granularity={series.granularity} spansDays={range !== "24h"} />
+            ) : (
+              <EmptyChart icon={<ActivityIcon />} title="No traffic in this period" className="h-64 sm:h-72" />
+            )}
+          </ChartCard>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <ChartCard
@@ -356,7 +388,7 @@ function ClientDetail() {
               ) : destinations.length > 0 ? (
                 <RankedBarChart rows={destinations} onSelect={openPeer} />
               ) : (
-                <EmptyChart icon={<GlobeIcon />} title="No connections recorded" />
+                <EmptyChart icon={<GlobeIcon />} title="No connections in this period" />
               )}
             </ChartCard>
             <ChartCard
@@ -369,14 +401,10 @@ function ClientDetail() {
               ) : services.length > 0 ? (
                 <RankedBarChart rows={services} />
               ) : (
-                <EmptyChart icon={<NetworkIcon />} title="No connections recorded" />
+                <EmptyChart icon={<NetworkIcon />} title="No connections in this period" />
               )}
             </ChartCard>
-            {isLocal && (
-              <AppTrafficCard
-                filter={subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip }}
-              />
-            )}
+            {isLocal && <AppTrafficCard client={client} scope={title} />}
             {countries.length > 0 && (
               <ChartCard
                 className={isLocal ? undefined : "lg:col-span-2"}
@@ -394,7 +422,7 @@ function ClientDetail() {
               <div className="flex flex-col gap-1">
                 <h2 className="font-heading text-base font-medium">Connections</h2>
                 <p className="text-sm text-muted-foreground">
-                  Flows grouped by remote host, protocol and port
+                  Flows grouped by remote host, protocol and port · {period}
                 </p>
               </div>
               <InputGroup className="sm:max-w-xs">
@@ -403,7 +431,7 @@ function ClientDetail() {
                 </InputGroupAddon>
                 <InputGroupInput
                   type="search"
-                  placeholder="Filter by host, port or service"
+                  placeholder="Filter by IP, port or protocol"
                   aria-label="Filter connections"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -411,20 +439,27 @@ function ClientDetail() {
               </InputGroup>
             </CardHeader>
             <CardContent>
-              <DataTable
-                data={filtered}
-                columns={columns}
-                getRowId={(flow) => flow.id}
-                initialSorting={[{ id: "total", desc: true }]}
-                loading={loading}
-                resetKey={`${clientId}|${deferredQuery}`}
-                onPageRowsChange={onPageRowsChange}
-                emptyMessage={
-                  deferredQuery
-                    ? `No connections match “${deferredQuery}”.`
-                    : "No connections recorded for this host."
-                }
-              />
+              {flowsPage.isError ? (
+                <ErrorState error={flowsPage.error} onRetry={() => void flowsPage.refetch()} />
+              ) : (
+                <DataTable
+                  data={flows}
+                  columns={columns}
+                  getRowId={(flow) => flow.id}
+                  loading={flowsPage.isPending}
+                  fetching={flowsPage.isPlaceholderData}
+                  manual={{
+                    rowCount: flowsPage.data?.total ?? 0,
+                    pagination,
+                    onPaginationChange: setPagination,
+                    sorting,
+                    onSortingChange: setSorting,
+                  }}
+                  emptyMessage={
+                    search ? `No connections match “${search}”.` : "No connections in this period."
+                  }
+                />
+              )}
             </CardContent>
           </Card>
         </>

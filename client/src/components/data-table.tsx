@@ -3,6 +3,7 @@ import {
   useTable,
   type ColumnDef,
   type Header,
+  type OnChangeFn,
   type PaginationState,
   type RowData,
   type SortingState,
@@ -57,6 +58,15 @@ function SortableHeader<TData extends RowData>({
   )
 }
 
+/** Server-side paging and sorting: data is one page of rowCount rows. */
+export interface ManualPaging {
+  rowCount: number
+  pagination: PaginationState
+  onPaginationChange: OnChangeFn<PaginationState>
+  sorting: SortingState
+  onSortingChange: OnChangeFn<SortingState>
+}
+
 export interface DataTableProps<TData extends RowData> {
   data: TData[]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- columns mix value types
@@ -65,11 +75,14 @@ export interface DataTableProps<TData extends RowData> {
   initialSorting?: SortingState
   pageSize?: number
   loading?: boolean
+  /** Dims the rows while newer ones load, instead of replacing them. */
+  fetching?: boolean
   emptyMessage?: React.ReactNode
   /** Resets to the first page whenever this value changes (e.g. a search query). */
   resetKey?: unknown
   onPageRowsChange?: (rows: TData[]) => void
   rowClassName?: string
+  manual?: ManualPaging
 }
 
 export function DataTable<TData extends RowData>({
@@ -79,23 +92,27 @@ export function DataTable<TData extends RowData>({
   initialSorting = [],
   pageSize = 15,
   loading = false,
+  fetching = false,
   emptyMessage = "No results.",
   resetKey,
   onPageRowsChange,
   rowClassName,
+  manual,
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
-  const [pagination, setPagination] = React.useState<PaginationState>({
+  const [ownSorting, setOwnSorting] = React.useState<SortingState>(initialSorting)
+  const [ownPagination, setOwnPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize,
   })
+  const sorting = manual?.sorting ?? ownSorting
+  const pagination = manual?.pagination ?? ownPagination
 
   // Data refreshes every minute; keep the reader's page instead of jumping
   // back to the first one, but do reset when the filter changes.
   const [lastResetKey, setLastResetKey] = React.useState(resetKey)
   if (resetKey !== lastResetKey) {
     setLastResetKey(resetKey)
-    setPagination((state) => ({ ...state, pageIndex: 0 }))
+    setOwnPagination((state) => ({ ...state, pageIndex: 0 }))
   }
 
   const table = useTable({
@@ -104,16 +121,26 @@ export function DataTable<TData extends RowData>({
     columns,
     state: { sorting, pagination },
     getRowId,
-    onSortingChange: setSorting,
-    onPaginationChange: setPagination,
+    onSortingChange: manual?.onSortingChange ?? setOwnSorting,
+    onPaginationChange: manual?.onPaginationChange ?? setOwnPagination,
+    manualPagination: manual !== undefined,
+    manualSorting: manual !== undefined,
+    rowCount: manual?.rowCount,
     autoResetPageIndex: false,
   })
 
+  // Step back when the rows shrink below the current page (e.g. after a refresh).
   const pageCount = Math.max(1, table.getPageCount())
-  const pageIndex = Math.min(table.state.pagination.pageIndex, pageCount - 1)
-  if (pageIndex !== table.state.pagination.pageIndex) {
-    setPagination((state) => ({ ...state, pageIndex }))
+  const pageIndex = Math.min(pagination.pageIndex, pageCount - 1)
+  if (!manual && pageIndex !== pagination.pageIndex) {
+    setOwnPagination((state) => ({ ...state, pageIndex }))
   }
+  const clampManualPage = React.useEffectEvent(() =>
+    manual?.onPaginationChange((state) => ({ ...state, pageIndex }))
+  )
+  React.useEffect(() => {
+    if (manual && !loading && pageIndex !== pagination.pageIndex) clampManualPage()
+  }, [manual, loading, pageIndex, pagination.pageIndex])
 
   const rows = table.getRowModel().rows
   const pageRows = rows.map((row) => row.original)
@@ -151,7 +178,7 @@ export function DataTable<TData extends RowData>({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody className={cn("transition-opacity", fetching && !loading && "opacity-60")}>
             {loading ? (
               Array.from({ length: 6 }, (_, index) => (
                 <TableRow key={index} className="hover:bg-transparent">

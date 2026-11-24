@@ -59,6 +59,33 @@ export interface AppTraffic {
 /** Name /api/apps uses for traffic that matched no known app. */
 export const OTHER_APP = "Other"
 
+/** Traffic of a group of flows, seen from the client a summary is for. */
+export interface Group {
+  /** An IP address, "protocol/port" (e.g. "6/443") or an ISO country code. */
+  Key: string
+  Download: number
+  Upload: number
+  Connections: number
+}
+
+/** The largest groups, and the sum of all others. */
+export interface Groups {
+  Items: Group[] | null
+  Rest: Group
+}
+
+export interface FlowSummary {
+  Download: number
+  Upload: number
+  Packets: number
+  Connections: number
+  /** Distinct remote hosts. */
+  Peers: number
+  TopPeers: Groups
+  Services: Groups
+  Countries: Groups
+}
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -69,7 +96,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, init)
   if (!response.ok) {
     // The API answers errors with {"error": "..."}; proxies may not.
@@ -83,7 +110,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status}${detail}`.trim()
     )
   }
-  return (await response.json()) as T
+  return response
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await (await send(path, init)).json()) as T
 }
 
 // Go encodes an empty slice as `null`, so list endpoints normalize to [].
@@ -91,36 +122,74 @@ async function requestList<T>(path: string, init?: RequestInit): Promise<T[]> {
   return (await request<T[] | null>(path, init)) ?? []
 }
 
-export function fetchStats() {
-  return request<Stats>("/api/stats")
-}
-
-export function fetchTrafficMeasurements() {
-  return requestList<TrafficMeasurement>("/api/traffic-measurements")
-}
-
-export function fetchClients() {
-  return requestList<Client>("/api/clients")
-}
-
+/** Restricts results to one client and/or a time range. */
 export interface FlowsFilter {
   mac?: string
   ip?: string
+  /** Inclusive. */
+  from?: Date
+  /** Exclusive. */
+  to?: Date
 }
 
-function filterQuery(filter: FlowsFilter) {
-  const params = new URLSearchParams()
-  if (filter.mac) params.set("mac", filter.mac)
-  if (filter.ip) params.set("ip", filter.ip)
-  return params.size > 0 ? `?${params}` : ""
+type Params = Record<string, string | number | Date | undefined>
+
+function withQuery(path: string, params: Params) {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "") continue
+    search.set(key, value instanceof Date ? value.toISOString() : String(value))
+  }
+  return search.size > 0 ? `${path}?${search}` : path
 }
 
-export function fetchFlows(filter: FlowsFilter) {
-  return requestList<Flow>(`/api/flows${filterQuery(filter)}`)
+function filterParams({ mac, ip, from, to }: FlowsFilter): Params {
+  return { mac, ip, from, to }
+}
+
+export function fetchStats(filter: FlowsFilter = {}) {
+  return request<Stats>(withQuery("/api/stats", filterParams(filter)))
+}
+
+export function fetchTrafficMeasurements(filter: FlowsFilter = {}, app?: string) {
+  return requestList<TrafficMeasurement>(
+    withQuery("/api/traffic-measurements", { ...filterParams(filter), app })
+  )
+}
+
+export function fetchClients(filter: FlowsFilter = {}) {
+  return requestList<Client>(withQuery("/api/clients", filterParams(filter)))
+}
+
+export type FlowSort = "total" | "download" | "upload" | "packets"
+
+export interface FlowsPageRequest {
+  /** Part of an IP address, a port or a protocol. */
+  q?: string
+  sort?: FlowSort
+  order?: "asc" | "desc"
+  limit: number
+  offset: number
+}
+
+export interface FlowsPage {
+  flows: Flow[]
+  /** Flows matching the filter and query, across all pages. */
+  total: number
+}
+
+export async function fetchFlowsPage(filter: FlowsFilter, page: FlowsPageRequest): Promise<FlowsPage> {
+  const response = await send(withQuery("/api/flows", { ...filterParams(filter), ...page }))
+  const flows = ((await response.json()) as Flow[] | null) ?? []
+  return { flows, total: Number(response.headers.get("X-Total-Count") ?? flows.length) }
+}
+
+export function fetchFlowSummary(filter: FlowsFilter, top: number) {
+  return request<FlowSummary>(withQuery("/api/flows/summary", { ...filterParams(filter), top }))
 }
 
 export function fetchAppTraffic(filter: FlowsFilter = {}) {
-  return requestList<AppTraffic>(`/api/apps${filterQuery(filter)}`)
+  return requestList<AppTraffic>(withQuery("/api/apps", filterParams(filter)))
 }
 
 export function fetchHostnames(ipAddresses: string[]) {

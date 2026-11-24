@@ -6,19 +6,24 @@ import * as React from "react"
 import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
 import { ErrorState } from "@/components/query-state"
+import { RangeFilter } from "@/components/range-filter"
 import { ShareBar } from "@/components/share-bar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useRange } from "@/hooks/use-range"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import type { Device } from "@/lib/network"
 import { deviceLabel } from "@/lib/network"
 import { devicesQuery } from "@/lib/queries"
 import { createColumns } from "@/lib/table"
+import { DEFAULT_RANGE, rangePhrase } from "@/lib/timeseries"
 
 export const Route = createFileRoute("/clients/")({
-  loader: ({ context: { queryClient } }) => void queryClient.prefetchQuery(devicesQuery),
+  loaderDeps: ({ search }) => ({ range: search.range ?? DEFAULT_RANGE }),
+  loader: ({ context: { queryClient }, deps: { range } }) =>
+    void queryClient.prefetchQuery(devicesQuery(range)),
   component: Clients,
 })
 
@@ -137,7 +142,8 @@ function matches(device: Device, query: string) {
 }
 
 function Clients() {
-  const devices = useQuery(devicesQuery)
+  const range = useRange()
+  const devices = useQuery(devicesQuery(range))
   const [query, setQuery] = React.useState("")
   const deferredQuery = React.useDeferredValue(query.trim())
 
@@ -156,10 +162,12 @@ function Clients() {
         title="Clients"
         description={
           devices.data
-            ? `${formatNumber(all.length)} devices · ${formatNumber(addressCount)} addresses · ${formatBytes(totalTraffic)} all time`
+            ? `${formatNumber(all.length)} devices · ${formatNumber(addressCount)} addresses · ${formatBytes(totalTraffic)} · ${rangePhrase(range)}`
             : "Devices seen on your network, grouped by MAC address"
         }
-      />
+      >
+        <RangeFilter />
+      </PageHeader>
 
       {devices.isError ? (
         <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />
@@ -189,7 +197,7 @@ function Clients() {
               resetKey={deferredQuery}
               pageSize={20}
               emptyMessage={
-                deferredQuery ? `No clients match “${deferredQuery}”.` : "No clients seen yet."
+                deferredQuery ? `No clients match “${deferredQuery}”.` : "No clients active in this period."
               }
             />
           </CardContent>

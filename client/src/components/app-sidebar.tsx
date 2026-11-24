@@ -18,13 +18,15 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useRange } from "@/hooks/use-range"
 import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
 import { devicesQuery } from "@/lib/queries"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const { data: devices, isPending } = useQuery(devicesQuery)
+  const range = useRange()
+  const { data: devices, isPending } = useQuery(devicesQuery(range))
   const { isMobile, setOpenMobile } = useSidebar()
   const closeOnMobile = () => isMobile && setOpenMobile(false)
 

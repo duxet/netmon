@@ -20,6 +20,32 @@ export function rangeInfo(key: RangeKey) {
   return RANGES.find((range) => range.key === key) ?? RANGES[1]
 }
 
+export const DEFAULT_RANGE: RangeKey = "7d"
+
+/** "last 7 days", "all time": for use inside a sentence. */
+export function rangePhrase(key: RangeKey) {
+  return rangeInfo(key).label.toLowerCase()
+}
+
+/**
+ * Start of a range's window, as buildTrafficSeries draws it: whole hours
+ * ending with the current one, which also matches the hourly rollups.
+ * Undefined for all time.
+ */
+export function rangeStart(key: RangeKey, now: number): Date | undefined {
+  const { hours } = rangeInfo(key)
+  return hours === null ? undefined : new Date(floorHour(now) + HOUR - hours * HOUR)
+}
+
+/**
+ * Like rangeStart, but including the window before (to compare with it) and
+ * a day before that, to tell whether that window was monitored throughout.
+ */
+export function rangeStartWithPrevious(key: RangeKey, now: number): Date | undefined {
+  const { hours } = rangeInfo(key)
+  return hours === null ? undefined : new Date(floorHour(now) + HOUR - 2 * hours * HOUR - DAY)
+}
+
 export interface Bucket {
   /** Bucket start, epoch milliseconds. */
   time: number
@@ -136,8 +162,10 @@ export function buildTrafficSeries(
     }
   }
 
+  // Compare only with a previous window that was monitored throughout:
+  // data from before it began (see rangeStartWithPrevious) shows it was.
   let previous: Totals | null = null
-  if (range.hours !== null && first !== undefined && first < start) {
+  if (range.hours !== null && first !== undefined && first < start - span) {
     previous = sumTotals(points.filter((p) => p.time >= start - span && p.time < start))
   }
 

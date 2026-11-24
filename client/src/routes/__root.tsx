@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import { createRootRouteWithContext, Link, Outlet } from "@tanstack/react-router"
+import { createRootRouteWithContext, Link, Outlet, retainSearchParams } from "@tanstack/react-router"
 import * as React from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -13,6 +13,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { isRangeKey, type RangeKey } from "@/lib/timeseries"
 
 declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
@@ -30,6 +31,11 @@ const RouterDevtools = import.meta.env.DEV
   : () => null
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  // The time range scopes every page, so it is a root search param that
+  // links keep when navigating between pages.
+  validateSearch: (search: Record<string, unknown>): { range?: RangeKey } =>
+    isRangeKey(search.range) ? { range: search.range } : {},
+  search: { middlewares: [retainSearchParams(["range"])] },
   component: RootLayout,
   notFoundComponent: NotFound,
 })

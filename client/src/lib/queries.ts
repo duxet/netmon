@@ -3,43 +3,72 @@ import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query"
 import {
   fetchAppTraffic,
   fetchClients,
-  fetchFlows,
+  fetchFlowsPage,
+  fetchFlowSummary,
   fetchHostnames,
   fetchStats,
   fetchTrafficMeasurements,
-  type FlowsFilter,
+  type FlowsPageRequest,
 } from "@/lib/api"
 import { cleanHostname, groupDevices } from "@/lib/network"
+import { rangeStart, rangeStartWithPrevious, type RangeKey } from "@/lib/timeseries"
 
 export const REFRESH_INTERVAL = 60_000
 
-export const statsQuery = queryOptions({
-  queryKey: ["stats"],
-  queryFn: fetchStats,
-})
+/** A client by MAC or IP address; empty for the whole network. */
+export interface ClientFilter {
+  mac?: string
+  ip?: string
+}
 
-export const trafficQuery = queryOptions({
-  queryKey: ["traffic-measurements"],
-  queryFn: fetchTrafficMeasurements,
-})
+// Query keys hold the range ("7d"), not a timestamp: the window's start is
+// worked out when the data is fetched, so every refresh moves it forward
+// without creating a new cache entry each minute.
 
-export const devicesQuery = queryOptions({
-  queryKey: ["clients"],
-  queryFn: fetchClients,
-  select: groupDevices,
-})
-
-export function flowsQuery(filter: FlowsFilter) {
+export function statsQuery(range: RangeKey) {
   return queryOptions({
-    queryKey: ["flows", filter],
-    queryFn: () => fetchFlows(filter),
+    queryKey: ["stats", range],
+    queryFn: () => fetchStats({ from: rangeStart(range, Date.now()) }),
   })
 }
 
-export function appsQuery(filter: FlowsFilter = {}) {
+/** Hourly traffic for the range and the window before it (for comparisons). */
+export function trafficQuery(range: RangeKey, client: ClientFilter = {}, app?: string) {
   return queryOptions({
-    queryKey: ["apps", filter],
-    queryFn: () => fetchAppTraffic(filter),
+    queryKey: ["traffic-measurements", range, client, app ?? null],
+    queryFn: () =>
+      fetchTrafficMeasurements({ ...client, from: rangeStartWithPrevious(range, Date.now()) }, app),
+  })
+}
+
+export function devicesQuery(range: RangeKey) {
+  return queryOptions({
+    queryKey: ["clients", range],
+    queryFn: () => fetchClients({ from: rangeStart(range, Date.now()) }),
+    select: groupDevices,
+  })
+}
+
+export function appsQuery(range: RangeKey, client: ClientFilter = {}) {
+  return queryOptions({
+    queryKey: ["apps", range, client],
+    queryFn: () => fetchAppTraffic({ ...client, from: rangeStart(range, Date.now()) }),
+  })
+}
+
+export function flowSummaryQuery(range: RangeKey, client: ClientFilter, top: number) {
+  return queryOptions({
+    queryKey: ["flow-summary", range, client, top],
+    queryFn: () => fetchFlowSummary({ ...client, from: rangeStart(range, Date.now()) }, top),
+  })
+}
+
+export function flowsPageQuery(range: RangeKey, client: ClientFilter, page: FlowsPageRequest) {
+  return queryOptions({
+    queryKey: ["flows", range, client, page],
+    queryFn: () => fetchFlowsPage({ ...client, from: rangeStart(range, Date.now()) }, page),
+    // Keep showing the current page while the next one loads.
+    placeholderData: keepPreviousData,
   })
 }
 

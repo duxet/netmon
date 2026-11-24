@@ -184,54 +184,6 @@ export function toSubjectFlows(flows: Flow[], subject: Subject): SubjectFlow[] {
   })
 }
 
-export interface Aggregate {
-  key: string
-  label: string
-  download: number
-  upload: number
-  total: number
-  count: number
-}
-
-export function aggregateBy(
-  flows: SubjectFlow[],
-  keyOf: (flow: SubjectFlow) => string | null,
-  labelOf: (key: string, flow: SubjectFlow) => string = (key) => key
-): Aggregate[] {
-  const groups = new Map<string, Aggregate>()
-  for (const flow of flows) {
-    const key = keyOf(flow)
-    if (key === null) continue
-    let group = groups.get(key)
-    if (!group) {
-      group = { key, label: labelOf(key, flow), download: 0, upload: 0, total: 0, count: 0 }
-      groups.set(key, group)
-    }
-    group.download += flow.download
-    group.upload += flow.upload
-    group.total += flow.total
-    group.count += 1
-  }
-  return [...groups.values()].sort((a, b) => b.total - a.total)
-}
-
-/** Keeps the top `limit - 1` rows and folds the tail into "Other". */
-export function topWithOther(rows: Aggregate[], limit: number): Aggregate[] {
-  if (rows.length <= limit) return rows
-  const head = rows.slice(0, limit - 1)
-  const other = rows.slice(limit - 1).reduce<Aggregate>(
-    (acc, row) => ({
-      ...acc,
-      download: acc.download + row.download,
-      upload: acc.upload + row.upload,
-      total: acc.total + row.total,
-      count: acc.count + row.count,
-    }),
-    { key: "__other__", label: "Other", download: 0, upload: 0, total: 0, count: 0 }
-  )
-  return [...head, other]
-}
-
 // ---------------------------------------------------------------------------
 // Protocols, services and countries
 // ---------------------------------------------------------------------------
@@ -247,6 +199,12 @@ const PROTOCOLS: Record<number, string> = {
   51: "AH",
   58: "ICMPv6",
   132: "SCTP",
+}
+
+/** Parses a "protocol/port" service key from /api/flows/summary, e.g. "6/443". */
+export function parseServiceKey(key: string): { protocol: number; port: number } {
+  const [protocol, port] = key.split("/").map(Number)
+  return { protocol: protocol || 0, port: port || 0 }
 }
 
 export function protocolName(protocol: number): string {
