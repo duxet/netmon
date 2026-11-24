@@ -7,11 +7,14 @@ import (
 	"embed"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
+	"github.com/duxet/netmon/storage"
 	"io/fs"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/duckdb/duckdb-go/v2"
 	migrate "github.com/rubenv/sql-migrate"
@@ -57,6 +60,12 @@ func main() {
 	}
 	log.Printf("Applied %d migrations", n)
 
+	retentionDays, err := strconv.Atoi(envOr("NETMON_RETENTION_DAYS", "0"))
+	if err != nil || retentionDays < 0 {
+		log.Fatalf("NETMON_RETENTION_DAYS must be a number of days (0 keeps all data): %q", os.Getenv("NETMON_RETENTION_DAYS"))
+	}
+	compactionDone := compactPeriodically(ctx, db, time.Duration(retentionDays)*24*time.Hour)
+
 	coll, err := collector.CollectTraffic(db)
 	if err != nil {
 		log.Println("Collector failed to start:", err)
@@ -89,6 +98,45 @@ func main() {
 	if err := app.Listen(":2137"); err != nil {
 		log.Fatal(err)
 	}
+
+	<-compactionDone
+}
+
+// compactPeriodically rolls per-minute flows up into hourly rows and applies
+// retention, at startup and then every hour, until ctx is done. The returned
+// channel is closed once a compaction in progress has finished.
+func compactPeriodically(ctx context.Context, db *sql.DB, retention time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+
+	compact := func() {
+		result, err := storage.Compact(db, time.Now(), retention)
+		if err != nil {
+			log.Println("Failed to compact flows:", err)
+			return
+		}
+		if result != (storage.CompactResult{}) {
+			log.Printf("Compacted flows: %d rows rolled up into %d hourly rows, %d expired",
+				result.Removed, result.RolledUp, result.Expired)
+		}
+	}
+
+	go func() {
+		defer close(done)
+		compact()
+
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				compact()
+			}
+		}
+	}()
+
+	return done
 }
 
 func envOr(name, fallback string) string {

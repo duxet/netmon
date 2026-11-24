@@ -124,11 +124,11 @@ func TestClientFlows(t *testing.T) {
 // A failing query answers with a 500 and leaves the server running.
 func TestDatabaseErrorsReturn500(t *testing.T) {
 	app, db := newTestApp(t)
-	if _, err := db.Exec(`DROP TABLE flows`); err != nil {
+	if _, err := db.Exec(`DROP VIEW all_flows`); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/api/stats", "/api/flows", "/api/clients", "/api/traffic-measurements", "/api/apps"} {
+	for _, path := range []string{"/api/stats", "/api/flows", "/api/flows/summary", "/api/clients", "/api/traffic-measurements", "/api/apps"} {
 		status, body := do(t, app, "GET", path, "")
 		if status != fiber.StatusInternalServerError {
 			t.Errorf("GET %s = %d, want 500", path, status)

@@ -7,6 +7,69 @@ import (
 	"github.com/duxet/netmon/storage"
 )
 
+// classifyPair returns the app owning a record's remote endpoint and its
+// traffic from the local network's point of view (InBytes is download).
+// ok is false for traffic between two local endpoints.
+func classifyPair(classifier *apps.Classifier, record storage.EndpointPairTrafficRecord) (app string, traffic TrafficDTO, ok bool) {
+	if record.SourceIPAddress.Addr == nil || record.DestinationIPAddress.Addr == nil {
+		return "", TrafficDTO{}, false
+	}
+
+	src := *record.SourceIPAddress.Addr
+	dst := *record.DestinationIPAddress.Addr
+
+	switch {
+	case apps.IsPublic(dst):
+		// Connection initiated towards a remote host: replies are downloads.
+		return classifier.Classify(dst), TrafficDTO{record.InBytes, record.InPackets, record.OutBytes, record.OutPackets}, true
+	case apps.IsPublic(src):
+		// Connection initiated by a remote host: originating traffic is a download.
+		return classifier.Classify(src), TrafficDTO{record.OutBytes, record.OutPackets, record.InBytes, record.InPackets}, true
+	default:
+		return "", TrafficDTO{}, false
+	}
+}
+
+// isAppName reports whether name is a known app or the catch-all bucket.
+func isAppName(name string) bool {
+	if name == apps.Other {
+		return true
+	}
+	for _, app := range apps.Known {
+		if app.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// appTrafficByHour sums one app's traffic per hour, oldest first, from
+// records of GetEndpointPairTrafficByHour.
+func appTrafficByHour(classifier *apps.Classifier, records []storage.EndpointPairTrafficRecord, app string) []TrafficMeasurementDTO {
+	var result []TrafficMeasurementDTO
+
+	for _, record := range records {
+		name, traffic, ok := classifyPair(classifier, record)
+		if !ok || name != app {
+			continue
+		}
+
+		// Records come ordered by hour, so each hour is one run.
+		if n := len(result); n > 0 && result[n-1].Date.Equal(record.Hour) {
+			result[n-1].InBytes += traffic.InBytes
+			result[n-1].OutBytes += traffic.OutBytes
+			continue
+		}
+		result = append(result, TrafficMeasurementDTO{
+			InBytes:  traffic.InBytes,
+			OutBytes: traffic.OutBytes,
+			Date:     record.Hour,
+		})
+	}
+
+	return result
+}
+
 // aggregateAppTraffic attributes each record to the app owning its remote
 // endpoint and sums up traffic per app. Traffic is reported from the local
 // network's point of view: InBytes is download, OutBytes is upload.
@@ -15,26 +78,8 @@ func aggregateAppTraffic(classifier *apps.Classifier, records []storage.Endpoint
 	totals := map[string]*TrafficDTO{}
 
 	for _, record := range records {
-		if record.SourceIPAddress.Addr == nil || record.DestinationIPAddress.Addr == nil {
-			continue
-		}
-
-		src := *record.SourceIPAddress.Addr
-		dst := *record.DestinationIPAddress.Addr
-
-		var app string
-		var traffic TrafficDTO
-
-		switch {
-		case apps.IsPublic(dst):
-			// Connection initiated towards a remote host: replies are downloads.
-			app = classifier.Classify(dst)
-			traffic = TrafficDTO{record.InBytes, record.InPackets, record.OutBytes, record.OutPackets}
-		case apps.IsPublic(src):
-			// Connection initiated by a remote host: originating traffic is a download.
-			app = classifier.Classify(src)
-			traffic = TrafficDTO{record.OutBytes, record.OutPackets, record.InBytes, record.InPackets}
-		default:
+		app, traffic, ok := classifyPair(classifier, record)
+		if !ok {
 			continue
 		}
 

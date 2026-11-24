@@ -1,0 +1,61 @@
+package storage
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+// Compact rolls the per-minute rows of every complete hour before now up
+// into flows_hourly, one row per flow and hour, and deletes hourly rows
+// older than retention (zero keeps them forever).
+//
+// It runs in one transaction. Rows the collector inserts meanwhile belong
+// to the current hour, or are not visible to the transaction yet; either
+// way they stay in flows for the next run.
+func Compact(db *sql.DB, now time.Time, retention time.Duration) (CompactResult, error) {
+	var result CompactResult
+	cutoff := now.Truncate(time.Hour)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return result, fmt.Errorf("compact flows: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.Exec(`
+		INSERT INTO flows_hourly
+			(src_mac, dst_mac, src_ip, dst_ip, ip_proto, port,
+			 in_bytes, in_packets, out_bytes, out_packets, created_at)
+		SELECT src_mac, dst_mac, src_ip, dst_ip, ip_proto, port,
+		       sum(in_bytes), sum(in_packets), sum(out_bytes), sum(out_packets),
+		       `+hourBucket+` AS bucket
+		FROM flows
+		WHERE created_at < ?::TIMESTAMPTZ
+		GROUP BY src_mac, dst_mac, src_ip, dst_ip, ip_proto, port, bucket
+	`, cutoff)
+	if err != nil {
+		return result, fmt.Errorf("roll up flows: %w", err)
+	}
+	result.RolledUp, _ = res.RowsAffected()
+
+	res, err = tx.Exec(`DELETE FROM flows WHERE created_at < ?::TIMESTAMPTZ`, cutoff)
+	if err != nil {
+		return result, fmt.Errorf("delete rolled up flows: %w", err)
+	}
+	result.Removed, _ = res.RowsAffected()
+
+	if retention > 0 {
+		res, err = tx.Exec(`DELETE FROM flows_hourly WHERE created_at < ?::TIMESTAMPTZ`, now.Add(-retention))
+		if err != nil {
+			return result, fmt.Errorf("delete expired flows: %w", err)
+		}
+		result.Expired, _ = res.RowsAffected()
+	}
+
+	if err := tx.Commit(); err != nil {
+		return CompactResult{}, fmt.Errorf("compact flows: %w", err)
+	}
+
+	return result, nil
+}

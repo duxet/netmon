@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/netip"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/duxet/netmon/apps"
@@ -15,11 +16,6 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/static"
 )
-
-type Pagination struct {
-	Limit  uint32
-	Offset uint32
-}
 
 // Options configures the HTTP API's lookups.
 type Options struct {
@@ -35,11 +31,15 @@ type Options struct {
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
 const maxHostnamesPerRequest = 256
 
-func toFlowDTOs(records []storage.FlowRecord, countries *countryLookup) []FlowDTO {
-	var flows []FlowDTO
+// totalCountHeader carries the number of flows matching a paged request.
+const totalCountHeader = "X-Total-Count"
 
-	for _, record := range records {
-		flows = append(flows, FlowDTO{
+func toFlowDTOs(flows []orientedFlow, countries *countryLookup) []FlowDTO {
+	var dtos []FlowDTO
+
+	for _, flow := range flows {
+		record := flow.record
+		dtos = append(dtos, FlowDTO{
 			Source: EndpointDTO{
 				MACAddress: record.SourceMACAddress,
 				IPAddress:  record.SourceIPAddress,
@@ -61,7 +61,7 @@ func toFlowDTOs(records []storage.FlowRecord, countries *countryLookup) []FlowDT
 		})
 	}
 
-	return flows
+	return dtos
 }
 
 // spaFallback serves the app shell for client-side routes such as
@@ -92,12 +92,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
 	app.Hooks().OnPostShutdown(func(error) error { return countries.Close() })
 
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
 
-	app.Get("/api/flows", func(c fiber.Ctx) error {
-		log.Println("Returning list of flows")
-
-		filter, err := parseFlowsFilter(c)
+	// serveFlows answers with one page of the flows matching filter, and
+	// their total number in the X-Total-Count header.
+	serveFlows := func(c fiber.Ctx, filter storage.FlowsFilter) error {
+		page, err := parseFlowsPage(c)
 		if err != nil {
 			return err
 		}
@@ -107,13 +107,56 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		return c.JSON(toFlowDTOs(records, countries))
+		hasClient := filter.MAC != nil || filter.IP != nil
+		flows, total := pageFlows(orientFlows(records, filter), page, hasClient)
+		c.Set(totalCountHeader, strconv.Itoa(total))
+
+		return c.JSON(toFlowDTOs(flows, countries))
+	}
+
+	app.Get("/api/flows", func(c fiber.Ctx) error {
+		log.Println("Returning list of flows")
+
+		filter, err := parseFlowsFilter(c)
+		if err != nil {
+			return err
+		}
+
+		return serveFlows(c, filter)
+	})
+
+	// Totals and the largest remote hosts, services and countries of the
+	// flows matching the filter, seen from the filtered client.
+	app.Get("/api/flows/summary", func(c fiber.Ctx) error {
+		log.Println("Returning flow summary")
+
+		filter, err := parseFlowsFilter(c)
+		if err != nil {
+			return err
+		}
+
+		top, err := parseInt(c, "top", defaultTopGroups, 1, maxTopGroups)
+		if err != nil {
+			return err
+		}
+
+		records, err := storage.GetFlows(db, filter)
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(summarizeFlows(orientFlows(records, filter), top, countries))
 	})
 
 	app.Get("/api/stats", func(c fiber.Ctx) error {
 		log.Println("Returning stats")
 
-		record, err := storage.GetStats(db)
+		filter, err := parseFlowsFilter(c)
+		if err != nil {
+			return err
+		}
+
+		record, err := storage.GetStats(db, filter)
 		if err != nil {
 			return err
 		}
@@ -141,10 +184,30 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		return c.JSON(aggregateAppTraffic(apps.Default(), records))
 	})
 
+	// Traffic per hour. With mac or ip it is counted from that client's
+	// side; with app, only traffic to that app is counted.
 	app.Get("/api/traffic-measurements", func(c fiber.Ctx) error {
 		log.Println("Returning traffic measurements")
 
-		records, err := storage.GetTrafficMeasurements(db)
+		filter, err := parseFlowsFilter(c)
+		if err != nil {
+			return err
+		}
+
+		if app := c.Query("app"); app != "" {
+			if !isAppName(app) {
+				return badRequest("unknown app: " + app)
+			}
+
+			records, err := storage.GetEndpointPairTrafficByHour(db, filter)
+			if err != nil {
+				return err
+			}
+
+			return c.JSON(appTrafficByHour(apps.Default(), records, app))
+		}
+
+		records, err := storage.GetTrafficMeasurements(db, filter)
 		if err != nil {
 			return err
 		}
@@ -164,7 +227,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/clients", func(c fiber.Ctx) error {
 		log.Println("Returning list of clients")
 
-		records, err := storage.GetClients(db)
+		filter, err := parseFlowsFilter(c)
+		if err != nil {
+			return err
+		}
+
+		records, err := storage.GetClients(db, filter)
 		if err != nil {
 			return err
 		}
@@ -206,17 +274,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/clients/:clientId/flows", func(c fiber.Ctx) error {
 		log.Println("Returning list of client flows")
 
-		filter, err := parseClientID(c.Params("clientId"))
+		filter, err := parseClientFilter(c, c.Params("clientId"))
 		if err != nil {
 			return err
 		}
 
-		records, err := storage.GetFlows(db, filter)
-		if err != nil {
-			return err
-		}
-
-		return c.JSON(toFlowDTOs(records, countries))
+		return serveFlows(c, filter)
 	})
 
 	type HostnamesBody struct {
@@ -228,11 +291,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 		r := new(HostnamesBody)
 		if err := c.Bind().Body(r); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid request body: "+err.Error())
+			return badRequest("invalid request body: " + err.Error())
 		}
 
 		if len(r.IPAddresses) > maxHostnamesPerRequest {
-			return fiber.NewError(fiber.StatusBadRequest, "too many ip addresses in one request")
+			return badRequest("too many ip addresses in one request")
 		}
 
 		var addrs []common.IPAddress

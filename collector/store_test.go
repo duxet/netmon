@@ -176,7 +176,7 @@ func getFlows(t *testing.T, db *sql.DB, filter storage.FlowsFilter) []storage.Fl
 
 func getClients(t *testing.T, db *sql.DB) []storage.ClientRecord {
 	t.Helper()
-	clients, err := storage.GetClients(db)
+	clients, err := storage.GetClients(db, storage.FlowsFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func getClients(t *testing.T, db *sql.DB) []storage.ClientRecord {
 
 func getStats(t *testing.T, db *sql.DB) storage.StatsRecord {
 	t.Helper()
-	stats, err := storage.GetStats(db)
+	stats, err := storage.GetStats(db, storage.FlowsFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

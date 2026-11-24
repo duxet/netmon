@@ -33,6 +33,9 @@ type StatsRecord struct {
 	TotalPackets *uint64
 }
 
+// TrafficMeasurementRecord is the traffic of one hour. With a MAC or IP
+// filter, InBytes is what that client downloaded and OutBytes what it
+// uploaded; otherwise they are the reply and original directions.
 type TrafficMeasurementRecord struct {
 	InBytes  uint64
 	OutBytes uint64
@@ -46,4 +49,16 @@ type EndpointPairTrafficRecord struct {
 	InPackets            uint64
 	OutBytes             uint64
 	OutPackets           uint64
+	// Hour is the start of the hour, for GetEndpointPairTrafficByHour.
+	Hour time.Time
+}
+
+// CompactResult reports what Compact changed.
+type CompactResult struct {
+	// RolledUp is the number of hourly rows written.
+	RolledUp int64
+	// Removed is the number of per-minute rows they replaced.
+	Removed int64
+	// Expired is the number of hourly rows deleted for being past retention.
+	Expired int64
 }

@@ -3,14 +3,21 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/duxet/netmon/common"
 )
 
+// FlowsFilter restricts queries to flows of one client and/or a time range.
 type FlowsFilter struct {
 	MAC *common.MACAddress
 	IP  *common.IPAddress
+	// From is inclusive and To exclusive. Flows older than the current hour
+	// are stored per hour, so for them the range is effectively rounded to
+	// whole hours.
+	From *time.Time
+	To   *time.Time
 }
 
 // apply restricts a query to flows where either endpoint matches the filter.
@@ -25,7 +32,29 @@ func (filter FlowsFilter) apply(query sq.SelectBuilder) sq.SelectBuilder {
 		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
 	}
 
+	if filter.From != nil {
+		query = query.Where("created_at >= ?::TIMESTAMPTZ", *filter.From)
+	}
+
+	if filter.To != nil {
+		query = query.Where("created_at < ?::TIMESTAMPTZ", *filter.To)
+	}
+
 	return query
+}
+
+// outbound returns a condition that is true for flows the filtered client
+// originated (it is the source), with its argument. Without a client filter
+// every flow counts as originated from the local network.
+func (filter FlowsFilter) outbound() (string, []any) {
+	switch {
+	case filter.MAC != nil:
+		return "src_mac = ?", []any{[]byte(filter.MAC.HardwareAddr)}
+	case filter.IP != nil:
+		return "src_ip = ?", []any{filter.IP.AsSlice()}
+	default:
+		return "TRUE", nil
+	}
 }
 
 // collect runs a query and scans every row with scan, closing the rows and
@@ -52,10 +81,17 @@ func collect[T any](rows *sql.Rows, queryErr error, scan func(*sql.Rows, *T) err
 	return records, nil
 }
 
+// hourBucket groups TIMESTAMPTZ values by UTC hour. Casting to TIMESTAMP
+// first would bucket in the server's local time and shift the results by
+// its UTC offset.
+const hourBucket = "time_bucket(INTERVAL '1 hour', created_at)"
+
+// GetFlows returns traffic per flow (endpoints, protocol and port), most
+// traffic first.
 func GetFlows(db *sql.DB, filter FlowsFilter) ([]FlowRecord, error) {
 	query := filter.apply(sq.
 		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
-		From("flows").
+		From("all_flows").
 		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
 		OrderBy("sum(in_bytes) + sum(out_bytes) DESC"))
 
@@ -81,14 +117,13 @@ func GetFlows(db *sql.DB, filter FlowsFilter) ([]FlowRecord, error) {
 	return flows, nil
 }
 
-func GetStats(db *sql.DB) (StatsRecord, error) {
-	row := db.QueryRow(
-		`SELECT count(DISTINCT src_mac), sum(in_bytes + out_bytes)::INT64, sum(in_packets + out_packets)::INT64
-		FROM flows
-	`)
+func GetStats(db *sql.DB, filter FlowsFilter) (StatsRecord, error) {
+	query := filter.apply(sq.
+		Select("count(DISTINCT src_mac)", "sum(in_bytes + out_bytes)::INT64", "sum(in_packets + out_packets)::INT64").
+		From("all_flows"))
 
 	var stats StatsRecord
-	if err := row.Scan(
+	if err := query.RunWith(db).QueryRow().Scan(
 		&stats.TotalClients,
 		&stats.TotalBytes,
 		&stats.TotalPackets,
@@ -99,20 +134,23 @@ func GetStats(db *sql.DB) (StatsRecord, error) {
 	return stats, nil
 }
 
-func GetClients(db *sql.DB) ([]ClientRecord, error) {
-	rows, err := db.Query(`
-		SELECT
-		    CASE WHEN src_mac IS NOT NULL THEN src_mac ELSE dst_mac END AS mac,
-		    CASE WHEN src_mac IS NOT NULL THEN src_ip ELSE dst_ip END AS ip,
-		    sum(in_bytes)::INT64,
-		    sum(in_packets)::INT64,
-		    sum(out_bytes)::INT64,
-		    sum(out_packets)::INT64
-		FROM flows
-		GROUP BY mac, ip
-		HAVING mac IS NOT NULL
-		ORDER BY sum(in_bytes + out_bytes) DESC
-	`)
+// GetClients returns traffic per local (MAC, IP) pair, most traffic first.
+func GetClients(db *sql.DB, filter FlowsFilter) ([]ClientRecord, error) {
+	query := filter.apply(sq.
+		Select(
+			"CASE WHEN src_mac IS NOT NULL THEN src_mac ELSE dst_mac END AS mac",
+			"CASE WHEN src_mac IS NOT NULL THEN src_ip ELSE dst_ip END AS ip",
+			"sum(in_bytes)::INT64",
+			"sum(in_packets)::INT64",
+			"sum(out_bytes)::INT64",
+			"sum(out_packets)::INT64",
+		).
+		From("all_flows").
+		GroupBy("mac", "ip").
+		Having("mac IS NOT NULL").
+		OrderBy("sum(in_bytes + out_bytes) DESC"))
+
+	rows, err := query.RunWith(db).Query()
 	clients, err := collect(rows, err, func(rows *sql.Rows, client *ClientRecord) error {
 		return rows.Scan(
 			&client.MACAddress,
@@ -130,16 +168,22 @@ func GetClients(db *sql.DB) ([]ClientRecord, error) {
 	return clients, nil
 }
 
-func GetTrafficMeasurements(db *sql.DB) ([]TrafficMeasurementRecord, error) {
-	rows, err := db.Query(`
-		SELECT
-			sum(in_bytes)::INT64 as in_bytes,
-			sum(out_bytes)::INT64 out_bytes,
-			time_bucket(interval '1 hour', created_at::TIMESTAMP) as bucket
-		FROM FLOWS
-		GROUP BY bucket
-		ORDER BY bucket ASC
-	`)
+// GetTrafficMeasurements returns traffic per hour, oldest first. With a
+// client filter, it is counted from that client's side: what it received is
+// InBytes even when the other host opened the connection.
+func GetTrafficMeasurements(db *sql.DB, filter FlowsFilter) ([]TrafficMeasurementRecord, error) {
+	outbound, args := filter.outbound()
+
+	query := filter.apply(sq.
+		Select().
+		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN in_bytes ELSE out_bytes END)::INT64", args...)).
+		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN out_bytes ELSE in_bytes END)::INT64", args...)).
+		Column(hourBucket + " AS bucket").
+		From("all_flows").
+		GroupBy("bucket").
+		OrderBy("bucket ASC"))
+
+	rows, err := query.RunWith(db).Query()
 	measurements, err := collect(rows, err, func(rows *sql.Rows, measurement *TrafficMeasurementRecord) error {
 		return rows.Scan(
 			&measurement.InBytes,
@@ -154,26 +198,50 @@ func GetTrafficMeasurements(db *sql.DB) ([]TrafficMeasurementRecord, error) {
 	return measurements, nil
 }
 
+func scanEndpointPair(rows *sql.Rows, record *EndpointPairTrafficRecord, extra ...any) error {
+	return rows.Scan(append([]any{
+		&record.SourceIPAddress,
+		&record.DestinationIPAddress,
+		&record.InBytes,
+		&record.InPackets,
+		&record.OutBytes,
+		&record.OutPackets,
+	}, extra...)...)
+}
+
 // GetEndpointPairTraffic returns traffic totals grouped by source and destination IP address.
 func GetEndpointPairTraffic(db *sql.DB, filter FlowsFilter) ([]EndpointPairTrafficRecord, error) {
 	query := filter.apply(sq.
 		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
-		From("flows").
+		From("all_flows").
 		GroupBy("src_ip", "dst_ip"))
 
 	rows, err := query.RunWith(db).Query()
 	records, err := collect(rows, err, func(rows *sql.Rows, record *EndpointPairTrafficRecord) error {
-		return rows.Scan(
-			&record.SourceIPAddress,
-			&record.DestinationIPAddress,
-			&record.InBytes,
-			&record.InPackets,
-			&record.OutBytes,
-			&record.OutPackets,
-		)
+		return scanEndpointPair(rows, record)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query endpoint pair traffic: %w", err)
+	}
+
+	return records, nil
+}
+
+// GetEndpointPairTrafficByHour is GetEndpointPairTraffic per hour, oldest first.
+func GetEndpointPairTrafficByHour(db *sql.DB, filter FlowsFilter) ([]EndpointPairTrafficRecord, error) {
+	query := filter.apply(sq.
+		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		Column(hourBucket+" AS bucket").
+		From("all_flows").
+		GroupBy("src_ip", "dst_ip", "bucket").
+		OrderBy("bucket ASC"))
+
+	rows, err := query.RunWith(db).Query()
+	records, err := collect(rows, err, func(rows *sql.Rows, record *EndpointPairTrafficRecord) error {
+		return scanEndpointPair(rows, record, &record.Hour)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query hourly endpoint pair traffic: %w", err)
 	}
 
 	return records, nil
