@@ -1,6 +1,7 @@
 import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query"
 
 import {
+  fetchAppTraffic,
   fetchClients,
   fetchFlows,
   fetchHostnames,
@@ -32,6 +33,13 @@ export function flowsQuery(filter: FlowsFilter) {
   return queryOptions({
     queryKey: ["flows", filter],
     queryFn: () => fetchFlows(filter),
+  })
+}
+
+export function appsQuery(filter: FlowsFilter = {}) {
+  return queryOptions({
+    queryKey: ["apps", filter],
+    queryFn: () => fetchAppTraffic(filter),
   })
 }
 

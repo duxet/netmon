@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ActivityIcon, ArrowRightIcon, GaugeIcon, MonitorSmartphoneIcon } from "lucide-react"
 import * as React from "react"
 
+import { AppTrafficCard } from "@/components/app-traffic"
 import { ChartCard } from "@/components/chart-card"
 import { HourOfDayChart, HourOfDayTable } from "@/components/charts/hour-of-day-chart"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
@@ -234,6 +235,8 @@ function Dashboard() {
           )}
         </ChartCard>
       </div>
+
+      <AppTrafficCard />
     </Page>
   )
 }

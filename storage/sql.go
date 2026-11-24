@@ -189,3 +189,46 @@ func GetTrafficMeasurements(db *sql.DB) []TrafficMeasurementRecord {
 
 	return measurements
 }
+
+// GetEndpointPairTraffic returns traffic totals grouped by source and destination IP address.
+func GetEndpointPairTraffic(db *sql.DB, filter FlowsFilter) []EndpointPairTrafficRecord {
+	var query = sq.
+		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		From("flows").
+		GroupBy("src_ip", "dst_ip")
+
+	if filter.MAC != nil {
+		var mac []byte = filter.MAC.HardwareAddr
+		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
+	}
+
+	if filter.IP != nil {
+		ip := filter.IP.AsSlice()
+		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
+	}
+
+	rows, err := query.RunWith(db).Query()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	var records []EndpointPairTrafficRecord
+
+	for rows.Next() {
+		var record EndpointPairTrafficRecord
+		if err := rows.Scan(
+			&record.SourceIPAddress,
+			&record.DestinationIPAddress,
+			&record.InBytes,
+			&record.InPackets,
+			&record.OutBytes,
+			&record.OutPackets,
+		); err != nil {
+			log.Fatal(err)
+		}
+		records = append(records, record)
+	}
+
+	return records
+}

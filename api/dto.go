@@ -48,3 +48,8 @@ type HostnameDTO struct {
 	IPAddress common.IPAddress
 	Hostname  *string
 }
+
+type AppTrafficDTO struct {
+	Name    string
+	Traffic TrafficDTO
+}

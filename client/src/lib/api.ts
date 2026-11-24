@@ -49,6 +49,16 @@ export interface HostnameEntry {
   Hostname: string | null
 }
 
+export interface AppTraffic {
+  /** App name, or "Other" for traffic to unrecognized remote hosts. */
+  Name: string
+  /** From the local network's point of view: In is download. */
+  Traffic: Traffic
+}
+
+/** Name /api/apps uses for traffic that matched no known app. */
+export const OTHER_APP = "Other"
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -92,12 +102,19 @@ export interface FlowsFilter {
   ip?: string
 }
 
-export function fetchFlows(filter: FlowsFilter) {
+function filterQuery(filter: FlowsFilter) {
   const params = new URLSearchParams()
   if (filter.mac) params.set("mac", filter.mac)
   if (filter.ip) params.set("ip", filter.ip)
-  const query = params.size > 0 ? `?${params}` : ""
-  return requestList<Flow>(`/api/flows${query}`)
+  return params.size > 0 ? `?${params}` : ""
+}
+
+export function fetchFlows(filter: FlowsFilter) {
+  return requestList<Flow>(`/api/flows${filterQuery(filter)}`)
+}
+
+export function fetchAppTraffic(filter: FlowsFilter = {}) {
+  return requestList<AppTraffic>(`/api/apps${filterQuery(filter)}`)
 }
 
 export function fetchHostnames(ipAddresses: string[]) {

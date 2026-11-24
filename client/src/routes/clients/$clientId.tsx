@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 
+import { AppTrafficCard } from "@/components/app-traffic"
 import { ChartCard } from "@/components/chart-card"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
 import { DataTable } from "@/components/data-table"
@@ -371,9 +372,14 @@ function ClientDetail() {
                 <EmptyChart icon={<NetworkIcon />} title="No connections recorded" />
               )}
             </ChartCard>
+            {isLocal && (
+              <AppTrafficCard
+                filter={subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip }}
+              />
+            )}
             {countries.length > 0 && (
               <ChartCard
-                className="lg:col-span-2"
+                className={isLocal ? undefined : "lg:col-span-2"}
                 title="Countries"
                 description="Where remote hosts are located, from GeoIP"
                 table={<RankedTable rows={countries} labelHeader="Country" />}
