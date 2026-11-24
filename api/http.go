@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 )
 
 type Pagination struct {
@@ -72,9 +73,17 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS) *fiber.App {
 	app.Use(cors.New())
 
 	app.Use("/", filesystem.New(filesystem.Config{
+		// API requests go to the handlers below, never to the SPA fallback.
+		Next: func(c *fiber.Ctx) bool {
+			return strings.HasPrefix(c.Path(), "/api/")
+		},
 		Root:       http.FS(clientAssets),
 		PathPrefix: "client/dist",
 		Browse:     true,
+		// Client-side routes such as /clients/:id have no file of their own,
+		// so serve the app shell and let the router handle them. Unlike other
+		// paths, NotFoundFile is not joined with PathPrefix.
+		NotFoundFile: "client/dist/index.html",
 	}))
 
 	app.Get("/api/flows", func(c *fiber.Ctx) error {
