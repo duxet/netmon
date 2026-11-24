@@ -5,6 +5,7 @@ import * as React from "react"
 
 import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
+import { DeviceVendor } from "@/components/device-vendor"
 import { ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
 import { RenameDeviceButton } from "@/components/rename-device"
@@ -16,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useRange } from "@/hooks/use-range"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import type { Device } from "@/lib/network"
-import { deviceLabel } from "@/lib/network"
+import { deviceLabel, isRandomizedMac } from "@/lib/network"
 import { devicesQuery } from "@/lib/queries"
 import { createColumns } from "@/lib/table"
 import { DEFAULT_RANGE, rangePhrase } from "@/lib/timeseries"
@@ -73,19 +74,25 @@ function useColumns(totalTraffic: number) {
           cell: ({ row }) => {
             const device = row.original
             return (
-              <Link
-                to="/clients/$clientId"
-                params={{ clientId: device.mac }}
-                className="group/link flex min-w-0 flex-col"
-              >
-                <span className="truncate font-medium group-hover/link:underline">
+              <div className="flex min-w-0 flex-col">
+                <Link
+                  to="/clients/$clientId"
+                  params={{ clientId: device.mac }}
+                  className="truncate font-medium hover:underline"
+                >
                   {device.name ?? device.hostname ?? "Unknown device"}
-                </span>
+                </Link>
                 <span className="truncate text-xs text-muted-foreground">
                   {device.name && device.hostname && `${device.hostname} · `}
                   <span className="font-mono">{device.mac}</span>
+                  {(device.vendor || isRandomizedMac(device.mac)) && (
+                    <>
+                      {" · "}
+                      <DeviceVendor device={device} />
+                    </>
+                  )}
                 </span>
-              </Link>
+              </div>
             )
           },
         }),
@@ -144,6 +151,7 @@ function matches(device: Device, query: string) {
   return (
     device.mac.includes(needle) ||
     (device.name?.toLowerCase().includes(needle) ?? false) ||
+    (device.vendor?.toLowerCase().includes(needle) ?? false) ||
     (device.hostname?.toLowerCase().includes(needle) ?? false) ||
     device.addresses.some(
       (address) =>
@@ -191,7 +199,7 @@ function Clients() {
               </InputGroupAddon>
               <InputGroupInput
                 type="search"
-                placeholder="Search by name, IP or MAC address"
+                placeholder="Search by name, vendor, IP or MAC address"
                 aria-label="Search clients"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}

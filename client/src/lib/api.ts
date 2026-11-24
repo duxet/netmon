@@ -21,6 +21,8 @@ export interface Client {
   Name: string | null
   /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
   Hostname: string | null
+  /** Manufacturer the MAC address was assigned to, if known. */
+  Vendor: string | null
   Endpoint: Endpoint
   Traffic: Traffic
 }

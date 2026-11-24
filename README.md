@@ -95,7 +95,8 @@ rounded to whole hours.
 - The summary has totals and the `top` (default 8) remote hosts, services
   (`"protocol/port"`) and countries, plus the sum of the rest.
 - Device names are keyed by MAC address and returned by `/api/clients` as
-  `Name`, next to the reverse-DNS `Hostname`.
+  `Name`, next to the reverse-DNS `Hostname` and the `Vendor` of the MAC
+  address (null when unknown or randomized).
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
@@ -115,7 +116,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
 ### Devices
 - [x] Let users rename devices, stored in the database
-- [ ] Show the device manufacturer from an offline MAC vendor (OUI) database when there is no hostname
+- [x] Show the device manufacturer from an offline MAC vendor (OUI) database
 - [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
 
 ### Features
@@ -149,3 +150,10 @@ cd client && npm install && npm run dev
 ```
 
 Add shadcn components with `npx shadcn@latest add <component>` from `client/`.
+
+Device vendors come from the IEEE Registration Authority's public MA-L, MA-M
+and MA-S listings, embedded in the binary. Refresh them with:
+
+```sh
+go generate ./vendors
+```

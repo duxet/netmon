@@ -28,6 +28,15 @@ export function isMacAddress(value: string): boolean {
   return MAC_PATTERN.test(value)
 }
 
+/**
+ * Locally administered addresses, such as the private per-network addresses
+ * phones and laptops pick, belong to no manufacturer.
+ */
+export function isRandomizedMac(mac: string): boolean {
+  const firstOctet = Number.parseInt(mac.slice(0, 2), 16)
+  return Number.isFinite(firstOctet) && (firstOctet & 0x02) !== 0
+}
+
 export function normalizeMac(value: string): string {
   return value.toLowerCase().replaceAll("-", ":")
 }
@@ -49,6 +58,8 @@ export interface Device {
   name: string | null
   /** First reverse-DNS name found across the device's addresses. */
   hostname: string | null
+  /** Manufacturer of the network interface, from its MAC address. */
+  vendor: string | null
   addresses: DeviceAddress[]
   traffic: Traffic
   /** Bytes received by the device (download). */
@@ -71,6 +82,7 @@ export function groupDevices(clients: Client[]): Device[] {
         mac,
         name: client.Name,
         hostname: null,
+        vendor: client.Vendor,
         addresses: [],
         traffic: EMPTY_TRAFFIC,
         download: 0,

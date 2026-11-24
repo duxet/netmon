@@ -18,6 +18,7 @@ import { ChartCard } from "@/components/chart-card"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
 import { TrafficChart, TrafficTable } from "@/components/charts/traffic-chart"
 import { DataTable } from "@/components/data-table"
+import { DeviceVendor } from "@/components/device-vendor"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
@@ -340,6 +341,7 @@ function ClientDetail() {
                 </Link>
               </Badge>
             ))}
+            {device && <DeviceVendor device={device} className="ml-1 text-xs text-muted-foreground" />}
           </div>
         }
       >

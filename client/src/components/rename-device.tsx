@@ -20,7 +20,7 @@ import { deviceLabel, type Device } from "@/lib/network"
 
 const MAX_NAME_LENGTH = 64
 
-type NamedDevice = Pick<Device, "mac" | "name" | "hostname" | "addresses">
+type NamedDevice = Pick<Device, "mac" | "name" | "hostname" | "vendor" | "addresses">
 
 function RenameForm({ device, onDone }: { device: NamedDevice; onDone: () => void }) {
   const queryClient = useQueryClient()
@@ -71,6 +71,7 @@ function RenameForm({ device, onDone }: { device: NamedDevice; onDone: () => voi
         />
         <FieldDescription>
           <span className="font-mono">{device.mac}</span>
+          {device.vendor && ` (${device.vendor})`}
           {" · "}
           {device.hostname
             ? `Leave empty to use its hostname, ${device.hostname}.`
