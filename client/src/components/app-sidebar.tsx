@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { LayoutDashboardIcon, MonitorSmartphoneIcon, RadarIcon } from "lucide-react"
+import { LayoutDashboardIcon, MonitorSmartphoneIcon, RadarIcon, RadioIcon } from "lucide-react"
 import type * as React from "react"
 
 import {
@@ -32,6 +32,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const nav = [
     { to: "/", label: "Dashboard", icon: LayoutDashboardIcon, active: pathname === "/" },
+    { to: "/live", label: "Live", icon: RadioIcon, active: pathname === "/live" },
     {
       to: "/clients",
       label: "Clients",

@@ -44,6 +44,24 @@ Services that share infrastructure can't be told apart by IP (YouTube and other
 Google services; Facebook, Instagram and WhatsApp), and traffic served from shared
 CDNs such as Cloudflare or Akamai is reported as "Other".
 
+## Live view
+
+The Live page (`/live`) shows what each device is using right now: download and upload
+for every device and for the whole network, updated every second, next to the last two
+minutes. Rates are in bits per second, seen from each device's own side. As elsewhere,
+only devices on the local network with a known MAC address are listed.
+
+How the rates are measured depends on the platform:
+
+- **Linux** reads the byte counters of Netfilter's connection tracking every second, but
+  only while someone is looking: dumping every connection that often is not free on a
+  small router, so measuring starts with the first request and stops about 10 seconds after
+  the last one. The history therefore begins when the page is opened. The kernel only
+  counts bytes with accounting enabled (`sysctl net.netfilter.nf_conntrack_acct=1`), which
+  the recording of flows needs as well.
+- **macOS** counts packets as they are captured, all the time, so the history is already
+  there when the page is opened.
+
 ## Configuration
 
 Hostnames are looked up with reverse DNS: local addresses on a server that
@@ -81,6 +99,7 @@ rounded to whole hours.
 | `GET /api/flows` | `mac` or `ip`, `from`, `to`, `q`, `sort`, `order`, `limit`, `offset` |
 | `GET /api/clients/:mac-or-ip/flows` | as `/api/flows` |
 | `GET /api/flows/summary` | `mac` or `ip`, `from`, `to`, `top` |
+| `GET /api/live` | `since` |
 | `POST /api/hostnames` | body `{"ip_addresses": [...]}`, at most 256 |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
@@ -97,6 +116,12 @@ rounded to whole hours.
 - Device names are keyed by MAC address and returned by `/api/clients` as
   `Name`, next to the reverse-DNS `Hostname` and the `Vendor` of the MAC
   address (null when unknown or randomized).
+- `/api/live` returns the current bandwidth of devices, one sample per second for the last two
+  minutes, oldest first: `[{"Time": "...", "Devices": [{"MACAddress", "IPAddress", "Download",
+  "Upload"}]}]` with rates in bytes per second. Quiet devices are left out, so a second without
+  traffic has no devices. Pass the `Time` of the newest sample you already have as `since`,
+  exactly as it was returned, to get only newer ones. Asking is what makes the Linux collector
+  measure (see [Live view](#live-view)), so don't poll it while nobody is looking.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
@@ -120,7 +145,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 - [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
 
 ### Features
-- [ ] Live view of current bandwidth per device
+- [x] Live view of current bandwidth per device
 - [ ] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
 - [ ] Monthly usage per device, for ISP data caps
 - [ ] CSV export
