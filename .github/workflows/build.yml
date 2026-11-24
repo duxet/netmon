@@ -1,0 +1,275 @@
+name: Build
+
+# Builds netmon for every supported platform, and publishes a GitHub release
+# when a version tag (v1.2.3) is pushed.
+#
+# Platforms: Linux and macOS, on amd64 and arm64 (the platforms DuckDB ships
+# libraries for that netmon has a collector for), plus OpenWrt packages for
+# the 64-bit targets.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: read
+
+env:
+  # Releases are named after their tag, all other builds are just "dev".
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+
+jobs:
+  check:
+    name: Lint and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Lint the frontend
+        run: npm run lint
+        working-directory: client
+
+      # Type checks, then builds client/dist, which the Go code embeds.
+      - name: Build the frontend
+        run: npm run build
+        working-directory: client
+
+      # node_modules holds some Go files of its own, which aren't ours to check.
+      - name: Vet
+        run: go list ./... | grep -v /node_modules/ | xargs go vet
+
+      - name: Test
+        run: go list ./... | grep -v /node_modules/ | xargs go test
+
+      - name: Keep the frontend for the platform builds
+        uses: actions/upload-artifact@v5
+        with:
+          name: client-dist
+          path: client/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux is built on one runner for both architectures: arm64 is cross
+          # compiled, as DuckDB's static libraries only need a C++ toolchain.
+          - { goos: linux, goarch: amd64, runner: ubuntu-24.04 }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04 }
+          # Both macOS architectures are built on an arm64 runner, with clang
+          # targeting the other architecture for amd64.
+          - { goos: darwin, goarch: amd64, runner: macos-15 }
+          - { goos: darwin, goarch: arm64, runner: macos-15 }
+    env:
+      CGO_ENABLED: "1"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          # Only this platform's DuckDB library is needed, so don't bother
+          # caching them all.
+          cache: false
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: client-dist
+          path: client/dist
+
+      - name: Install the arm64 cross compiler
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CC=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CXX=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          mkdir dist
+          if [ "$GOOS" = linux ]; then
+            # Static, so that one binary runs on any distribution, and on
+            # musl systems such as Alpine and OpenWrt. netgo and osusergo keep
+            # Go away from glibc's name service switch, which a static glibc
+            # can only load from a matching shared glibc.
+            go build -trimpath -tags netgo,osusergo \
+              -ldflags "-s -w -extldflags=-static" -o dist/netmon .
+          else
+            go build -trimpath -ldflags "-s -w" -o dist/netmon .
+          fi
+
+      - name: Check the binary
+        run: |
+          file dist/netmon
+          case "$GOARCH" in
+            amd64) pattern='x86[-_]64' ;;
+            arm64) pattern='aarch64|arm64' ;;
+          esac
+          file dist/netmon | grep -Eq "$pattern"
+          if [ "$GOOS" = linux ]; then
+            file dist/netmon | grep -q 'statically linked'
+          fi
+
+      # Only for binaries the runner can execute.
+      - name: Smoke test
+        if: >-
+          (matrix.goos == 'linux' && matrix.goarch == 'amd64') ||
+          (matrix.goos == 'darwin' && matrix.goarch == 'arm64')
+        run: .github/scripts/smoke-test.sh dist/netmon
+
+      # arm64 binaries are cross compiled, so they run in an emulator.
+      - name: Smoke test (emulated)
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        env:
+          SMOKE_TEST_RUNNER: qemu-aarch64-static
+        run: |
+          sudo apt-get install -y qemu-user-static
+          .github/scripts/smoke-test.sh dist/netmon
+
+      - name: Package
+        run: |
+          name="netmon_${VERSION#v}_${GOOS}_${GOARCH}"
+          cp README.md dist/
+          mkdir release
+          COPYFILE_DISABLE=1 tar -czf "release/${name}.tar.gz" -C dist netmon README.md
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release/*.tar.gz
+          if-no-files-found: error
+
+  # Packages the Linux binaries for OpenWrt, one per package architecture and
+  # OpenWrt release series, because the series decide the format: opkg's .ipk
+  # up to 24.10, apk's .apk from 25.12. See openwrt/netmon/Makefile for why this
+  # packages the binary instead of building it.
+  openwrt:
+    name: OpenWrt ${{ matrix.release }} ${{ matrix.arch }}
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [openwrt-24.10, openwrt-25.12]
+        arch:
+          - x86_64
+          - aarch64_generic
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_cortex-a76
+        include:
+          - { arch: x86_64, goarch: amd64 }
+          - { arch: aarch64_generic, goarch: arm64 }
+          - { arch: aarch64_cortex-a53, goarch: arm64 }
+          - { arch: aarch64_cortex-a72, goarch: arm64 }
+          - { arch: aarch64_cortex-a76, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-linux-${{ matrix.goarch }}
+          path: binary
+
+      - name: Stage the binary and version
+        run: |
+          mkdir openwrt/netmon/src
+          tar -xzf binary/*.tar.gz -C openwrt/netmon/src netmon
+
+          # Packages need a numeric version, builds that aren't releases get 0.0.0.
+          version="${VERSION#v}"
+          if [ "$version" = dev ]; then
+            version=0.0.0
+          fi
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${version}/" openwrt/netmon/Makefile
+          grep -x "PKG_VERSION:=${version}" openwrt/netmon/Makefile
+          echo "PKG_VERSION=${version}" >> "$GITHUB_ENV"
+
+      # The action builds every package in the feed, which is this repository.
+      # Pin it to a commit to stop it from changing under us.
+      - name: Build the package
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.arch }}-${{ matrix.release }}
+          PACKAGES: netmon
+
+      - name: Collect the package
+        run: |
+          mkdir release
+          for package in bin/packages/${{ matrix.arch }}/action/netmon[-_]*; do
+            cp "$package" "release/netmon_${PKG_VERSION}_${{ matrix.release }}_${{ matrix.arch }}.${package##*.}"
+          done
+          ls -l release
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-${{ matrix.release }}-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: openwrt-logs-${{ matrix.release }}-${{ matrix.arch }}
+          path: logs
+          if-no-files-found: ignore
+
+  release:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: [build, openwrt]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Checksum
+        run: |
+          ls -l release
+          (cd release && sha256sum -- * > ../SHA256SUMS)
+          mv SHA256SUMS release/
+
+      - name: Create the release
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/*
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag

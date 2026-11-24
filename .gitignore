@@ -1,7 +1,10 @@
 flows.db
 flows.db.wal
-netmon
-netmon_arm64
+/netmon
+/netmon_arm64
 node_modules/
 GeoLite2-Country.mmdb
 GeoLite2-ASN.mmdb
+
+# OpenWrt package: the binary the workflow stages for the SDK
+openwrt/netmon/src/
