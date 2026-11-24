@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/gofiber/fiber/v2"
-	_ "github.com/marcboeker/go-duckdb"
 	migrate "github.com/rubenv/sql-migrate"
 )
 

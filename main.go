@@ -12,8 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/marcboeker/go-duckdb"
-	_ "github.com/marcboeker/go-duckdb"
+	"github.com/duckdb/duckdb-go/v2"
 	migrate "github.com/rubenv/sql-migrate"
 )
 

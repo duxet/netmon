@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"testing"
 
+	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
-	_ "github.com/marcboeker/go-duckdb"
 	migrate "github.com/rubenv/sql-migrate"
 )
 
