@@ -6,16 +6,24 @@ import (
 	"time"
 )
 
-// Compact rolls the per-minute rows of every complete hour before now up
-// into flows_hourly, one row per flow and hour, and deletes hourly rows
-// older than retention (zero keeps them forever).
+// rawFlowsKept is how long per-minute rows stay in flows at least. Compact
+// rolls up only the hours that ended before now minus rawFlowsKept, so the
+// last hour always has per-minute rows, wherever in the hour compaction ran:
+// a sliding window of up to an hour (such as an alert rule's) never mixes
+// in an hourly row that covers time before the window.
+const rawFlowsKept = time.Hour
+
+// Compact rolls the per-minute rows of complete hours up into flows_hourly,
+// one row per flow and hour, and deletes hourly rows older than retention
+// (zero keeps them forever). The previous hour stays per minute along with
+// the current one (see rawFlowsKept).
 //
 // It runs in one transaction. Rows the collector inserts meanwhile belong
 // to the current hour, or are not visible to the transaction yet; either
 // way they stay in flows for the next run.
 func Compact(db *sql.DB, now time.Time, retention time.Duration) (CompactResult, error) {
 	var result CompactResult
-	cutoff := now.Truncate(time.Hour)
+	cutoff := now.Add(-rawFlowsKept).Truncate(time.Hour)
 
 	tx, err := db.Begin()
 	if err != nil {

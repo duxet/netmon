@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 )
 
 // FlowSnapshotKey groups connections into flows. It holds addresses by
@@ -221,7 +222,7 @@ func dumpFlows(db *sql.DB) error {
 
 // CollectTraffic records traffic to the database every minute, and, while the
 // meter is being watched, measures it every second for the live view.
-func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
+func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, error) {
 	shutdownChan := make(chan bool, 1)
 	sampler := newLiveSampler(meter, &netfilterSource{})
 
@@ -235,7 +236,9 @@ func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
 		gocron.NewTask(func() {
 			if err := dumpFlows(db); err != nil {
 				log.Println("Failed to process flows:", err)
+				return
 			}
+			opts.flushed(time.Now())
 		}),
 	)
 

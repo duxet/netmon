@@ -48,14 +48,15 @@ const (
 
 type pcapCollector struct {
 	db    *sql.DB
+	opts  Options
 	table *flowTable
 	iface atomic.Value // string, the interface being captured on
 }
 
 // CollectTraffic records traffic to the database every minute, and tells the
 // meter about it as it happens for the live view.
-func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
-	c := &pcapCollector{db: db, table: newFlowTable()}
+func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, error) {
+	c := &pcapCollector{db: db, opts: opts, table: newFlowTable()}
 	c.table.meter = meter
 
 	// Open it before returning, so that problems such as missing permissions
@@ -107,7 +108,9 @@ func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
 func (c *pcapCollector) flush() {
 	if err := c.table.flushTo(c.db); err != nil {
 		log.Println("Failed to store flows:", err)
+		return
 	}
+	c.opts.flushed(time.Now())
 }
 
 func (c *pcapCollector) interfaceName() string {

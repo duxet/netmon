@@ -1,4 +1,4 @@
-package api
+package lookup
 
 import (
 	"context"
@@ -48,11 +48,11 @@ type hostnameEntry struct {
 	expires  time.Time
 }
 
-// hostnameResolver does reverse DNS lookups, using one server for local
+// Hostnames does reverse DNS lookups, using one server for local
 // addresses (which knows DHCP names) and another for public ones. Results,
 // including failures, are cached so a slow or unreachable server costs at
 // most one timeout per address per cache period.
-type hostnameResolver struct {
+type Hostnames struct {
 	local       lookupFunc
 	public      lookupFunc
 	timeout     time.Duration
@@ -63,8 +63,11 @@ type hostnameResolver struct {
 	cache map[netip.Addr]hostnameEntry
 }
 
-func newHostnameResolver(localDNS, publicDNS string) *hostnameResolver {
-	return &hostnameResolver{
+// NewHostnames returns a resolver that asks localDNS about local addresses
+// and publicDNS about public ones. Each is "host", "host:port", or "system"
+// (or "") for the operating system's resolver.
+func NewHostnames(localDNS, publicDNS string) *Hostnames {
+	return &Hostnames{
 		local:       dnsLookup(localDNS),
 		public:      dnsLookup(publicDNS),
 		timeout:     lookupTimeout,
@@ -80,7 +83,7 @@ func isLocalAddress(addr netip.Addr) bool {
 
 // Lookup returns the first PTR name for addr, or nil if it has none or the
 // lookup failed.
-func (r *hostnameResolver) Lookup(ctx context.Context, addr netip.Addr) *string {
+func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 	addr = addr.Unmap()
 
 	r.mu.Lock()
@@ -117,7 +120,7 @@ func (r *hostnameResolver) Lookup(ctx context.Context, addr netip.Addr) *string 
 	return hostname
 }
 
-func (r *hostnameResolver) store(addr netip.Addr, entry hostnameEntry) {
+func (r *Hostnames) store(addr netip.Addr, entry hostnameEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -138,7 +141,7 @@ func (r *hostnameResolver) store(addr netip.Addr, entry hostnameEntry) {
 
 // LookupAll resolves the given addresses in parallel, with bounded
 // concurrency, and returns the hostname for each unique address.
-func (r *hostnameResolver) LookupAll(ctx context.Context, addrs []netip.Addr) map[netip.Addr]*string {
+func (r *Hostnames) LookupAll(ctx context.Context, addrs []netip.Addr) map[netip.Addr]*string {
 	results := make(map[netip.Addr]*string, len(addrs))
 	var mu sync.Mutex
 	var wg sync.WaitGroup

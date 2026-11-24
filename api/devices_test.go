@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -100,5 +102,45 @@ func TestClientsHaveVendors(t *testing.T) {
 	get(t, app, "/api/clients", &clients)
 	if len(clients) != 1 || clients[0].Vendor == nil || *clients[0].Vendor != "Synology" {
 		t.Errorf("clients = %+v, want the NAS (00:11:32) made by Synology", clients)
+	}
+}
+
+func TestListDevices(t *testing.T) {
+	app, db := newTestApp(t)
+
+	type device struct {
+		MACAddress, IPAddress string
+		Name, Vendor          *string
+		FirstSeen, LastSeen   time.Time
+	}
+
+	// The test flow was written after the migrations seeded the table, so
+	// there is no device until the devices are synced.
+	if status, body := do(t, app, "GET", "/api/devices", ""); status != fiber.StatusOK || body != "[]" {
+		t.Fatalf("GET /api/devices = %d %s, want an empty list", status, body)
+	}
+
+	if err := storage.SyncDevices(db, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	do(t, app, "PUT", "/api/devices/"+testNASMAC+"/name", `{"name": "NAS"}`)
+
+	var devices []device
+	if status, _ := get(t, app, "/api/devices", &devices); status != fiber.StatusOK || len(devices) != 1 {
+		t.Fatalf("GET /api/devices = %d %+v, want the NAS", status, devices)
+	}
+	nas := devices[0]
+	if nas.MACAddress != testNASMAC || nas.IPAddress != "192.168.1.10" ||
+		nas.Name == nil || *nas.Name != "NAS" || nas.Vendor == nil || *nas.Vendor != "Synology" ||
+		nas.FirstSeen.IsZero() || nas.LastSeen.Before(nas.FirstSeen) {
+		t.Errorf("device = %+v, want the named Synology NAS at 192.168.1.10", nas)
+	}
+
+	// A failing query answers with a 500.
+	if _, err := db.Exec(`DROP TABLE devices`); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := do(t, app, "GET", "/api/devices", ""); status != fiber.StatusInternalServerError {
+		t.Errorf("GET /api/devices without the table = %d %s, want 500", status, body)
 	}
 }

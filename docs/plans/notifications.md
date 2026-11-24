@@ -1,7 +1,10 @@
 # Plan: notifications and alert rules
 
-Status: proposal, revision 3 · 2026-11-24 · based on `main` at `b12fcd2`
+Status: revision 3 · 2026-11-24 · based on `main` at `b12fcd2`
 (after `next` was merged into it)
+
+**Progress:** milestone 0 is implemented (see §10); milestones 1 to 4 are not
+started.
 
 **Decisions so far:**
 
@@ -111,52 +114,30 @@ v2.20001.0, which bundles DuckDB v2.0.1:
 
 Each new migration ships with its milestone. The current latest is `003_device_names.sql`.
 
-### 3.1 `004_devices.sql` (milestone 0)
+### 3.1 `004_devices.sql` (milestone 0, implemented)
 
-```sql
--- +migrate Up
--- When each MAC address was first and last seen in flows.
-CREATE TABLE devices (
-    mac        BLOB PRIMARY KEY,
-    last_ip    BLOB,
-    first_seen TIMESTAMPTZ NOT NULL,
-    last_seen  TIMESTAMPTZ NOT NULL
-);
+The `devices` table holds, per MAC address, `last_ip` (NOT NULL), `first_seen`
+and `last_seen`. It covers MACs on **either side** of a flow, so a NAS that only
+receives connections counts too; `/api/clients` doesn't include such devices.
+The migration seeds it from `all_flows`, hourly rollups included, so devices
+seen before the upgrade don't count as new.
 
--- Seed from all history, including hourly rollups, so the first run
--- doesn't report every existing device as "new".
-INSERT INTO devices
-SELECT mac, arg_max(ip, created_at), min(created_at), max(created_at)
-FROM (
-    SELECT src_mac AS mac, src_ip AS ip, created_at FROM all_flows WHERE src_mac IS NOT NULL
-    UNION ALL
-    SELECT dst_mac, dst_ip, created_at FROM all_flows WHERE dst_mac IS NOT NULL
-)
-GROUP BY mac;
+It is kept up to date by **`storage.SyncDevices(db, since)`**: one idempotent
+`INSERT … SELECT … GROUP BY mac ON CONFLICT (mac) DO UPDATE`. It never moves
+`first_seen` later or `last_seen` earlier, and only replaces `last_ip` with a
+newer one, so overlapping windows are safe. Neither collector needed to change
+beyond the flush hook.
 
--- +migrate Down
-DROP TABLE devices;
-```
-
-The table is kept up to date by **`storage.SyncDevices(db, since)`**, which the
-alert engine runs first in every cycle. It's one idempotent statement, so neither
-collector needs to change:
-
-```sql
-INSERT INTO devices
-SELECT mac, arg_max(ip, created_at), min(created_at), max(created_at) FROM (
-    SELECT src_mac AS mac, src_ip AS ip, created_at FROM flows WHERE src_mac IS NOT NULL AND created_at >= ?
-    UNION ALL
-    SELECT dst_mac, dst_ip, created_at FROM flows WHERE dst_mac IS NOT NULL AND created_at >= ?
-) GROUP BY mac
-ON CONFLICT (mac) DO UPDATE SET
-    last_ip    = CASE WHEN excluded.last_seen >= devices.last_seen THEN excluded.last_ip ELSE devices.last_ip END,
-    first_seen = least(devices.first_seen, excluded.first_seen),
-    last_seen  = greatest(devices.last_seen, excluded.last_seen);
-```
-
-`since` is `now − 5 min` in each cycle, and `now − 2 h` at startup to cover all
-raw rows. Re-running the statement changes nothing; I tested that.
+- **Callers today:** `main.go` runs it with `since = time.Time{}` at startup,
+  before compaction, to catch up after a crash. The collector's `OnFlush`
+  runs it with `since = now − 5 min`. In milestone 2 the `OnFlush` call moves
+  into the alert engine, as step 1 of each cycle (§5.2).
+- **Empty MACs are skipped as well as NULL ones**
+  (`octet_length(mac) > 0`). The Linux collector stores an empty BLOB when
+  the neighbour entry has no link-layer address (an incomplete ARP/NDP entry).
+  I found this through a failing test.
+- `GET /api/devices` lists the table with `Name` (from `device_names`),
+  `Hostname` and `Vendor`, most recently seen first.
 
 ### 3.2 `005_notification_channels.sql` (milestone 1)
 
@@ -656,7 +637,7 @@ DuckDB plus the real migrations) and the `api/*_test.go` setup.
 
 | # | Milestone | Contents | Done when |
 |---|---|---|---|
-| 0 | **Groundwork** | `lookup` package (moved out of `api/`); `collector.Options{OnFlush}` on Linux, macOS and unsupported, firing on empty minutes too; `004_devices.sql` + `storage.SyncDevices` + `GET /api/devices`; `Compact` keeps the last complete hour raw | Existing UI and tests unchanged; `devices` fills; a 1 h window right after compaction counts the full hour |
+| 0 | **Groundwork** ✅ | `lookup` package (moved out of `api/`); `collector.Options{OnFlush}` on Linux, macOS and unsupported, firing on empty minutes too; `004_devices.sql` + `storage.SyncDevices` + `GET /api/devices`; `Compact` keeps the last complete hour raw | Existing UI and tests unchanged; `devices` fills; a 1 h window right after compaction counts the full hour |
 | 1 | **Channels** | shoutrrr v0.25.0 (`go` directive → 1.27); `005_notification_channels.sql`; `notify` dispatcher + delivery log + redaction; channel API + test endpoints; Settings → Notifications page | You can paste a Telegram or ntfy URL in the UI and receive a test message |
 | 2 | **Rules MVP** | `006_alerts.sql`; engine; `new_device` + `traffic_threshold` (with `app`); rules API; rules list + form; alerts list; `NETMON_ALERT_RETENTION_DAYS` (default 30) + `storage.ExpireAlerts` in the hourly loop; README updates (tick the Alerts TODO) | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved; alerts older than 30 days disappear |
 | 3 | **More rules + UX** | `device_inactive`, `destination_port`, `destination_country`; preview/dry run; alert detail + delivery log; sidebar badge; presets; "Create alert" from the client page | All five rule types are usable from the UI |

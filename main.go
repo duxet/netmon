@@ -8,6 +8,7 @@ import (
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/live"
+	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"io/fs"
 	"log"
@@ -23,6 +24,9 @@ import (
 
 //go:embed migrations/*
 var dbMigrations embed.FS
+
+// deviceSyncWindow is how far back each collection round looks for devices.
+const deviceSyncWindow = 5 * time.Minute
 
 //go:embed all:client/dist/*
 var clientAssets embed.FS
@@ -65,28 +69,42 @@ func main() {
 	if err != nil || retentionDays < 0 {
 		log.Fatalf("NETMON_RETENTION_DAYS must be a number of days (0 keeps all data): %q", os.Getenv("NETMON_RETENTION_DAYS"))
 	}
+
+	// Catch up on devices in flows written before a crash, before compaction
+	// rolls those rows up.
+	if err := storage.SyncDevices(db, time.Time{}); err != nil {
+		log.Println("Failed to update devices:", err)
+	}
+
 	compactionDone := compactPeriodically(ctx, db, time.Duration(retentionDays)*24*time.Hour)
 
 	// The collector reports the traffic it sees to the meter as it happens, and
 	// the API serves what the meter measured to the live view.
 	meter := live.NewMeter()
 
-	coll, err := collector.CollectTraffic(db, meter)
+	coll, err := collector.CollectTraffic(db, meter, collector.Options{
+		OnFlush: func(now time.Time) {
+			// The window overlaps earlier rounds, so a failed sync is caught
+			// up on by the next ones.
+			if err := storage.SyncDevices(db, now.Add(-deviceSyncWindow)); err != nil {
+				log.Println("Failed to update devices:", err)
+			}
+		},
+	})
 	if err != nil {
 		log.Println("Collector failed to start:", err)
 	}
+
+	countries := lookup.OpenCountries("GeoLite2-Country.mmdb")
+	defer countries.Close()
+	hostnames := lookup.NewHostnames(envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"), envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"))
 
 	assets, err := fs.Sub(clientAssets, "client/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	app := api.CreateHTTPApp(db, assets, api.Options{
-		GeoIPDatabase: "GeoLite2-Country.mmdb",
-		LocalDNS:      envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"),
-		PublicDNS:     envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"),
-		Live:          meter,
-	})
+	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter})
 
 	go func() {
 		<-ctx.Done()

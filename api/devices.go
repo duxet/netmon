@@ -3,12 +3,15 @@ package api
 import (
 	"database/sql"
 	"log"
+	"net/netip"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -37,11 +40,54 @@ func parseDeviceMAC(c fiber.Ctx) (*common.MACAddress, error) {
 	return mac, nil
 }
 
-// registerDeviceRoutes adds the endpoints for naming devices.
-func registerDeviceRoutes(app *fiber.App, db *sql.DB) {
+// registerDeviceRoutes adds the endpoints for listing and naming devices.
+func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames) {
 	type nameBody struct {
 		Name string `json:"name"`
 	}
+
+	// Every device ever seen, most recently seen first.
+	app.Get("/api/devices", func(c fiber.Ctx) error {
+		log.Println("Returning list of devices")
+
+		records, err := storage.GetDevices(db)
+		if err != nil {
+			return err
+		}
+
+		addrs := make([]netip.Addr, 0, len(records))
+		for _, record := range records {
+			if record.IPAddress.Addr != nil {
+				addrs = append(addrs, *record.IPAddress.Addr)
+			}
+		}
+		names := hostnames.LookupAll(c.Context(), addrs)
+
+		devices := make([]DeviceDTO, 0, len(records))
+		for _, record := range records {
+			var hostname *string
+			if record.IPAddress.Addr != nil {
+				hostname = names[record.IPAddress.Unmap()]
+			}
+
+			var vendor *string
+			if v := vendors.Lookup(record.MACAddress.HardwareAddr); v != "" {
+				vendor = &v
+			}
+
+			devices = append(devices, DeviceDTO{
+				MACAddress: record.MACAddress,
+				IPAddress:  record.IPAddress,
+				Name:       record.Name,
+				Hostname:   hostname,
+				Vendor:     vendor,
+				FirstSeen:  record.FirstSeen,
+				LastSeen:   record.LastSeen,
+			})
+		}
+
+		return c.JSON(devices)
+	})
 
 	app.Put("/api/devices/:mac/name", func(c fiber.Ctx) error {
 		mac, err := parseDeviceMAC(c)

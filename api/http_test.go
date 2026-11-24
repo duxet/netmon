@@ -13,6 +13,7 @@ import (
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
+	"github.com/duxet/netmon/lookup"
 	"github.com/gofiber/fiber/v3"
 	migrate "github.com/rubenv/sql-migrate"
 )
@@ -21,7 +22,7 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 	t.Helper()
 
 	// No GeoIP database and the system resolver: nothing here resolves names.
-	return newTestAppWith(t, Options{LocalDNS: "system", PublicDNS: "system"})
+	return newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system")})
 }
 
 func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
@@ -160,15 +161,6 @@ func TestHostnamesRequestValidation(t *testing.T) {
 	body, _ := json.Marshal(map[string][]string{"ip_addresses": ips})
 	if status, _ := do(t, app, "POST", "/api/hostnames", string(body)); status != fiber.StatusBadRequest {
 		t.Errorf("too many addresses = %d, want 400", status)
-	}
-}
-
-func TestCountryLookupWithoutDatabase(t *testing.T) {
-	lookup := newCountryLookup("does-not-exist.mmdb")
-	defer lookup.Close()
-
-	if country := lookup.Country(ip(t, "140.82.121.4")); country != nil {
-		t.Errorf("country = %q, want nil without a database", *country)
 	}
 }
 

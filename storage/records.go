@@ -53,6 +53,17 @@ type EndpointPairTrafficRecord struct {
 	Hour time.Time
 }
 
+// DeviceRecord is a device seen in flows, identified by its MAC address.
+type DeviceRecord struct {
+	MACAddress common.MACAddress
+	// IPAddress is the address the device used last.
+	IPAddress common.IPAddress
+	// Name is the name the user gave the device, if any.
+	Name      *string
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
 // CompactResult reports what Compact changed.
 type CompactResult struct {
 	// RolledUp is the number of hourly rows written.

@@ -311,13 +311,13 @@ func count(t *testing.T, db *sql.DB, table string) int {
 func TestCompactKeepsResults(t *testing.T) {
 	db := openTestDB(t)
 	seed(t, db)
-	// More collection rounds in the first hour, and one in the current hour.
+	// More collection rounds in the first hour, and one in the previous hour.
 	insert(t, db,
 		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 300, 30, seedAt.Add(time.Minute)},
 		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 200, 20, seedAt.Add(2 * time.Minute)},
 		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 90, 70, seedAt.Add(2 * time.Hour)},
 	)
-	now := seedAt.Add(2*time.Hour + 10*time.Minute)
+	now := seedAt.Add(3*time.Hour + 10*time.Minute)
 
 	before := take(t, db)
 	// Sum totals don't depend on row order within equal keys; compare sorted results.
@@ -333,13 +333,13 @@ func TestCompactKeepsResults(t *testing.T) {
 		t.Errorf("results changed by compaction:\nbefore %+v\nafter  %+v", before, after)
 	}
 
-	// Five rows from complete hours become three (HTTPS x 2 hours, SMB); the
-	// current hour's DNS row stays per minute.
+	// Five rows from older hours become three (HTTPS x 2 hours, SMB); the
+	// previous hour's DNS row stays per minute.
 	if result.Removed != 5 || result.RolledUp != 3 || result.Expired != 0 {
 		t.Errorf("result = %+v, want 5 rows rolled up into 3", result)
 	}
 	if n := count(t, db, "flows"); n != 1 {
-		t.Errorf("%d per-minute rows left, want the current hour's 1", n)
+		t.Errorf("%d per-minute rows left, want the previous hour's 1", n)
 	}
 
 	// Compacting again changes nothing.
@@ -348,6 +348,38 @@ func TestCompactKeepsResults(t *testing.T) {
 	}
 	if !reflect.DeepEqual(take(t, db).Stats, before.Stats) {
 		t.Error("second compaction changed the totals")
+	}
+}
+
+// Wherever in the hour compaction runs, the last hour stays per minute, so
+// a one-hour window keeps the part of the previous hour it covers instead of
+// losing it to an hourly row stamped before the window.
+func TestCompactKeepsLastHourPerMinute(t *testing.T) {
+	db := openTestDB(t)
+	at := func(hour, minute int) time.Time { return time.Date(2026, 11, 24, hour, minute, 0, 0, time.UTC) }
+	laptop := mustMAC(t, laptopMAC)
+	insert(t, db,
+		row{laptop, nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 100, 10, at(9, 50)},
+		row{laptop, nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 200, 20, at(10, 30)},
+		row{laptop, nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 400, 40, at(11, 5)},
+	)
+	now := at(11, 25)
+
+	result, err := Compact(db, now, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Removed != 1 || result.RolledUp != 1 || count(t, db, "flows") != 2 {
+		t.Errorf("result = %+v with %d per-minute rows left; want only 09:50 rolled up", result, count(t, db, "flows"))
+	}
+
+	from := now.Add(-time.Hour)
+	stats, err := GetStats(db, FlowsFilter{From: &from})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalBytes == nil || *stats.TotalBytes != 660 {
+		t.Errorf("bytes in the last hour = %v, want 660 from 10:30 and 11:05", stats.TotalBytes)
 	}
 }
 

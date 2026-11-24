@@ -13,9 +13,9 @@ import (
 type FlowsFilter struct {
 	MAC *common.MACAddress
 	IP  *common.IPAddress
-	// From is inclusive and To exclusive. Flows older than the current hour
-	// are stored per hour, so for them the range is effectively rounded to
-	// whole hours.
+	// From is inclusive and To exclusive. Flows from before the previous
+	// hour are stored per hour, so for them the range is effectively rounded
+	// to whole hours.
 	From *time.Time
 	To   *time.Time
 }

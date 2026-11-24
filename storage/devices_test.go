@@ -1,8 +1,12 @@
 package storage
 
 import (
+	"database/sql"
 	"net"
 	"testing"
+	"time"
+
+	migrate "github.com/rubenv/sql-migrate"
 )
 
 func TestDeviceNames(t *testing.T) {
@@ -44,4 +48,130 @@ func TestDeviceNames(t *testing.T) {
 	if len(names) != 1 || names[nasMAC] != "NAS" {
 		t.Errorf("after delete, names = %v; want only the NAS", names)
 	}
+}
+
+// deviceList returns the devices by MAC address, failing the test on errors.
+func deviceList(t *testing.T, db *sql.DB) map[string]DeviceRecord {
+	t.Helper()
+	devices, err := GetDevices(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMAC := map[string]DeviceRecord{}
+	for _, d := range devices {
+		byMAC[d.MACAddress.String()] = d
+	}
+	return byMAC
+}
+
+func checkDevice(t *testing.T, devices map[string]DeviceRecord, mac, ip string, firstSeen, lastSeen time.Time) {
+	t.Helper()
+	d, ok := devices[mac]
+	if !ok {
+		t.Errorf("device %s not listed", mac)
+		return
+	}
+	if d.IPAddress.String() != ip || !d.FirstSeen.Equal(firstSeen) || !d.LastSeen.Equal(lastSeen) {
+		t.Errorf("device %s = %s, first %v, last %v; want %s, %v, %v",
+			mac, d.IPAddress, d.FirstSeen, d.LastSeen, ip, firstSeen, lastSeen)
+	}
+}
+
+func TestSyncDevices(t *testing.T) {
+	db := openTestDB(t)
+	laptop := mustMAC(t, laptopMAC)
+	nas := mustMAC(t, nasMAC)
+
+	insert(t, db,
+		// The laptop to the internet, then from a new address a minute later.
+		row{laptop, nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 1000, 100, seedAt},
+		row{laptop, nil, mustIP("192.168.1.24"), mustIP("142.250.186.78"), 6, 443, 1000, 100, seedAt.Add(time.Minute)},
+		// The NAS is only ever a destination.
+		row{laptop, nas, mustIP("192.168.1.24"), mustIP("192.168.1.10"), 6, 445, 20, 2000, seedAt.Add(time.Minute)},
+		// A flow without MAC addresses (e.g. the collector's own traffic) is no
+		// device. The nil slices are stored as empty BLOBs, as the Linux
+		// collector does for incomplete neighbor entries.
+		row{nil, nil, mustIP("10.8.0.2"), mustIP("1.1.1.1"), 17, 53, 90, 70, seedAt},
+	)
+
+	if err := SyncDevices(db, seedAt.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	devices := deviceList(t, db)
+	if len(devices) != 2 {
+		t.Fatalf("devices = %+v, want the laptop and the NAS", devices)
+	}
+	checkDevice(t, devices, laptopMAC, "192.168.1.24", seedAt, seedAt.Add(time.Minute))
+	checkDevice(t, devices, nasMAC, "192.168.1.10", seedAt.Add(time.Minute), seedAt.Add(time.Minute))
+
+	// Syncing the same rows again changes nothing.
+	if err := SyncDevices(db, seedAt.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	checkDevice(t, deviceList(t, db), laptopMAC, "192.168.1.24", seedAt, seedAt.Add(time.Minute))
+
+	// A later round updates the last address and time, but not first_seen,
+	// although the window no longer covers the first rows.
+	later := seedAt.Add(10 * time.Minute)
+	insert(t, db, row{laptop, nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 90, 70, later})
+	if err := SyncDevices(db, later.Add(-5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	devices = deviceList(t, db)
+	checkDevice(t, devices, laptopMAC, "192.168.1.23", seedAt, later)
+	checkDevice(t, devices, nasMAC, "192.168.1.10", seedAt.Add(time.Minute), seedAt.Add(time.Minute))
+
+	// A window reaching back over older rows doesn't move the last address back.
+	if err := SyncDevices(db, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	checkDevice(t, deviceList(t, db), laptopMAC, "192.168.1.23", seedAt, later)
+
+	// Most recently seen first, with names.
+	if err := SetDeviceName(db, nas, "NAS"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := GetDevices(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].MACAddress.String() != laptopMAC || list[0].Name != nil ||
+		list[1].Name == nil || *list[1].Name != "NAS" {
+		t.Errorf("devices = %+v, want the laptop first and the NAS named", list)
+	}
+}
+
+// The migration that adds the devices table records the devices already in
+// the database, including those only left in hourly rollups.
+func TestDevicesMigrationSeedsHistory(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	migrations := &migrate.FileMigrationSource{Dir: "../migrations"}
+	if _, err := migrate.ExecMax(db, "sqlite3", migrations, migrate.Up, 3); err != nil {
+		t.Fatal(err)
+	}
+
+	seed(t, db)
+	// Roll the seeded hours up, then add a per-minute row.
+	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0); err != nil {
+		t.Fatal(err)
+	}
+	current := seedAt.Add(3 * time.Hour)
+	insert(t, db, row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.30"), mustIP("1.1.1.1"), 17, 53, 90, 70, current})
+
+	if _, err := migrate.Exec(db, "sqlite3", migrations, migrate.Up); err != nil {
+		t.Fatal(err)
+	}
+
+	devices := deviceList(t, db)
+	if len(devices) != 2 {
+		t.Fatalf("devices = %+v, want the laptop and the NAS", devices)
+	}
+	// Hourly rows are stamped with the start of their hour.
+	checkDevice(t, devices, laptopMAC, "192.168.1.30", seedAt.Truncate(time.Hour), current)
+	checkDevice(t, devices, nasMAC, "192.168.1.10", seedAt.Truncate(time.Hour), seedAt.Truncate(time.Hour))
 }

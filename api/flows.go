@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 )
 
@@ -225,7 +226,7 @@ func groupFlows(flows []orientedFlow, top int, keyOf func(orientedFlow) string) 
 
 // summarizeFlows totals all flows and groups them by remote host, service
 // and country. Countries are looked up once per remote host.
-func summarizeFlows(flows []orientedFlow, top int, countries *countryLookup) FlowSummaryDTO {
+func summarizeFlows(flows []orientedFlow, top int, countries *lookup.Countries) FlowSummaryDTO {
 	summary := FlowSummaryDTO{Connections: uint64(len(flows))}
 
 	peerCountries := map[string]string{}

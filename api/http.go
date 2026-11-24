@@ -12,6 +12,7 @@ import (
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/live"
+	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
@@ -19,15 +20,15 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
-// Options configures the HTTP API's lookups.
+// Options configures the HTTP API's lookups and live view. The caller owns
+// them, and closes the lookups after the app has shut down.
 type Options struct {
-	// GeoIPDatabase is the path to a GeoLite2-Country database. Without it,
-	// flows have no countries.
-	GeoIPDatabase string
-	// LocalDNS and PublicDNS are the servers used for reverse lookups of
-	// local and public addresses: "host", "host:port" or "system".
-	LocalDNS  string
-	PublicDNS string
+	// Countries resolves addresses to countries. Without it, flows have no
+	// countries.
+	Countries *lookup.Countries
+	// Hostnames does reverse DNS lookups. Without it, the system resolver
+	// is used for all addresses.
+	Hostnames *lookup.Hostnames
 	// Live is the meter the collectors report the current bandwidth of
 	// devices to, for /api/live. Without one the live view stays empty.
 	Live *live.Meter
@@ -39,7 +40,7 @@ const maxHostnamesPerRequest = 256
 // totalCountHeader carries the number of flows matching a paged request.
 const totalCountHeader = "X-Total-Count"
 
-func toFlowDTOs(flows []orientedFlow, countries *countryLookup) []FlowDTO {
+func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries) []FlowDTO {
 	var dtos []FlowDTO
 
 	for _, flow := range flows {
@@ -91,11 +92,13 @@ func spaFallback(assets fs.FS) fiber.Handler {
 // CreateHTTPApp serves the API and the web UI, whose built files assets holds
 // at its root.
 func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
-	countries := newCountryLookup(options.GeoIPDatabase)
-	hostnames := newHostnameResolver(options.LocalDNS, options.PublicDNS)
+	countries := options.Countries
+	hostnames := options.Hostnames
+	if hostnames == nil {
+		hostnames = lookup.NewHostnames("system", "system")
+	}
 
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
-	app.Hooks().OnPostShutdown(func(error) error { return countries.Close() })
 
 	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
 
@@ -304,7 +307,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		return serveFlows(c, filter)
 	})
 
-	registerDeviceRoutes(app, db)
+	registerDeviceRoutes(app, db, hostnames)
 
 	meter := options.Live
 	if meter == nil {

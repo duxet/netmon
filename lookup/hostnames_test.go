@@ -1,4 +1,4 @@
-package api
+package lookup
 
 import (
 	"context"
@@ -54,8 +54,8 @@ type testClock struct{ now time.Time }
 
 func (c *testClock) Now() time.Time { return c.now }
 
-func newTestResolver(local, public *fakeDNS, clock *testClock) *hostnameResolver {
-	return &hostnameResolver{
+func newTestResolver(local, public *fakeDNS, clock *testClock) *Hostnames {
+	return &Hostnames{
 		local:       local.lookup,
 		public:      public.lookup,
 		timeout:     time.Second,

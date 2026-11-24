@@ -1,5 +1,25 @@
 package collector
 
+import "time"
+
+// Options configures a collector.
+type Options struct {
+	// OnFlush, if set, is called after each round of collected flows has
+	// been written to the database (about once a minute), with the time of
+	// the write. It is called for rounds without any traffic too, so it can
+	// drive work that depends on time passing. It is not called when writing
+	// failed; that round's traffic is written with the next one. OnFlush runs
+	// on the collector's goroutine and should return quickly.
+	OnFlush func(time.Time)
+}
+
+// flushed reports a completed flush to OnFlush.
+func (o Options) flushed(at time.Time) {
+	if o.OnFlush != nil {
+		o.OnFlush(at)
+	}
+}
+
 type Collector struct {
 	shutdownChan chan bool
 

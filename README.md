@@ -165,14 +165,16 @@ it starts.
 
 Flows are recorded every minute. At startup and then every hour, the minutes
 of complete hours are rolled up into one row per flow and hour, so the
-database grows with the number of flows rather than with uptime. With
-`NETMON_RETENTION_DAYS` set, hourly data older than that many days is deleted.
+database grows with the number of flows rather than with uptime. The
+previous hour is kept per minute along with the current one, so the last 60
+minutes can always be read at full detail. With `NETMON_RETENTION_DAYS` set,
+hourly data older than that many days is deleted.
 
 ## API
 
 The web UI is built on a JSON API at `/api`. Times are RFC 3339 timestamps
 (e.g. `2026-11-24T08:00:00Z`); `from` is inclusive and `to` exclusive. Data
-older than the current hour is stored per hour, so ranges are effectively
+from before the previous hour is stored per hour, so ranges are effectively
 rounded to whole hours.
 
 | Endpoint | Parameters |
@@ -186,6 +188,7 @@ rounded to whole hours.
 | `GET /api/flows/summary` | `mac` or `ip`, `from`, `to`, `top` |
 | `GET /api/live` | `since` |
 | `POST /api/hostnames` | body `{"ip_addresses": [...]}`, at most 256 |
+| `GET /api/devices` | |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
 
@@ -207,6 +210,11 @@ rounded to whole hours.
   traffic has no devices. Pass the `Time` of the newest sample you already have as `since`,
   exactly as it was returned, to get only newer ones. Asking is what makes the Linux collector
   measure (see [Live view](#live-view)), so don't poll it while nobody is looking.
+- `/api/devices` lists every MAC address ever seen on either side of a flow,
+  most recently seen first, with the `IPAddress` it used last, `FirstSeen`,
+  `LastSeen`, and `Name`, `Hostname` and `Vendor` as for clients. Unlike
+  `/api/clients` it has no time range and includes devices that only
+  received connections, such as a NAS.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 

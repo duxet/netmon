@@ -29,6 +29,23 @@ type ClientDTO struct {
 	Traffic  TrafficDTO
 }
 
+// DeviceDTO is a device seen on the network, identified by its MAC address.
+type DeviceDTO struct {
+	MACAddress common.MACAddress
+	// IPAddress is the address the device used last.
+	IPAddress common.IPAddress
+	// Name is the name the user gave the device, if any.
+	Name *string
+	// Hostname is from reverse DNS of IPAddress, with the trailing dot.
+	Hostname *string
+	// Vendor is the manufacturer the MAC address was assigned to, if known.
+	Vendor *string
+	// FirstSeen and LastSeen are when the device was first and last seen in
+	// flows, on either side of a connection.
+	FirstSeen time.Time
+	LastSeen  time.Time
+}
+
 // DeviceNameDTO is a device's user-given name.
 type DeviceNameDTO struct {
 	MACAddress string
