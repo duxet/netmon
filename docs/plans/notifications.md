@@ -1,6 +1,15 @@
 # Plan: notifications and alert rules
 
-Status: proposal · 2026-11-24
+Status: proposal, revision 2 · 2026-11-24
+
+**Decisions so far** (from review of revision 1):
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Which channels first? | **Use [shoutrrr](https://shoutrrr.nickfedor.com) for all of them.** A channel is a shoutrrr service URL, so there are no hand-written senders |
+| 2 | Auth | **Out of scope for now**; it will be added later (§8) |
+| 3 | Should `new_device` ignore randomized MACs by default? | **No.** The filter exists as an option and is off by default |
+| 4 | Retention | Alert history and the delivery log are kept for **30 days by default**, configurable |
 
 ## 1. Goal
 
@@ -16,11 +25,12 @@ Users see two concepts:
 
 | Concept | What it is | Example |
 |---|---|---|
-| **Notification channel** | *Where* a message goes: a type plus its settings | Telegram bot → chat `12345`; ntfy topic `home-net` |
+| **Notification channel** | *Where* a message goes: a name plus a shoutrrr URL | `telegram://123456:ABC…@telegram?chats=@home`, `ntfy://ntfy.sh/home-net` |
 | **Alert rule** | *When* to send: a condition over the collected flows, a scope (which devices), and the channels to notify | "Any device downloads > 5 GB in 1 h → Telegram + ntfy" |
 
 There is also one internal concept, the **alert**: one rule firing for one subject
-(usually a device). An alert has a lifecycle (`firing → resolved`) and is kept as history.
+(usually a device). An alert has a lifecycle (`firing → resolved`) and is kept as
+history for 30 days.
 
 ## 2. How it fits the current code
 
@@ -41,7 +51,7 @@ collector.dumpFlows ──► INSERT flows ──► UPSERT devices
                                │  for each enabled rule: evaluator(rule, now) → observations
                                │  reconcile with open alerts (dedup / reminder / resolve)
                                ▼
-                         notify.Dispatcher ──► queue ──► Notifier (telegram, ntfy, …)
+                         notify.Dispatcher ──► queue ──► shoutrrr.SendContext(url, msg, params)
                                                      └─► notification_deliveries (log)
 ```
 
@@ -64,27 +74,27 @@ Problems in the current code that this plan has to handle:
    alone would also swallow `/api/*`, because the static middleware runs first.
    Use `Next: skip /api` together with `NotFoundFile: "client/dist/index.html"`.
    `PathPrefix` is *not* applied to `NotFoundFile`; I checked this in fiber v2.52.5.
-5. **No auth, and `cors.New()` allows every origin.** Today that exposes only
-   traffic stats. Once the database holds bot tokens and SMTP passwords, and the
-   server can be told to POST to any URL (webhook test), any page open in the
-   user's browser could read or abuse it. Fix this before shipping (§8).
+5. **The Go version is too old for shoutrrr.** The repo targets Go 1.23
+   (`go.mod`, and `golang:1.23` in the `Dockerfile`), and Go 1.23 is no longer
+   supported. Current releases of the maintained shoutrrr fork need Go 1.27 (§4.1).
 6. **There are no tests yet.** This feature adds the first ones (§9).
 
-DuckDB facts this design relies on. I checked each against go-duckdb v1.8.3, which bundles DuckDB v1.1.3:
+DuckDB facts this design relies on. I checked each against go-duckdb v1.8.3, which
+bundles DuckDB v1.1.3, under both Go 1.24 and Go 1.27.4:
 
 - ✅ Sequences for IDs, `BLOB PRIMARY KEY`, `INSERT … ON CONFLICT (mac) DO UPDATE`,
   `RETURNING id`, `arg_max(...)`, `::JSON ->> 'key'`.
 - ❌ `FOREIGN KEY … ON DELETE CASCADE` gives a parser error. Do cascades in Go,
   inside a transaction, and skip FK constraints entirely.
 - ❌ `TIMESTAMPTZ - INTERVAL` is not available (no ICU in the bundled build). Rule
-  queries must **compute the window start in Go and pass it as a parameter**
-  (`created_at > ?` with a `time.Time` works). This also makes tests deterministic.
+  and retention queries must **compute the cutoff time in Go and pass it as a
+  parameter** (`created_at > ?` with a `time.Time` works). This also makes tests
+  deterministic.
 
 ## 3. Data model
 
 There are three migrations, one per milestone, so each can ship on its own.
-JSON is stored as `VARCHAR` and (un)marshalled into typed Go structs per
-channel or rule type.
+JSON is stored as `VARCHAR` and (un)marshalled into typed Go structs per rule type.
 
 ### `002_devices.sql` (milestone 0)
 
@@ -128,8 +138,8 @@ CREATE SEQUENCE notification_channels_id_seq;
 CREATE TABLE notification_channels (
     id         INTEGER PRIMARY KEY DEFAULT nextval('notification_channels_id_seq'),
     name       VARCHAR NOT NULL,
-    type       VARCHAR NOT NULL,           -- webhook | ntfy | telegram | discord | email
-    config     VARCHAR NOT NULL,           -- JSON, type-specific (see §4.2)
+    service    VARCHAR NOT NULL,           -- shoutrrr scheme, derived from url: telegram | ntfy | discord | smtp | generic | …
+    url        VARCHAR NOT NULL,           -- shoutrrr service URL; contains secrets, never returned by the API
     enabled    BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
@@ -190,7 +200,7 @@ CREATE TABLE notification_deliveries (
     kind       VARCHAR NOT NULL,           -- firing | reminder | resolved | test
     status     VARCHAR NOT NULL,           -- sent | failed
     attempts   INTEGER NOT NULL,
-    error      VARCHAR,
+    error      VARCHAR,                    -- redacted (§4.4)
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
@@ -201,135 +211,169 @@ DROP TABLE alert_rule_channels;
 DROP TABLE alert_rules;             DROP SEQUENCE alert_rules_id_seq;
 ```
 
-## 4. Notification channels
+### Retention (milestone 2)
 
-### 4.1 Package `notify`
+Retention is 30 days by default, and `NETMON_ALERT_RETENTION_DAYS` overrides it.
+A daily gocron job, at about 03:00 local time, computes `cutoff = now - retention`
+in Go (see the ICU note in §2) and runs:
 
-```go
-type Severity string // "info" | "warning" | "critical"
-
-type Message struct {
-    Title    string
-    Body     string            // plain text; senders convert to HTML/Markdown as needed
-    Severity Severity
-    URL      string            // deep link back to netmon (NETMON_PUBLIC_URL + /alerts/:id)
-    Event    string            // "alert.firing" | "alert.reminder" | "alert.resolved" | "test"
-    Alert    *AlertPayload     // structured data for the webhook channel; nil for tests
-}
-
-type Notifier interface {
-    Send(ctx context.Context, msg Message) error
-}
-
-type FieldSpec struct {
-    Name, Label, Help, Placeholder string
-    Kind     string   // text | password | number | bool | select | list | headers
-    Required bool
-    Secret   bool     // never returned by the API (§4.4)
-    Options  []string // for select
-    Default  any
-}
-
-type ChannelType struct {
-    ID     string                                    // "telegram"
-    Label  string                                    // "Telegram"
-    Fields []FieldSpec                               // drives validation AND the UI form
-    New    func(cfg json.RawMessage) (Notifier, error)
-}
-
-var Registry = map[string]ChannelType{ /* webhook, ntfy, telegram, discord, email */ }
+```sql
+DELETE FROM notification_deliveries WHERE created_at < ?;
+DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?;  -- alerts still firing are never deleted
 ```
 
-Layout: `notify/{notify.go, registry.go, dispatcher.go, webhook.go, ntfy.go,
-telegram.go, discord.go, email.go}`. Each sender gets an injectable base URL and
-`*http.Client` so it can be tested.
+The same job also runs once at startup. `flows` is not affected; it still has no
+retention (§11).
 
-### 4.2 Channel types for the MVP
+## 4. Notification channels (shoutrrr)
 
-| Type | Config fields (`*` = secret) | Transport |
-|---|---|---|
-| `webhook` | `url`, `method` (POST/PUT), `headers` (map), `signing_secret`* | JSON body (§4.6). With a secret, adds `X-Netmon-Signature: sha256=<hmac>` |
-| `ntfy` | `server` (default `https://ntfy.sh`), `topic`, `token`* | `POST {server}/{topic}` with `Title`, `Priority`, `Tags`, `Click` headers |
-| `telegram` | `bot_token`*, `chat_id` | `POST https://api.telegram.org/bot{token}/sendMessage`, `parse_mode=HTML` |
-| `discord` | `webhook_url`* | `POST` JSON with one embed, colour from severity |
-| `email` | `host`, `port`, `security` (starttls/tls/none), `username`, `password`*, `from`, `to` (list) | SMTP, via `net/smtp` or `github.com/wneessen/go-mail` (simpler TLS modes) |
+### 4.1 Library and Go version
 
-Later: Slack (incoming webhook, nearly the same as Discord), Gotify, Pushover,
-Matrix. There could also be a catch-all "URL" type backed by shoutrrr; check
-which fork is maintained before adopting it.
+- **Use `github.com/nicholas-fedor/shoutrrr`**, the maintained fork. Its latest
+  release is v0.25.0 (2026-11-17), it has releases roughly every week, and it
+  supports 33 URL schemes.
+  The original `github.com/containrrr/shoutrrr` stopped at v0.8.0 (2023-08), so
+  don't use it.
+- What each fork line needs: v0.8.x needs Go 1.24, v0.9 to v0.19 need Go 1.25,
+  and **v0.20 and later need Go 1.27**.
+- **Plan: bump Go to 1.27 in milestone 0.** That means `go 1.27` in `go.mod` and
+  `FROM golang:1.27` in the `Dockerfile`. Go 1.23 is out of support anyway.
+  I checked that go-duckdb v1.8.3, the rest of the stack and shoutrrr v0.25.0 build
+  and run together on go1.27.4.
+- Fallback, only if the Go bump is blocked: pin fork v0.8.17 on Go 1.24. This
+  loses about 15 months of fixes, so it's not recommended.
 
-**Why write the senders ourselves instead of using shoutrrr for everything:**
-each sender is about 50–80 lines over `net/http`. Typed fields give a real form
-in the UI rather than a URL-syntax puzzle, and a failed test send can show the
-exact error from Telegram or Discord.
+### 4.2 A channel is a URL
 
-Severity mapping:
+Example URLs for the UI. Full reference:
+<https://shoutrrr.nickfedor.com/latest/services/overview/>
 
-| Severity | ntfy priority | Telegram/email prefix | Discord colour |
-|---|---|---|---|
-| info | 3 (default) | ℹ️ | blue |
-| warning | 4 (high) | ⚠️ | amber |
-| critical | 5 (urgent) | 🚨 | red |
+| Service | URL format |
+|---|---|
+| Telegram | `telegram://<bot-token>@telegram?chats=<chat-id or @channel>` |
+| ntfy | `ntfy://[:<token>@]ntfy.sh/<topic>` (or a self-hosted host) |
+| Discord | `discord://<token>@<webhook-id>` |
+| Email | `smtp://<user>:<pass>@<host>:587/?fromAddress=<from>&toAddresses=<to1>,<to2>` |
+| Gotify | `gotify://<host>/<app-token>` |
+| Pushover | `pushover://shoutrrr:<api-token>@<user-key>/` |
+| Slack | `slack://hook:<token>@webhook` |
+| Webhook (JSON) | `generic://<host>/<path>?template=json[&@Authorization=Bearer+<token>]` |
 
-### 4.3 Schema-driven forms
+- **Validate on save without sending anything:** use
+  `router.NewWithOptions(nil, types.SenderOptions{}).Locate(url)`. I checked that a
+  malformed Telegram token is rejected with `telegram: invalid telegram token`.
+  The response returns this error to the form.
+- **Store** the raw URL. The `service` column is the scheme, kept for display and
+  filtering.
 
-`GET /api/notification-channel-types` returns the registry (`ID`, `Label`,
-`Fields`). The UI renders the form generically from this, and the backend
-validates against the same spec. Adding a channel type later then needs Go code
-only.
+### 4.3 Sending
 
-### 4.4 Secrets
+Package `notify`, files `notify/{dispatcher.go, message.go, redact.go}`:
 
-- API responses **never** include fields with `Secret: true`. Instead they return
-  `"secrets_set": ["bot_token"]`. On `PUT`, a missing or empty secret field means
-  "keep the stored value".
-- Secrets are stored in plain text in `flows.db`, which is the same trust boundary
-  as the database file. Document this. Optional later step: encrypt them with a key
-  from `NETMON_SECRET_KEY`.
-- Never log channel config. Log send errors only after redacting tokens
-  (the Telegram token is part of the URL path).
+```go
+type Message struct {
+    Title    string
+    Body     string            // plain text
+    Severity Severity          // info | warning | critical
+    Event    string            // alert.firing | alert.reminder | alert.resolved | test
+    Fields   map[string]string // structured data, sent only to generic:// (webhook) channels
+}
+
+func send(ctx context.Context, channel Channel, msg Message) error {
+    params := types.Params{}
+    params.SetTitle(severityEmoji(msg.Severity) + " " + msg.Title)
+    params.SetLevel(levelFor(msg.Severity)) // info→Info, warning→Warning, critical→Error
+    if channel.Service == "generic" {
+        maps.Copy(params, msg.Fields)        // ends up in the JSON body
+    }
+    return shoutrrr.SendContext(ctx, channel.URL, msg.Body, &params)
+}
+```
+
+Rules this sketch follows. I confirmed each against v0.25.0:
+
+- **Send only `title` and `level` to normal services.** They are reserved params:
+  services that support them use them, and the rest ignore them. Any other param
+  makes the send fail. For example, Telegram with `priority` returns
+  `setting param "priority": not a valid config key`.
+- **`level` drives severity where a service supports it.** ntfy maps
+  Warning→high and Error→max priority. Discord picks the embed colour. Gotify,
+  Pushover, Opsgenie and PagerDuty also use it. A setting in the user's URL (such
+  as `?priority=5`) still takes precedence. For all other services, the emoji
+  prefix in the title carries the severity.
+- **Webhook channels** (`generic://…?template=json`) put every extra param into
+  the JSON body. That makes it the structured integration point, for example for
+  Home Assistant or n8n. Tested payload:
+
+  ```json
+  {"title":"⚠️ Large download on tv.lan","message":"tv.lan (3c:22:fb:12:34:56, 192.168.1.40) downloaded 6.2 GB in the last 1h (threshold 5 GB).",
+   "level":"Warning","event":"alert.firing","alert_id":"42","rule_id":"3","rule_name":"Big downloads",
+   "rule_type":"traffic_threshold","severity":"warning","subject":"3c:22:fb:12:34:56","value":"6657199308",
+   "mac":"3c:22:fb:12:34:56","ip":"192.168.1.40","hostname":"tv.lan","started_at":"2026-11-24T18:03:00Z",
+   "url":"http://netmon.lan:2137/alerts/42","payload_version":"1"}
+  ```
+
+  Every value is a string. Field names must **not** collide with generic's config
+  keys (`title`, `method`, `template`, `contenttype`, `titlekey`, `messagekey`,
+  `disabletls`, `skiptlsverify`), because a matching param reconfigures the
+  request instead of becoming a field.
+- **Plain-text bodies.** netmon never sets `parsemode` or `usehtml`. If a user adds
+  `parsemode=HTML` or `Markdown` to a Telegram URL, hostnames containing `_`, `<`
+  and similar characters may break the formatting. Document this next to the URL field.
+- **Use a one-shot `shoutrrr.SendContext` per message** instead of a long-lived
+  router per channel. At home-network volumes the cost doesn't matter, and there's
+  no router cache to invalidate when a channel is edited. Each attempt gets a 10 s
+  `context.WithTimeout`.
+
+### 4.4 Secrets in URLs
+
+- **The API never returns `url`.** It returns `service` and `masked_url`, built with
+  `format.MaskedURL(format.GetServiceConfig(svc))` after `Locate`. Tested output:
+  - `telegram://REDACTED@telegram?chats=%40mychan`
+  - `discord://REDACTED@123456`
+  - `smtp://user:REDACTED@smtp.example.com:587/?…`
+  - `ntfy://ntfy.sh/home-net` (the token is dropped)
+- **Editing:** a `PUT` without `url` keeps the stored URL, so you can rename or
+  toggle a channel without re-pasting secrets. To change any part of the URL, paste
+  the whole URL again.
+- **Errors stored in `notification_deliveries.error`:** shoutrrr prefixes errors
+  with the service ID, not the URL. However, a wrapped `net/http` error can contain
+  the request URL, and Telegram puts the bot token in the path. Before storing or
+  logging an error, replace every userinfo value, path segment and query value of
+  at least 8 characters from the channel URL with `REDACTED`. Never log channel URLs.
+- URLs are stored in plain text in `flows.db`, the same trust boundary as the
+  database file. Encrypting them is a later option (§8).
 
 ### 4.5 Dispatcher
 
-- A buffered queue (256 jobs) with a small worker pool (4 workers). Each send has
-  a 10 s timeout and up to 3 attempts, with backoff of 2 s, 10 s and 30 s. Don't
-  retry 4xx responses other than 429; for 429, honour `Retry-After`.
-- Every attempt chain is written to `notification_deliveries`, which the UI shows
-  on the alert detail page.
+- A buffered queue (256 jobs) and 4 workers, so a slow SMTP server doesn't block
+  Telegram.
+- Up to 3 attempts per message, with backoff of 2 s, 10 s and 30 s. shoutrrr's
+  errors don't expose HTTP status codes, so every send error is retried. Validation
+  errors from `Locate` are not retried; they fail immediately.
+- Every send is written to `notification_deliveries`, with `attempts` and the
+  redacted error. The UI shows this on the alert detail page.
 - **Per-channel rate limit** (for example 20 messages per 5 minutes). Overflow
   becomes a single "N more alerts suppressed" message. This protects against a bad
   rule matching every device, and against Telegram's flood limits.
 - **Grouping:** when one evaluation cycle produces more than 3 alerts for the same
-  channel, send one combined message instead of many.
+  channel, send one combined message.
 - The queue is in-memory. On shutdown, drain for up to 5 s, then drop what's left
-  and log it. That is acceptable for a home tool. The alerts themselves are
-  persisted, so nothing is lost from history.
-- `main.go` shutdown order: stop the collector, then the engine, then
+  and log it. Alerts are persisted, so history isn't lost.
+  `main.go` shutdown order: stop the collector, then the engine, then
   `dispatcher.Close(5s)`, then Fiber.
 
-### 4.6 Webhook payload (versioned)
+### 4.6 Later: generated channel forms
 
-```json
-{
-  "version": 1,
-  "event": "alert.firing",
-  "alert": {
-    "id": 42,
-    "rule_id": 3,
-    "rule_name": "Big downloads",
-    "rule_type": "traffic_threshold",
-    "severity": "warning",
-    "subject": "3c:22:fb:12:34:56",
-    "value": 6657199308,
-    "title": "Large download on tv.lan",
-    "body": "tv.lan (3c:22:fb:12:34:56, 192.168.1.40) downloaded 6.2 GB in the last 1h (threshold 5 GB).",
-    "started_at": "2026-11-24T18:03:00Z",
-    "resolved_at": null,
-    "labels": { "mac": "3c:22:fb:12:34:56", "ip": "192.168.1.40", "hostname": "tv.lan" }
-  },
-  "url": "http://netmon.lan:2137/alerts/42"
-}
-```
+The fork exposes enough metadata to build a form for every service without
+writing per-service code. `format.GetServiceConfigFormat(service)` returns each
+field's `Name`, `Description`, `DefaultValue`, `Required`, `Sensitive` and `Keys`.
+For Telegram, `Token` is required and sensitive, `Chats` is required, and
+`ParseMode`, `Notification` and the rest are optional. Fill a config with
+`format.SetConfigField` and build the URL with `config.GetURL()`.
+
+That would replace "paste a URL" with a real form. It is planned for milestone 4;
+the MVP form is the URL field plus examples (§7).
 
 ## 5. Alert rules
 
@@ -340,7 +384,7 @@ devices. Durations are stored in seconds.
 
 | Type | Kind | Params | Subject | Fires when | Resolves when |
 |---|---|---|---|---|---|
-| `new_device` | event | `ignore_random_macs` (default `true`) | MAC | a device's `first_seen` is after the previous evaluation (and after the rule's `created_at`) | n/a (one-shot) |
+| `new_device` | event | `ignore_random_macs` (default **`false`**) | MAC | a device's `first_seen` is after the previous evaluation (and after the rule's `created_at`) | n/a (one-shot) |
 | `traffic_threshold` | stateful | `direction` in/out/total, `threshold_bytes`, `window_s` (300…86400); optional `aggregate: "network"` | MAC, or `network` | sum over the sliding window > threshold | sum < 90 % of threshold (hysteresis against flapping) |
 | `device_inactive` | stateful | `inactive_s`; **scope required** | MAC | `now - last_seen > inactive_s` | the device is seen again |
 | `destination_port` | event | `ports` [], `proto` tcp/udp/any | `mac\|port/proto` | a flow in the window since the last evaluation matches | n/a |
@@ -349,8 +393,9 @@ devices. Durations are stored in seconds.
 Details:
 
 - **Random MACs.** Phones use private Wi-Fi addresses, which have the
-  locally-administered bit set (`mac[0] & 0x02 != 0`). Without the
-  `ignore_random_macs` filter, `new_device` would be noisy.
+  locally-administered bit set (`mac[0] & 0x02 != 0`). By default netmon alerts on
+  these too. The rule form shows the option with a hint: "Enable if phones that
+  rotate their Wi-Fi address cause repeated alerts."
 - **Traffic direction** follows the same `CASE WHEN src_mac IS NOT NULL …` logic as
   `GetClients`, so alert numbers match the UI exactly. Example evaluator query
   (the window start comes from Go, per §2):
@@ -380,7 +425,7 @@ Details:
 type Observation struct {
     Subject string
     Value   float64
-    Labels  map[string]string // mac, ip, hostname, country, port… → message templates and webhook
+    Labels  map[string]string // mac, ip, hostname, country, port… → message text and webhook fields
 }
 
 type Evaluator interface {
@@ -395,13 +440,14 @@ func (e *Engine) Run(ctx context.Context)    // the loop
 ```
 
 Layout: `alerting/{engine.go, rules.go (types, params, validation), evaluators.go,
-templates.go}` and `storage/{devices.go, channels.go, rules.go, alerts.go}`.
+templates.go, retention.go}` and `storage/{devices.go, channels.go, rules.go,
+alerts.go}`.
 
 **One evaluation cycle** runs after every flush, about once a minute:
 
 1. Load the enabled rules and their channel IDs.
 2. For each rule, run its evaluator with a 10 s timeout and `recover`. On error,
-   log it and continue with the next rule. Repeated failures can surface in the UI later.
+   log it and continue with the next rule.
 3. Reconcile the result with the open alerts for that rule:
    - **Stateful rules.**
      - Firing subject with no open alert: insert a `firing` alert and notify `alert.firing`.
@@ -417,12 +463,13 @@ templates.go}` and `storage/{devices.go, channels.go, rules.go, alerts.go}`.
 Because open alerts live in the database, a restart doesn't re-send "firing"
 messages. Editing a rule resolves its open alerts **silently**, and the next cycle
 re-evaluates it with the new parameters. Deleting a rule removes its channel links
-and resolves its open alerts, but keeps the history (`rule_name` is a snapshot).
+and resolves its open alerts, but keeps the history (`rule_name` is a snapshot)
+until retention removes it.
 
 **Wiring** (`main.go` and `collector`):
 
 ```go
-dispatcher := notify.NewDispatcher(db, notify.Registry)
+dispatcher := notify.NewDispatcher(db)
 engine     := alerting.NewEngine(db, dispatcher)
 go engine.Run(ctx)
 
@@ -434,45 +481,46 @@ coll, err := collector.CollectTraffic(db, collector.Options{OnFlush: engine.Trig
 non-Linux builds there is no collector, so no new data arrives and nothing is
 evaluated, which is correct.
 
-### 5.3 Message templates
+### 5.3 Message text
 
 Each rule type has a default `text/template` for the title and body, enriched with
-hostname, last IP and country from the `lookup` package:
+hostname, last IP and country from the `lookup` package. The emoji prefix comes
+from severity (ℹ️ / ⚠️ / 🚨), and resolved messages use ✅:
 
-- `🆕 New device: 3c:22:fb:12:34:56` / `First seen 18:03 as 192.168.1.40 (iphone.lan).`
-- `📈 Large download on tv.lan` / `tv.lan (…) downloaded 6.2 GB in the last 1h (threshold 5 GB).`
-- `✅ Resolved: Large download on tv.lan` / `Back under threshold after 47 min.`
-- `💤 nas.lan is inactive` / `No traffic since 17:20 (45 min).`
+- `New device: 3c:22:fb:12:34:56` / `First seen 18:03 as 192.168.1.40 (iphone.lan).`
+- `Large download on tv.lan` / `tv.lan (…) downloaded 6.2 GB in the last 1h (threshold 5 GB).`
+- `Resolved: Large download on tv.lan` / `Back under threshold after 47 min.`
+- `nas.lan is inactive` / `No traffic since 17:20 (45 min).`
 
-Byte formatting reproduces the UI's `pretty-bytes` style on the Go side. Custom
-templates per rule come in milestone 4.
+Bodies end with the deep link `NETMON_PUBLIC_URL/alerts/:id`, which defaults to
+`http://<hostname>:2137`. Byte formatting reproduces the UI's `pretty-bytes` style
+on the Go side. Custom templates per rule come in milestone 4.
 
 ## 6. HTTP API
 
 New handlers go in `api/notifications.go` and `api/alerts.go`. New DTOs use
-explicit `json:"snake_case"` tags, matching the existing `HostnamesBody` and the
-config JSON. Validation errors return `400 {"errors": {"chat_id": "required"}}`.
+explicit `json:"snake_case"` tags, matching the existing `HostnamesBody`.
+Validation errors return `400 {"errors": {"url": "telegram: invalid telegram token"}}`.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/notification-channel-types` | registry with field specs (drives the form) |
-| `GET /api/notification-channels` | list (secrets masked, `used_by_rules` count) |
-| `POST /api/notification-channels` | create (validated against the field spec) |
-| `GET/PUT/DELETE /api/notification-channels/:id` | read, update (empty secret = keep), delete (also unlinks it from rules) |
+| `GET /api/notification-services` | A curated list of common services (Telegram, ntfy, Discord, email, Gotify, Pushover, Slack, Webhook) with an example URL and a docs link, plus every scheme from `router.SupportedSchemas()` |
+| `GET /api/notification-channels` | list: `id, name, service, masked_url, enabled, used_by_rules` |
+| `POST /api/notification-channels` | create `{name, url, enabled}`; the URL is validated with `Locate` |
+| `GET/PUT/DELETE /api/notification-channels/:id` | read, update (no `url` = keep the stored one), delete (also unlinks it from rules) |
 | `POST /api/notification-channels/:id/test` | send a test message through a saved channel |
-| `POST /api/notification-channels/test` | send a test message from an **unsaved** form config |
-| `GET /api/alert-rule-types` | param specs per rule type (same idea as channel types) |
+| `POST /api/notification-channels/test` | send a test message to an **unsaved** URL from the form |
+| `GET /api/alert-rule-types` | param specs per rule type (drives the rule form) |
 | `GET /api/alert-rules` | list, with channel IDs and the count of firing alerts |
 | `POST /api/alert-rules` | create |
 | `GET/PUT/DELETE /api/alert-rules/:id` | read, update, delete |
 | `PATCH /api/alert-rules/:id` | `{"enabled": false}` (toggle from the list) |
 | `POST /api/alert-rules/preview` | **dry run** of a rule body against current data: returns the observations, sends nothing |
-| `GET /api/alerts?state=&rule_id=&mac=&limit=&offset=` | firing alerts and history |
+| `GET /api/alerts?state=&rule_id=&mac=&limit=&offset=` | firing alerts and history (last 30 days) |
 | `GET /api/alerts/:id` | detail, including deliveries |
 | `GET /api/devices` | MAC, last IP, hostname, first and last seen (for pickers) |
 
-Also in this milestone: the SPA fallback (§2, item 4), and `NETMON_PUBLIC_URL` for
-links in messages, defaulting to `http://<hostname>:2137`.
+The SPA fallback (§2, item 4) is part of milestone 0.
 
 ## 7. Frontend
 
@@ -492,80 +540,90 @@ client/src/routes/settings/notifications.lazy.tsx  Channels list + add/edit Shee
   the firing count; poll `/api/alerts?state=firing` every 30 s) and **Settings**
   (lucide `Settings`).
 - **Shared API layer:** `client/src/api/notifications.ts` and `alerts.ts` hold typed
-  fetchers and React Query hooks (`useChannels`, `useCreateChannel`, …), and
-  mutations invalidate the matching queries. Today's routes fetch inline; this
-  feature has enough mutations to justify a shared layer.
-- **shadcn components to add:** `dialog`, `alert-dialog` (delete confirmation),
-  `select`, `switch`, `checkbox`, `label`, `badge`, `dropdown-menu`, `sonner`
-  (toasts) and `form`, which needs `react-hook-form`, `zod` and `@hookform/resolvers`.
-- **Channel form:** a type picker, then fields rendered from
-  `/api/notification-channel-types`. Secrets show as "•••• set · Change". "Send
-  test" calls the unsaved-config endpoint and shows the provider's error verbatim.
+  fetchers and React Query hooks, and mutations invalidate the matching queries.
+- **shadcn components to add:** `dialog`, `alert-dialog`, `select`, `switch`,
+  `checkbox`, `label`, `badge`, `dropdown-menu`, `sonner` (toasts), `textarea` and
+  `form`, which needs `react-hook-form`, `zod` and `@hookform/resolvers`.
+- **Channel form (MVP):**
+  - Name.
+  - A service picker from `/api/notification-services`. Choosing one fills the URL
+    field's placeholder with its example and shows a "How to get these values"
+    link to the shoutrrr docs page for that service.
+  - A URL field (password-style input with a reveal toggle). When editing, it shows
+    `masked_url` read-only and a "Replace URL" button.
+  - **Send test**, which calls the unsaved-URL endpoint and shows the
+    `Locate` or send error verbatim. This is the main feedback loop for getting a
+    URL right.
 - **Rule form:** name and type, then type-specific params: threshold with a MB/GB
   unit picker, window as 5 m/15 m/1 h/6 h/24 h, a device multi-select from
-  `/api/devices` showing hostnames, port and country inputs. Then channels
-  (multi-select, with a link to create one if none exist), severity, repeat
-  interval and notify-on-resolve. A **Preview** button lists the devices that
-  would fire right now, with their values, which makes thresholds easy to tune.
+  `/api/devices` showing hostnames, port and country inputs, and
+  `ignore_random_macs` off by default. Then channels (multi-select, with a link to
+  create one if none exist), severity, repeat interval and notify-on-resolve. A
+  **Preview** button lists the devices that would fire right now, with their values.
 - **Entry points:** a "Create alert" button on `clients/$clientId` that goes to
   `/alerts/rules/new?mac=…&type=traffic_threshold`. The empty state on the rules
   page offers one-click presets: "Tell me about new devices" and "Tell me when a
   device uses more than 10 GB a day".
 
-## 8. Security (must ship with milestone 1)
+## 8. Security
 
-- **CORS:** the UI is served from the same origin, so replace `cors.New()` with a
-  config that allows only the Vite dev origin, enabled only when `NETMON_DEV=1`.
-- **Optional auth:** when `NETMON_AUTH_TOKEN` is set, `/api/*` requires a
-  `Bearer` token or basic auth. Strongly recommended once channels hold secrets.
-- Secrets are write-only in the API (§4.4).
-- Outbound calls (webhook URL, test endpoint) get a 10 s timeout, read at most
-  64 KB of the response, and echo back only a short error excerpt.
-- Mutating endpoints accept only `application/json`, which blocks simple
-  form-POST CSRF.
+**Auth is deferred** by decision and will be added later. Until then, anyone who
+can reach port 2137 can read and change channels and rules. What this plan still
+does, because it costs nothing and the UI needs it anyway:
+
+- Channel URLs are write-only in the API (`masked_url` only), and errors are
+  redacted before they are stored or logged (§4.4).
+- **Remove `cors.New()`** in milestone 0. The UI is same-origin in production, and
+  in development Vite already proxies `/api` (`client/vite.config.ts`), so CORS is
+  never needed. Removing it stops other websites open in the browser from reading
+  the API.
+
+These are left for the auth work: an auth token or basic auth, encrypting channel
+URLs at rest, and SSRF limits on `generic://` targets.
 
 ## 9. Testing
 
 The repo has no tests yet. Add:
 
-- **notify:** each sender tested against `httptest.Server` (base URLs are
-  injectable), checking method, path, headers and payload. Email: unit-test message
-  building, plus a minimal fake SMTP listener for one happy-path test.
+- **notify:**
+  - Send to `generic://<httptest host>/hook?template=json&disabletls=yes`. This
+    works offline, and I checked it. Assert the title, message, level and
+    structured fields, and that no extra params reach non-generic services.
+  - Test redaction of errors, and that `masked_url` never contains a secret.
+  - Test the retry, rate-limit and grouping logic with a fake send function.
 - **alerting evaluators:** in-memory DuckDB (`sql.Open("duckdb", "")`), run the
   embedded migrations, insert fixture flows with explicit `created_at`, and check
-  the observations. Because the window start is a parameter, this needs no clock
-  mocking in SQL.
-- **engine state machine:** fake clock plus fake notifier. Check: fires once; no
+  the observations.
+- **engine state machine:** fake clock plus fake dispatcher. Check: fires once; no
   duplicate on the next cycle; reminder after `repeat_interval_s`; resolve with
   hysteresis; no re-fire after a restart; event cooldown; one failing rule doesn't
   block the others.
-- **API:** `app.Test()` for CRUD, validation errors, secret masking and "empty
-  secret keeps the old value".
-- **Manual end to end** on a Linux router: an ntfy.sh topic, a `new_device` rule,
-  and a phone joining with private MAC off and then on.
-- **CI (optional):** a GitHub Action running `go test ./...` and `npm run build`.
-  The root package embeds `client/dist`, so build the client first, or limit
-  `go vet` to the subpackages.
+- **retention:** with a fake clock, resolved alerts older than 30 days and old
+  deliveries are deleted, and firing alerts are kept.
+- **API:** `app.Test()` for CRUD, `Locate` validation errors, `masked_url`, and
+  "a `PUT` without `url` keeps the stored one".
+- **Manual end to end** on a Linux router: an ntfy.sh topic plus a Telegram bot, a
+  `new_device` rule, and a phone joining the network.
+- **CI (optional):** a GitHub Action on Go 1.27 running `go test ./...` and
+  `npm run build`. The root package embeds `client/dist`, so build the client
+  first, or limit `go vet` to the subpackages.
 
 ## 10. Milestones
 
 | # | Milestone | Contents | Done when |
 |---|---|---|---|
-| 0 | **Groundwork** | `lookup` package (GeoIP reader + DNS cache, configurable resolver); new storage functions return errors; `collector.Options{OnFlush}`; `002_devices.sql` + upsert in `dumpFlows`; SPA fallback; CORS tightened | Existing UI unchanged; `devices` fills; refreshing `/clients/...` works |
-| 1 | **Channels** | `003_notification_channels.sql`; `notify` package with webhook, ntfy, telegram, discord, email; dispatcher + delivery log; channel API + test endpoints; Settings → Notifications page; secret masking; optional auth token | You can add a Telegram or ntfy channel in the UI and receive a test message |
-| 2 | **Rules MVP** | `004_alerts.sql`; engine; `new_device` + `traffic_threshold`; rules API; rules list + form; alerts list | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved |
+| 0 | **Groundwork** | **Go 1.27** (`go.mod`, `Dockerfile`); `lookup` package (GeoIP reader + DNS cache, configurable resolver); new storage functions return errors; `collector.Options{OnFlush}`; `002_devices.sql` + upsert in `dumpFlows`; SPA fallback; remove `cors.New()` | Builds on 1.27; existing UI unchanged; `devices` fills; refreshing `/clients/...` works |
+| 1 | **Channels** | `003_notification_channels.sql`; shoutrrr dependency; `notify` dispatcher + delivery log + redaction; channel API + test endpoints; Settings → Notifications page (URL field + examples + Send test) | You can paste a Telegram or ntfy URL in the UI and receive a test message |
+| 2 | **Rules MVP** | `004_alerts.sql`; engine; `new_device` + `traffic_threshold`; rules API; rules list + form; alerts list; **30-day retention job** | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved; old history is deleted |
 | 3 | **More rules + UX** | `device_inactive`, `destination_port`, `destination_country`; preview/dry run; alert detail + delivery log; sidebar badge; presets; "Create alert" from the client page | All five rule types are usable from the UI |
-| 4 | **Polish** (optional) | Custom templates per rule; quiet hours and "mute until"; daily digest mode; retention for `alerts`/`notification_deliveries` (and `flows`, which has none today); device aliases; secret encryption; Slack/Gotify/Pushover | n/a |
+| 4 | **Polish** (optional) | Generated per-service channel forms (§4.6); custom templates per rule; quiet hours and "mute until"; daily digest mode; device aliases | n/a |
+| n/a | **Auth** (separate work) | Login or token; secret encryption; SSRF limits | n/a |
 
 Milestones 0 and 1 can each be merged on their own. Milestone 2 is the first one
 users will notice.
 
 ## 11. Open questions
 
-1. **Channel priority:** is ntfy + Telegram + Discord + webhook + email the right
-   first set, or is one or two of them enough to start?
-2. **Auth:** is netmon only ever reachable on the LAN? Is an optional
-   `NETMON_AUTH_TOKEN` acceptable, or should it be required once channels exist?
-3. **`new_device` default:** ignore randomized (private) MACs by default?
-4. **Retention:** how long to keep alert history (proposal: 90 days)? Should
-   `flows` retention be handled in the same pass?
+1. **`flows` retention:** the 30-day default applies to alert history and the
+   delivery log. `flows` still grows forever. Should it get the same kind of
+   retention job (configurable, possibly with a different default)?
