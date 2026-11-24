@@ -18,9 +18,11 @@ import (
 	"sync"
 )
 
+// FlowSnapshotKey groups connections into flows. It holds addresses by
+// value so that connections with the same endpoints compare equal.
 type FlowSnapshotKey struct {
-	srcIP common.IPAddress
-	dstIP common.IPAddress
+	srcIP netip.Addr
+	dstIP netip.Addr
 	proto uint8
 	port  uint16
 }
@@ -68,6 +70,117 @@ func queryMacAddress(ipAddress netip.Addr) (*common.MACAddress, error) {
 	return nil, errors.New("no neighbor found with specified ip address")
 }
 
+// flowDelta returns the traffic a connection carried since previous, its
+// state at the last recorded dump. Conntrack counters are cumulative.
+func flowDelta(flow conntrack.Flow, previous conntrack.Flow, seen bool) (inBytes, inPackets, outBytes, outPackets uint64) {
+	inBytes, inPackets = flow.CountersReply.Bytes, flow.CountersReply.Packets
+	outBytes, outPackets = flow.CountersOrig.Bytes, flow.CountersOrig.Packets
+
+	if !seen {
+		return
+	}
+
+	// Smaller counters mean the ID now belongs to a new connection, whose
+	// traffic all happened since the last dump.
+	if inBytes < previous.CountersReply.Bytes || inPackets < previous.CountersReply.Packets ||
+		outBytes < previous.CountersOrig.Bytes || outPackets < previous.CountersOrig.Packets {
+		return
+	}
+
+	return inBytes - previous.CountersReply.Bytes,
+		inPackets - previous.CountersReply.Packets,
+		outBytes - previous.CountersOrig.Bytes,
+		outPackets - previous.CountersOrig.Packets
+}
+
+// buildSnapshots sums the traffic of closed and still open connections since
+// the last dump into one snapshot per flow. Flows without new traffic are
+// left out.
+func buildSnapshots(
+	closed map[uint32]conntrack.Flow,
+	current []conntrack.Flow,
+	previous map[uint32]conntrack.Flow,
+	macOf func(netip.Addr) *common.MACAddress,
+) map[FlowSnapshotKey]*FlowSnapshot {
+	allFlows := make(map[uint32]conntrack.Flow, len(closed)+len(current))
+	for id, flow := range closed {
+		allFlows[id] = flow
+	}
+	for _, flow := range current {
+		allFlows[flow.ID] = flow
+	}
+
+	snapshots := map[FlowSnapshotKey]*FlowSnapshot{}
+
+	for _, flow := range allFlows {
+		old, seen := previous[flow.ID]
+		inBytes, inPackets, outBytes, outPackets := flowDelta(flow, old, seen)
+		if inBytes == 0 && inPackets == 0 && outBytes == 0 && outPackets == 0 {
+			continue
+		}
+
+		key := FlowSnapshotKey{
+			srcIP: flow.TupleOrig.IP.SourceAddress,
+			dstIP: flow.TupleOrig.IP.DestinationAddress,
+			proto: flow.TupleOrig.Proto.Protocol,
+			port:  flow.TupleOrig.Proto.DestinationPort,
+		}
+
+		snapshot, ok := snapshots[key]
+		if !ok {
+			snapshot = &FlowSnapshot{
+				srcMAC: macOf(key.srcIP),
+				dstMAC: macOf(key.dstIP),
+			}
+			snapshots[key] = snapshot
+		}
+
+		snapshot.inBytes += inBytes
+		snapshot.inPackets += inPackets
+		snapshot.outBytes += outBytes
+		snapshot.outPackets += outPackets
+	}
+
+	return snapshots
+}
+
+// insertSnapshots stores all snapshots in one transaction, so a failure
+// leaves nothing half written.
+func insertSnapshots(db *sql.DB, snapshots map[FlowSnapshotKey]*FlowSnapshot) error {
+	if len(snapshots) == 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for key, snapshot := range snapshots {
+		var srcMAC, dstMAC *net.HardwareAddr
+		if snapshot.srcMAC != nil {
+			srcMAC = &snapshot.srcMAC.HardwareAddr
+		}
+		if snapshot.dstMAC != nil {
+			dstMAC = &snapshot.dstMAC.HardwareAddr
+		}
+
+		if _, err := stmt.Exec(srcMAC, dstMAC, key.srcIP.AsSlice(), key.dstIP.AsSlice(), key.proto, key.port,
+			snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets); err != nil {
+			return fmt.Errorf("insert flow %s -> %s: %w", key.srcIP, key.dstIP, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func dumpFlows(db *sql.DB) error {
 	lock.Lock()
 	defer lock.Unlock()
@@ -76,84 +189,30 @@ func dumpFlows(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	defer c.Close()
 
 	currentFlows, err := c.Dump(nil)
 	if err != nil {
 		return err
 	}
 
-	var allFlows = map[uint32]conntrack.Flow{}
+	snapshots := buildSnapshots(closedFlows, currentFlows, continuedFlows, func(addr netip.Addr) *common.MACAddress {
+		mac, _ := queryMacAddress(addr)
+		return mac
+	})
 
-	for _, flow := range closedFlows {
-		allFlows[flow.ID] = flow
+	if err := insertSnapshots(db, snapshots); err != nil {
+		// Keep the closed flows and the previous baseline: the next dump
+		// then records this minute's traffic too, without counting twice.
+		return err
 	}
 
-	for _, flow := range currentFlows {
-		allFlows[flow.ID] = flow
-	}
-
-	var snapshots = map[FlowSnapshotKey]*FlowSnapshot{}
-
-	for _, flow := range allFlows {
-		var inBytes = flow.CountersReply.Bytes
-		var inPackets = flow.CountersReply.Packets
-		var outBytes = flow.CountersOrig.Bytes
-		var outPackets = flow.CountersOrig.Packets
-
-		if oldFlow, ok := continuedFlows[flow.ID]; ok {
-			inBytes = inBytes - oldFlow.CountersReply.Bytes
-			inPackets = inPackets - oldFlow.CountersReply.Packets
-			outBytes = outBytes - oldFlow.CountersOrig.Bytes
-			outPackets = outPackets - oldFlow.CountersOrig.Packets
-		}
-
-		key := FlowSnapshotKey{
-			common.IPAddress{&flow.TupleOrig.IP.SourceAddress},
-			common.IPAddress{&flow.TupleOrig.IP.DestinationAddress},
-			flow.TupleOrig.Proto.Protocol,
-			flow.TupleOrig.Proto.DestinationPort,
-		}
-
-		if snapshot, ok := snapshots[key]; ok {
-			snapshots[key].inBytes = inBytes + snapshot.inBytes
-			snapshots[key].inPackets = inPackets + snapshot.inPackets
-			snapshots[key].outBytes = outBytes + snapshot.outBytes
-			snapshots[key].outPackets = outPackets + snapshot.outPackets
-		} else {
-			srcMAC, _ := queryMacAddress(flow.TupleOrig.IP.SourceAddress)
-			dstMAC, _ := queryMacAddress(flow.TupleOrig.IP.DestinationAddress)
-
-			snapshots[key] = &FlowSnapshot{
-				srcMAC,
-				dstMAC,
-				inBytes,
-				inPackets,
-				outBytes,
-				outPackets,
-			}
-		}
-	}
-
-	for key, snapshot := range snapshots {
-		var srcMAC *net.HardwareAddr
-		var dstMAC *net.HardwareAddr
-
-		if snapshot.srcMAC != nil {
-			srcMAC = &snapshot.srcMAC.HardwareAddr
-		}
-
-		if snapshot.dstMAC != nil {
-			dstMAC = &snapshot.dstMAC.HardwareAddr
-		}
-
-		_, err = db.Exec(`INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)`, srcMAC, dstMAC, key.srcIP.Addr.AsSlice(), key.dstIP.Addr.AsSlice(), key.proto, key.port, snapshot.inBytes, snapshot.inPackets, snapshot.outBytes, snapshot.outPackets)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
+	// The open connections are the baseline for the next dump's deltas.
 	closedFlows = map[uint32]conntrack.Flow{}
-	continuedFlows = map[uint32]conntrack.Flow{}
+	continuedFlows = make(map[uint32]conntrack.Flow, len(currentFlows))
+	for _, flow := range currentFlows {
+		continuedFlows[flow.ID] = flow
+	}
 
 	return nil
 }
