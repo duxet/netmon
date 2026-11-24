@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"github.com/duxet/netmon/common"
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/geoip2-golang/v2"
 )
 
 // countryLookup resolves IP addresses to ISO country codes. The database is
@@ -34,17 +34,17 @@ func (l *countryLookup) Country(ipAddress common.IPAddress) *string {
 		return nil
 	}
 
-	country, err := l.db.Country(ipAddress.AsSlice())
+	country, err := l.db.Country(ipAddress.Unmap())
 	if err != nil {
 		log.Printf("GeoIP lookup for %s failed: %v", ipAddress, err)
 		return nil
 	}
 
-	if country.Country.IsoCode == "" {
+	if country.Country.ISOCode == "" {
 		return nil
 	}
 
-	return &country.Country.IsoCode
+	return &country.Country.ISOCode
 }
 
 func (l *countryLookup) Close() error {

@@ -17,7 +17,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/geoip2-golang/v2"
 )
 
 // Other is the name used for traffic that doesn't match any known app.
@@ -209,7 +209,7 @@ func (c *Classifier) classify(addr netip.Addr) string {
 	}
 
 	if c.asnDB != nil {
-		if asn, err := c.asnDB.ASN(addr.AsSlice()); err == nil {
+		if asn, err := c.asnDB.ASN(addr); err == nil {
 			if app, ok := c.asns[asn.AutonomousSystemNumber]; ok {
 				return app
 			}

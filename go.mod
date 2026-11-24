@@ -10,7 +10,7 @@ require (
 	github.com/go-co-op/gocron/v2 v2.23.2
 	github.com/gofiber/fiber/v2 v2.52.16
 	github.com/gopacket/gopacket v1.8.0
-	github.com/oschwald/geoip2-golang v1.13.0
+	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	github.com/rubenv/sql-migrate v1.8.1
 	github.com/ti-mo/conntrack v0.6.0
 	github.com/ti-mo/netfilter v0.5.3
@@ -39,7 +39,7 @@ require (
 	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/socket v0.8.0 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
-	github.com/oschwald/maxminddb-golang v1.13.1 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.8.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.34 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
