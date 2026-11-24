@@ -251,3 +251,18 @@ type DeliveryDTO struct {
 	Error     *string
 	CreatedAt time.Time
 }
+
+// SessionDTO tells whether people have to sign in to use netmon, and who the
+// request is from.
+type SessionDTO struct {
+	AuthEnabled bool
+	// User is who is signed in. It is null when netmon has no sign-in.
+	User *UserDTO
+}
+
+// UserDTO is a person signed in through single sign-on. Name and Email are
+// null when the provider didn't say.
+type UserDTO struct {
+	Name  *string
+	Email *string
+}

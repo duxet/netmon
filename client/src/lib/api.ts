@@ -107,6 +107,13 @@ export interface LiveSample {
   Devices: LiveDevice[]
 }
 
+/** Who is using netmon, when it asks people to sign in. */
+export interface Session {
+  /** False when netmon has no sign-in: anyone who can reach it can use it. */
+  AuthEnabled: boolean
+  User: { Name: string | null; Email: string | null } | null
+}
+
 export class ApiError extends Error {
   readonly status: number
   /** The API's own explanation, without the request it was about. */
@@ -126,8 +133,24 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "The netmon API did not respond."
 }
 
+let signingIn = false
+
+/**
+ * Sends the browser to sign in, and back to this page afterwards. The API
+ * answers 401 when there is no session, such as after it expired while the
+ * page was open. Every request that was under way answers the same, so only
+ * the first one needs to leave.
+ */
+function signIn() {
+  if (signingIn) return
+  signingIn = true
+  const next = window.location.pathname + window.location.search
+  window.location.assign(`/auth/login?next=${encodeURIComponent(next)}`)
+}
+
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, init)
+  if (response.status === 401) signIn()
   if (!response.ok) {
     // The API answers errors with {"error": "..."}; proxies may not.
     const body: unknown = await response.json().catch(() => null)
@@ -235,6 +258,16 @@ export function fetchAppTraffic(filter: FlowsFilter = {}) {
  */
 export function fetchLive(since?: string, signal?: AbortSignal) {
   return requestList<LiveSample>(withQuery("/api/live", { since }), { signal })
+}
+
+export function fetchSession() {
+  return request<Session>("/api/session")
+}
+
+/** Ends the session, and leaves for a page that doesn't send people straight back in. */
+export async function signOut() {
+  await send("/auth/logout", { method: "POST" })
+  window.location.assign("/auth/signed-out")
 }
 
 export function fetchHostnames(ipAddresses: string[]) {

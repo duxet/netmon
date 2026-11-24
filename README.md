@@ -115,8 +115,10 @@ Things to know:
   `data_dir` on external storage, as the database is written every minute.
 - There are no packages for 32-bit targets (ARM, MIPS), as the DuckDB libraries
   netmon uses are only built for 64-bit platforms.
-- netmon has no authentication. The default firewall keeps the WAN away from
-  port 2137; don't open it there.
+- netmon has no authentication unless you turn on [single sign-on](#single-sign-on).
+  The default firewall keeps the WAN away from port 2137; don't open it there.
+  The service starts in `data_dir`, so put the single sign-on settings in a
+  `netmon.yaml` there (see [Configuration](#configuration)).
 
 ## Traffic by app
 
@@ -210,9 +212,62 @@ Things to know:
   of any URL) get a JSON object with `title`, `message`, `level` and, for alerts, details
   such as the device's address. Add headers as `@Header=value`, e.g.
   `@Authorization=Bearer+TOKEN`.
-- The API has no authentication yet, so anyone who can reach netmon can see and change
+- Without [single sign-on](#single-sign-on), anyone who can reach netmon can see and change
   the channels, and make netmon send requests to any URL. Only run it on a network you
-  trust.
+  trust, or turn single sign-on on.
+
+## Single sign-on
+
+By default netmon has no authentication: anyone who can reach it can see the traffic
+of every device and change the notification channels. To require people to sign in,
+point it at an [OpenID Connect](https://openid.net/connect/) provider, such as
+[Pocket ID](https://pocket-id.org), Authelia, Authentik or Keycloak.
+
+With [Pocket ID](https://pocket-id.org), add a client for netmon under **OIDC Clients**
+in its admin settings, with the callback URL `<public_url>/auth/callback`, and copy its
+client ID and secret (the secret is only shown once). Pocket ID's issuer is its own
+address. Then configure netmon with the address people open it at, and the client:
+
+```yaml
+public_url: https://netmon.example.com
+oidc_issuer: https://id.example.com
+oidc_client_id: 3d1c1b5a-0f0e-4c8e-9d0b-3a8f7f6a2c11
+```
+
+Keep the secret out of the file, in the environment (`NETMON_OIDC_CLIENT_SECRET`), or in
+a file only netmon can read. For a client that Pocket ID calls a **Public Client**, leave
+the secret out: netmon then relies on PKCE alone, which it uses in any case.
+
+- **`oidc_issuer`** is the provider's issuer URL, exactly as the provider writes it: ID
+  tokens are matched against it, so a trailing slash matters. netmon finds the rest in
+  `<issuer>/.well-known/openid-configuration`. It has to be `https://`, except for a
+  provider on the same machine.
+- **`public_url`** has to be the address people open netmon at, as the provider sends
+  them back to `<public_url>/auth/callback`, which you register there. Open netmon at
+  that address: a session cookie is only sent to the host that set it. When it starts
+  with `https://`, cookies are marked `Secure`; over plain `http://` they can't be.
+- **Who may sign in** is up to the provider: netmon lets in everyone it does. Limit the
+  client to the people who should see your network, such as with **Allowed User Groups**
+  on the client's Access tab in Pocket ID, and all the more with a provider that has
+  other people's accounts, like Google.
+- Without a session, requests to `/api` get a `401` and pages send the browser to
+  sign in, and back to the page afterwards. The web UI's sidebar shows who is signed in,
+  with **Sign out**, and the page signs in again by itself when a session ends while it is open.
+- netmon signs people in with the authorization code flow, with PKCE, `state` and a
+  `nonce`, and asks for the `openid`, `profile` and `email` scopes. It shows the name or
+  username and email from the ID token, and uses nothing else to tell who is who.
+- A session lasts 7 days, from signing in, however much it is used. Sessions live in
+  `flows.db`, only as a hash of the cookie's value, so they survive restarts and a copy
+  of the database can't be used to sign in. netmon doesn't ask the provider again
+  after signing in, so taking away someone's access there only takes effect once their
+  netmon session ends. Signing out of netmon doesn't sign them out of the provider.
+- The provider is only contacted when someone signs in. If it can't be reached when
+  netmon starts, netmon starts anyway (the flows are recorded all the same), logs it, and
+  tries again when someone signs in. People who already have a session carry on.
+- There are no API tokens: scripts can't sign in, so `/api` can't be used with `curl`
+  while single sign-on is on.
+- Setting `oidc_client_id` or `oidc_client_secret` without `oidc_issuer` is an error, so
+  that a setting that has no effect can't leave netmon open without anyone noticing.
 
 ## Configuration
 
@@ -239,7 +294,10 @@ a typo doesn't go unnoticed.
 | `public_dns`           | `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`             | DNS server for reverse lookups of public addresses                 |
 | `retention_days`       | `NETMON_RETENTION_DAYS`       | `0` (keep all)           | Days to keep hourly flow data                                      |
 | `alert_retention_days` | `NETMON_ALERT_RETENTION_DAYS` | `30`                     | Days to keep resolved alerts, `0` keeps them                       |
-| `public_url`           | `NETMON_PUBLIC_URL`           | `http://<hostname>:2137` | Where notifications link to; the port is the one of `listen`       |
+| `public_url`           | `NETMON_PUBLIC_URL`           | `http://<hostname>:2137` | Where notifications link to; the port is the one of `listen`. Required with `oidc_issuer` |
+| `oidc_issuer`          | `NETMON_OIDC_ISSUER`          | none                     | Issuer URL of an OpenID Connect provider; turns [single sign-on](#single-sign-on) on |
+| `oidc_client_id`       | `NETMON_OIDC_CLIENT_ID`       | none                     | Client ID at the provider, required with `oidc_issuer`             |
+| `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 
 For example, in `netmon.yaml`:
@@ -278,6 +336,7 @@ rounded to whole hours.
 
 | Endpoint | Parameters |
 |----------|------------|
+| `GET /api/session` | |
 | `GET /api/stats` | `from`, `to` |
 | `GET /api/clients` | `from`, `to` |
 | `GET /api/apps` | `mac` or `ip`, `from`, `to` |
@@ -371,7 +430,14 @@ rounded to whole hours.
   `rule_name`, `rule_type`, `severity`, `subject`, `state`, `value`, `started_at`,
   `resolved_at`, `url`, the labels, and `payload_version` (`1`). All values are strings.
 
-Invalid parameters are answered with a 400 and `{"error": "..."}`.
+Invalid parameters are answered with a 400 and `{"error": "..."}`. With
+[single sign-on](#single-sign-on) on, every request needs the session cookie, or is
+answered with a 401.
+
+`/api/session` tells whether netmon asks people to sign in and who the request is from:
+`{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and
+`Email` are null when the provider didn't say. Without single sign-on it is
+`{"AuthEnabled": false, "User": null}`.
 
 ## TODO
 
@@ -395,6 +461,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 ### Features
 - [x] Live view of current bandwidth per device
 - [x] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
+- [x] Single sign-on with OpenID Connect, such as Pocket ID
 - [ ] Monthly usage per device, for ISP data caps
 - [ ] CSV export
 

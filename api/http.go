@@ -11,6 +11,7 @@ import (
 
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
@@ -36,6 +37,9 @@ type Options struct {
 	// Alerts is the alert engine, which previews rules. Without one, the
 	// API makes its own for previews.
 	Alerts *alerting.Engine
+	// Auth signs people in. With it, the API and the web UI need a session;
+	// without it, anyone who can reach netmon can use all of it.
+	Auth *auth.Authenticator
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -105,6 +109,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
 
 	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
+
+	// Everything registered after this needs a session.
+	if options.Auth != nil {
+		options.Auth.Mount(app)
+	}
 
 	// serveFlows answers with one page of the flows matching filter, and
 	// their total number in the X-Total-Count header.
@@ -311,6 +320,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		return serveFlows(c, filter)
 	})
 
+	registerSessionRoutes(app, options.Auth != nil)
 	registerDeviceRoutes(app, db, hostnames)
 	registerNotificationRoutes(app, db)
 	alerts := options.Alerts

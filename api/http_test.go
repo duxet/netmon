@@ -28,6 +28,14 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
 	t.Helper()
 
+	return newTestAppFor(t, func(*sql.DB) Options { return options })
+}
+
+// newTestAppFor is newTestAppWith for options that need the database, such as
+// the sign-in's, which keeps its sessions there.
+func newTestAppFor(t *testing.T, options func(db *sql.DB) Options) (*fiber.App, *sql.DB) {
+	t.Helper()
+
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +61,7 @@ func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
 		"favicon.svg":     {Data: []byte("<svg/>")},
 	}
 
-	return CreateHTTPApp(db, assets, options), db
+	return CreateHTTPApp(db, assets, options(db)), db
 }
 
 func do(t *testing.T, app *fiber.App, method, path, body string) (int, string) {

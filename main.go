@@ -8,6 +8,7 @@ import (
 	"flag"
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/api"
+	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
@@ -121,7 +122,32 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine})
+	// With an OpenID Connect provider configured, the API and web UI need a
+	// session. Without one, anyone who can reach netmon can use all of it.
+	var authn *auth.Authenticator
+	if cfg.OIDCEnabled() {
+		authn, err = auth.New(db, auth.Options{
+			Issuer:       cfg.OIDCIssuer,
+			ClientID:     cfg.OIDCClientID,
+			ClientSecret: cfg.OIDCClientSecret,
+			BaseURL:      cfg.BaseURL(),
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Signing in with %s; the provider sends people back to %s/auth/callback", cfg.OIDCIssuer, cfg.BaseURL())
+
+		// Not having reached the provider is no reason not to start: flows are
+		// recorded all the same, and people can sign in once it is there. Say so
+		// now, though, instead of when someone tries.
+		go func() {
+			if err := authn.Check(); err != nil {
+				log.Printf("Can't reach the OpenID Connect provider, so nobody can sign in until it is: %v", err)
+			}
+		}()
+	}
+
+	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn})
 
 	go func() {
 		<-ctx.Done()
@@ -147,9 +173,9 @@ func main() {
 }
 
 // compactPeriodically rolls per-minute flows up into hourly rows and applies
-// the retention of flows and alerts, at startup and then every hour, until
-// ctx is done. The returned channel is closed once a compaction in progress
-// has finished.
+// the retention of flows and alerts, and removes expired sessions, at startup
+// and then every hour, until ctx is done. The returned channel is closed once
+// a compaction in progress has finished.
 func compactPeriodically(ctx context.Context, db *sql.DB, retention, alertRetention time.Duration) <-chan struct{} {
 	done := make(chan struct{})
 
@@ -168,6 +194,11 @@ func compactPeriodically(ctx context.Context, db *sql.DB, retention, alertRetent
 			log.Println("Failed to expire alerts:", err)
 		} else if expired > 0 {
 			log.Printf("Expired %d resolved alerts", expired)
+		}
+
+		// Expired sessions don't work anymore either way; this only tidies up.
+		if _, err := storage.ExpireSessions(db, now); err != nil {
+			log.Println("Failed to expire sessions:", err)
 		}
 	}
 

@@ -223,6 +223,17 @@ func TestLoadErrors(t *testing.T) {
 		{name: "negative alert retention", env: map[string]string{"NETMON_ALERT_RETENTION_DAYS": "-1"}, want: "alert_retention_days must be"},
 		{name: "listen without a port", file: "listen: localhost\n", want: "listen must be"},
 		{name: "empty database", file: "database: \"\"\n", want: "database must be"},
+
+		// Single sign-on must be all there or not at all: a setting that is
+		// silently ignored would leave netmon open to everyone.
+		{name: "client id without issuer", file: "oidc_client_id: netmon\n", want: "have no effect without oidc_issuer"},
+		{name: "client secret without issuer", env: map[string]string{"NETMON_OIDC_CLIENT_SECRET": "s3cret"}, want: "have no effect without oidc_issuer"},
+		{name: "issuer without client id", file: "oidc_issuer: https://id.example.com\npublic_url: https://netmon.example.com\n", want: "oidc_client_id is required"},
+		{name: "issuer over http", file: "oidc_issuer: http://id.example.com\noidc_client_id: netmon\npublic_url: https://netmon.example.com\n", want: "oidc_issuer must be an https://"},
+		{name: "issuer without a scheme", file: "oidc_issuer: id.example.com\noidc_client_id: netmon\npublic_url: https://netmon.example.com\n", want: "oidc_issuer must be an https://"},
+		{name: "issuer without public url", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\n", want: "public_url is required"},
+		{name: "public url without a scheme", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\npublic_url: netmon.example.com\n", want: "public_url must be an http://"},
+		{name: "public url with a path", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\npublic_url: https://example.com/netmon\n", want: "public_url must be an address without a path"},
 	}
 
 	for _, tt := range tests {
@@ -249,6 +260,49 @@ func TestLoadErrors(t *testing.T) {
 				t.Errorf("error %q doesn't mention %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadOIDC(t *testing.T) {
+	dir := isolate(t)
+	path := writeFile(t, filepath.Join(dir, "custom.yaml"), `
+public_url: https://netmon.example.com/
+oidc_issuer: https://id.example.com
+oidc_client_id: netmon
+`)
+	// The secret is the one setting that doesn't belong in a file others can read.
+	t.Setenv("NETMON_OIDC_CLIENT_SECRET", "s3cret")
+
+	cfg := mustLoad(t, path)
+
+	if !cfg.OIDCEnabled() {
+		t.Error("OIDCEnabled() = false, want true with an issuer")
+	}
+	if cfg.OIDCIssuer != "https://id.example.com" || cfg.OIDCClientID != "netmon" || cfg.OIDCClientSecret != "s3cret" {
+		t.Errorf("got issuer %q, client %q, secret %q", cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCClientSecret)
+	}
+}
+
+func TestLoadOIDCPublicClientAndLocalhost(t *testing.T) {
+	isolate(t)
+	// A public client has no secret, and a provider on this machine may be http.
+	t.Setenv("NETMON_PUBLIC_URL", "http://netmon.lan:2137")
+	t.Setenv("NETMON_OIDC_CLIENT_ID", "netmon")
+
+	for _, issuer := range []string{"http://localhost:1411", "http://127.0.0.1:1411", "http://[::1]:1411"} {
+		t.Setenv("NETMON_OIDC_ISSUER", issuer)
+		cfg := mustLoad(t, "")
+		if !cfg.OIDCEnabled() || cfg.OIDCClientSecret != "" {
+			t.Errorf("issuer %q: got %+v, want single sign-on without a secret", issuer, *cfg)
+		}
+	}
+}
+
+func TestOIDCDisabledByDefault(t *testing.T) {
+	isolate(t)
+
+	if mustLoad(t, "").OIDCEnabled() {
+		t.Error("OIDCEnabled() = true without an issuer")
 	}
 }
 
@@ -287,7 +341,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country local_dns public_dns retention_days alert_retention_days public_url interface"
+	want := "listen database geoip_country local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

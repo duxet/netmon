@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/netip"
+	"net/url"
 	"os"
 	"reflect"
 	"slices"
@@ -71,6 +73,15 @@ type Config struct {
 	// [Config.BaseURL].
 	PublicURL string `koanf:"public_url"`
 
+	// OIDCIssuer turns on single sign-on with an OpenID Connect provider such
+	// as Pocket ID: the provider's issuer URL, which has to be written as the
+	// provider does, since ID tokens are matched against it. Without it netmon
+	// has no authentication. OIDCClientID is required with it; OIDCClientSecret
+	// is empty for a public client, which authenticates with PKCE alone.
+	OIDCIssuer       string `koanf:"oidc_issuer"`
+	OIDCClientID     string `koanf:"oidc_client_id"`
+	OIDCClientSecret string `koanf:"oidc_client_secret"`
+
 	// Interface is the network interface to capture on, on macOS. By default
 	// it is the one the default route goes through. Linux doesn't capture
 	// packets, so ignores it.
@@ -123,6 +134,56 @@ func (c Config) BaseURL() string {
 	return "http://" + net.JoinHostPort(hostname, port)
 }
 
+// OIDCEnabled reports whether people have to sign in with an OpenID Connect
+// provider.
+func (c Config) OIDCEnabled() bool {
+	return c.OIDCIssuer != ""
+}
+
+// validateOIDC checks the single sign-on settings. A half-configured setup is
+// an error rather than a way to leave netmon open without anyone noticing.
+func (c Config) validateOIDC() error {
+	if !c.OIDCEnabled() {
+		if c.OIDCClientID != "" || c.OIDCClientSecret != "" {
+			return errors.New("oidc_client_id and oidc_client_secret have no effect without oidc_issuer: " +
+				"set the issuer to turn single sign-on on, or remove them")
+		}
+		return nil
+	}
+
+	// Discovery and the keys that sign ID tokens come over this URL, so it must
+	// not be readable or changeable on the way, except on this machine.
+	issuer, err := url.Parse(c.OIDCIssuer)
+	if err != nil || issuer.Host == "" || (issuer.Scheme != "https" && !(issuer.Scheme == "http" && isLoopback(issuer.Hostname()))) {
+		return fmt.Errorf("oidc_issuer must be an https:// URL (http:// only for localhost): %q", c.OIDCIssuer)
+	}
+	if c.OIDCClientID == "" {
+		return errors.New("oidc_client_id is required with oidc_issuer")
+	}
+
+	// The address people sign in at is what the provider sends them back to, so
+	// guessing it from the hostname would only work by accident.
+	if c.PublicURL == "" {
+		return errors.New("public_url is required with oidc_issuer: the provider sends people back to <public_url>/auth/callback")
+	}
+	public, err := url.Parse(c.PublicURL)
+	if err != nil || public.Host == "" || (public.Scheme != "http" && public.Scheme != "https") {
+		return fmt.Errorf("public_url must be an http:// or https:// URL: %q", c.PublicURL)
+	}
+	if (public.Path != "" && public.Path != "/") || public.RawQuery != "" || public.Fragment != "" {
+		return fmt.Errorf("public_url must be an address without a path, such as https://netmon.example.com: %q", c.PublicURL)
+	}
+	return nil
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
+}
+
 // validate checks the settings that can be wrong in a way that would only
 // show up later, or not at all.
 func (c Config) validate() error {
@@ -138,7 +199,7 @@ func (c Config) validate() error {
 	if c.AlertRetentionDays < 0 {
 		return fmt.Errorf("alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
 	}
-	return nil
+	return c.validateOIDC()
 }
 
 // Load reads the configuration.
