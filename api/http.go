@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/live"
@@ -32,6 +33,9 @@ type Options struct {
 	// Live is the meter the collectors report the current bandwidth of
 	// devices to, for /api/live. Without one the live view stays empty.
 	Live *live.Meter
+	// Alerts is the alert engine, which previews rules. Without one, the
+	// API makes its own for previews.
+	Alerts *alerting.Engine
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -309,7 +313,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	registerDeviceRoutes(app, db, hostnames)
 	registerNotificationRoutes(app, db)
-	registerAlertRoutes(app, db)
+	alerts := options.Alerts
+	if alerts == nil {
+		alerts = alerting.NewEngine(db, nil, alerting.Options{Hostnames: hostnames, Countries: countries})
+	}
+	registerAlertRoutes(app, db, alerts, countries)
 
 	meter := options.Live
 	if meter == nil {

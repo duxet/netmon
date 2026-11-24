@@ -169,6 +169,33 @@ type AlertRuleOptionsDTO struct {
 	MinWindowSeconds int64
 	MaxWindowSeconds int64
 	MinRepeatSeconds int64
+	// GeoIP tells whether a GeoIP database is loaded, which country rules
+	// need.
+	GeoIP bool
+}
+
+// AlertRulePreviewDTO is what a rule would find now.
+type AlertRulePreviewDTO struct {
+	// Findings are the first 20, those the rule would alert about first.
+	Findings []FindingDTO
+	Total    int
+	// Since is where a preview of an event rule starts looking; null for
+	// rules about what holds now.
+	Since *time.Time
+}
+
+// FindingDTO is something a previewed rule finds.
+type FindingDTO struct {
+	Subject string
+	// Label is who it is about: a device's name, or "the network".
+	Label string
+	// Value is bytes for traffic and events, seconds for quiet devices.
+	Value *float64
+	// Fires tells whether the rule would alert about it; rules about traffic
+	// and quiet devices also list what doesn't meet their condition.
+	Fires bool
+	Title string
+	Body  string
 }
 
 // AlertRuleDTO is an alert rule.

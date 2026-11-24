@@ -3,7 +3,9 @@ import type {
   AlertRule,
   AlertRuleInput,
   AlertRuleType,
+  CountryParams,
   KnownDevice,
+  PortParams,
   Severity,
   TrafficDirection,
 } from "@/lib/api"
@@ -12,7 +14,30 @@ import { cleanHostname } from "@/lib/network"
 
 export const RULE_TYPES: { value: AlertRuleType; label: string }[] = [
   { value: "new_device", label: "A new device joins the network" },
-  { value: "traffic_threshold", label: "A device uses more traffic than a threshold" },
+  { value: "traffic_threshold", label: "Traffic goes over a threshold" },
+  { value: "device_inactive", label: "A device has no traffic for a while" },
+  { value: "destination_port", label: "A device connects to a port" },
+  { value: "destination_country", label: "A device exchanges traffic with a country" },
+]
+
+/** Rules about events alert once per event; the others while a condition lasts. */
+export function isEventRule(type: AlertRuleType): boolean {
+  return type === "new_device" || type === "destination_port" || type === "destination_country"
+}
+
+/** How long a device may be quiet, in seconds. */
+export const INACTIVE_DURATIONS = [
+  { seconds: 15 * 60, label: "15 minutes" },
+  { seconds: 30 * 60, label: "30 minutes" },
+  { seconds: 3600, label: "1 hour" },
+  { seconds: 6 * 3600, label: "6 hours" },
+  { seconds: 24 * 3600, label: "1 day" },
+]
+
+export const PROTOCOLS: { value: PortParams["protocol"]; label: string }[] = [
+  { value: "tcp", label: "TCP" },
+  { value: "udp", label: "UDP" },
+  { value: "any", label: "Either" },
 ]
 
 export const DIRECTIONS: { value: TrafficDirection; label: string }[] = [
@@ -65,21 +90,39 @@ export function knownDeviceLabel(device: KnownDevice): string {
 
 /** What a rule checks, in a line: "Download over 5 GB in 1 hour, YouTube, 2 devices". */
 export function describeRule(rule: AlertRule): string {
-  if (rule.Type === "new_device") {
-    return rule.Params.ignore_random_macs
-      ? "Any new device, except private Wi-Fi addresses"
-      : "Any new device"
-  }
-
   const p = rule.Params
-  const direction = DIRECTIONS.find((d) => d.value === p.direction)?.label ?? "Traffic"
-  const parts = [
-    `${direction} over ${formatBytes(p.threshold_bytes ?? 0)} in ${windowLabel(p.window_s ?? 0)}`,
-  ]
-  if (p.app) parts.push(p.app)
-  const devices = p.macs?.length ?? 0
-  parts.push(devices === 0 ? "every device" : devices === 1 ? "1 device" : `${devices} devices`)
-  return parts.join(", ")
+  const devices = (n: number) => (n === 0 ? "every device" : n === 1 ? "1 device" : `${n} devices`)
+
+  switch (rule.Type) {
+    case "new_device":
+      return p.ignore_random_macs ? "Any new device, except private Wi-Fi addresses" : "Any new device"
+    case "device_inactive":
+      return `No traffic for ${durationLabel(p.inactive_s ?? 0)}, ${devices(p.macs?.length ?? 0)}`
+    case "destination_port": {
+      const protocol = PROTOCOLS.find((x) => x.value === p.protocol)
+      const ports = (p.ports ?? []).join(", ")
+      return `Connections to port${p.ports?.length === 1 ? "" : "s"} ${ports}${protocol && p.protocol !== "any" ? `/${protocol.label}` : ""}, ${devices(p.macs?.length ?? 0)}`
+    }
+    case "destination_country": {
+      const countries = (p.countries ?? []).join(", ")
+      return `${p.mode === "allow" ? "Traffic outside" : "Traffic with"} ${countries}, ${devices(p.macs?.length ?? 0)}`
+    }
+    default: {
+      const direction = DIRECTIONS.find((d) => d.value === p.direction)?.label ?? "Traffic"
+      const parts = [`${direction} over ${formatBytes(p.threshold_bytes ?? 0)} in ${windowLabel(p.window_s ?? 0)}`]
+      if (p.app) parts.push(p.app)
+      parts.push(p.network ? "whole network" : devices(p.macs?.length ?? 0))
+      return parts.join(", ")
+    }
+  }
+}
+
+/** A duration in seconds as a phrase: "30 minutes", "1 day". */
+export function durationLabel(seconds: number): string {
+  const known = INACTIVE_DURATIONS.find((d) => d.seconds === seconds)
+  if (known) return known.label
+  if (seconds % 86400 === 0) return `${seconds / 86400} days`
+  return windowLabel(seconds)
 }
 
 /** The editable state of the rule form. */
@@ -93,7 +136,15 @@ export interface RuleForm {
   windowSeconds: number
   /** Empty for all traffic. */
   app: string
+  network: boolean
   macs: string[]
+  inactiveSeconds: number
+  /** Ports as typed, e.g. "23, 2323". */
+  ports: string
+  protocol: PortParams["protocol"]
+  countryMode: CountryParams["mode"]
+  /** Country codes as typed, e.g. "RU, CN". */
+  countries: string
   severity: Severity
   repeatSeconds: number | null
   notifyOnResolve: boolean
@@ -110,7 +161,13 @@ export const DEFAULT_FORM: RuleForm = {
   unit: "GB",
   windowSeconds: 3600,
   app: "",
+  network: false,
   macs: [],
+  inactiveSeconds: 30 * 60,
+  ports: "",
+  protocol: "tcp",
+  countryMode: "deny",
+  countries: "",
   severity: "warning",
   repeatSeconds: null,
   notifyOnResolve: true,
@@ -127,6 +184,10 @@ export const PRESETS: { label: string; form: Partial<RuleForm> }[] = [
   {
     label: "Tell me when a device uses more than 10 GB a day",
     form: { name: "Heavy use", type: "traffic_threshold", direction: "total", amount: "10", windowSeconds: 24 * 3600 },
+  },
+  {
+    label: "Tell me when a device uses telnet",
+    form: { name: "Telnet", type: "destination_port", ports: "23, 2323", protocol: "tcp" },
   },
 ]
 
@@ -145,7 +206,13 @@ export function ruleToForm(rule: AlertRule): RuleForm {
     unit,
     windowSeconds: p.window_s ?? 3600,
     app: p.app ?? "",
+    network: p.network ?? false,
     macs: p.macs ?? [],
+    inactiveSeconds: p.inactive_s ?? DEFAULT_FORM.inactiveSeconds,
+    ports: (p.ports ?? []).join(", "),
+    protocol: p.protocol ?? "tcp",
+    countryMode: p.mode ?? "deny",
+    countries: (p.countries ?? []).join(", "),
     severity: rule.Severity,
     repeatSeconds: rule.RepeatIntervalSeconds,
     notifyOnResolve: rule.NotifyOnResolve,
@@ -160,33 +227,80 @@ export function thresholdBytes(form: RuleForm): number {
   return amount > 0 ? Math.round(amount * BYTE_UNITS[form.unit]) : NaN
 }
 
+/** Numbers in a list as typed, e.g. "23, 2323"; NaN for what isn't one. */
+export function parsePorts(text: string): number[] {
+  return splitList(text).map((part) => (/^\d+$/.test(part) ? Number(part) : NaN))
+}
+
+/** Country codes in a list as typed, upper-cased. */
+export function parseCountries(text: string): string[] {
+  return splitList(text).map((part) => part.toUpperCase())
+}
+
+function splitList(text: string): string[] {
+  return text
+    .split(/[\s,;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+/** What keeps the form from being saved, or null. */
+export function formProblem(form: RuleForm): string | null {
+  if (!form.name.trim()) return "Give the rule a name."
+  switch (form.type) {
+    case "traffic_threshold":
+      return Number.isFinite(thresholdBytes(form)) ? null : "Enter the threshold as a number."
+    case "device_inactive":
+      return form.macs.length > 0 ? null : "Pick at least one device to watch."
+    case "destination_port": {
+      const ports = parsePorts(form.ports)
+      if (ports.length === 0) return "Enter at least one port."
+      return ports.every((p) => p >= 1 && p <= 65535) ? null : "Ports are numbers from 1 to 65535."
+    }
+    case "destination_country": {
+      const countries = parseCountries(form.countries)
+      if (countries.length === 0) return "Enter at least one country code."
+      return countries.every((c) => /^[A-Z]{2}$/.test(c)) ? null : "Country codes have two letters, such as DE."
+    }
+    default:
+      return null
+  }
+}
+
+function paramsOf(form: RuleForm): AlertRuleInput["params"] {
+  const macs = form.macs.length > 0 ? { macs: form.macs } : {}
+  switch (form.type) {
+    case "new_device":
+      return { ignore_random_macs: form.ignoreRandomMacs }
+    case "device_inactive":
+      return { inactive_s: form.inactiveSeconds, macs: form.macs }
+    case "destination_port":
+      return { ports: parsePorts(form.ports), protocol: form.protocol, ...macs }
+    case "destination_country":
+      return { mode: form.countryMode, countries: parseCountries(form.countries), ...macs }
+    default:
+      return {
+        direction: form.direction,
+        threshold_bytes: thresholdBytes(form),
+        window_s: form.windowSeconds,
+        ...(form.app ? { app: form.app } : {}),
+        ...macs,
+        ...(form.network ? { network: true } : {}),
+      }
+  }
+}
+
 export function formToInput(form: RuleForm): AlertRuleInput {
-  const common = {
+  const event = isEventRule(form.type)
+  return {
     name: form.name.trim(),
     type: form.type,
+    params: paramsOf(form),
     severity: form.severity,
     enabled: form.enabled,
     channel_ids: form.channelIds,
-  }
-  if (form.type === "new_device") {
-    return {
-      ...common,
-      params: { ignore_random_macs: form.ignoreRandomMacs },
-      repeat_interval_s: null,
-      notify_on_resolve: false,
-    }
-  }
-  return {
-    ...common,
-    params: {
-      direction: form.direction,
-      threshold_bytes: thresholdBytes(form),
-      window_s: form.windowSeconds,
-      ...(form.app ? { app: form.app } : {}),
-      ...(form.macs.length > 0 ? { macs: form.macs } : {}),
-    },
-    repeat_interval_s: form.repeatSeconds,
-    notify_on_resolve: form.notifyOnResolve,
+    repeat_interval_s: event ? null : form.repeatSeconds,
+    notify_on_resolve: event ? false : form.notifyOnResolve,
   }
 }
 
@@ -198,5 +312,21 @@ export function alertDevice(alert: Alert): string | undefined {
 /** How an alert's subject is called: as in its title, else by its labels. */
 export function alertSubjectLabel(alert: Alert): string {
   const l = alert.Labels
+  if (l.scope === "network") return "The whole network"
   return l.device_name ?? cleanHostname(l.hostname) ?? (l.vendor ? `${l.vendor} device` : (l.mac ?? alert.Subject))
 }
+
+/** Names and descriptions of alert labels, in the order to show them. */
+export const LABELS: { key: string; label: string }[] = [
+  { key: "device_name", label: "Name" },
+  { key: "hostname", label: "Hostname" },
+  { key: "vendor", label: "Made by" },
+  { key: "mac", label: "MAC address" },
+  { key: "ip", label: "IP address" },
+  { key: "first_seen", label: "First seen" },
+  { key: "port", label: "Port" },
+  { key: "protocol", label: "Protocol" },
+  { key: "country_name", label: "Country" },
+  { key: "peer", label: "Remote address" },
+  { key: "peers", label: "Remote addresses" },
+]

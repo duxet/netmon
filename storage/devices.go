@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 // GetDeviceNames returns the names users gave their devices, by MAC address
@@ -124,6 +126,34 @@ func GetDeviceTraffic(db *sql.DB, since time.Time) ([]DeviceTrafficRecord, error
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query device traffic: %w", err)
+	}
+	return records, nil
+}
+
+// GetPortTraffic returns the connections devices opened to the given ports
+// since the given time, per device, remote address, port and IP protocol
+// (6 for TCP, 17 for UDP; none limits it to those two).
+func GetPortTraffic(db *sql.DB, since time.Time, ports []uint16, protocols []int) ([]PortTrafficRecord, error) {
+	if len(ports) == 0 {
+		return nil, nil
+	}
+	// Not []uint8: that is []byte, which goes to the database as one BLOB.
+	if len(protocols) == 0 {
+		protocols = []int{6, 17}
+	}
+
+	rows, err := sq.Select("src_mac", "dst_ip", "port", "ip_proto", "sum(in_bytes + out_bytes)::UBIGINT").
+		From("all_flows").
+		Where("octet_length(src_mac) > 0").
+		Where("created_at >= ?::TIMESTAMPTZ", since).
+		Where(sq.Eq{"port": ports, "ip_proto": protocols}).
+		GroupBy("src_mac", "dst_ip", "port", "ip_proto").
+		RunWith(db).Query()
+	records, err := collect(rows, err, func(rows *sql.Rows, r *PortTrafficRecord) error {
+		return rows.Scan(&r.MACAddress, &r.Peer, &r.Port, &r.IPProto, &r.Bytes)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query port traffic: %w", err)
 	}
 	return records, nil
 }

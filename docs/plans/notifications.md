@@ -3,8 +3,8 @@
 Status: revision 3 · 2026-11-24 · based on `main` at `b12fcd2`
 (after `next` was merged into it)
 
-**Progress:** milestones 0, 1 and 2 are implemented (see §10); milestones 3
-and 4 are not started. Where the implementation differs from the text below:
+**Progress:** milestones 0 to 3 are implemented (see §10); milestone 4 is
+optional and not started. Where the implementation differs from the text below:
 
 - The dispatcher (§4.5) came with milestone 2, its first caller; test messages
   are sent directly, so the page can show the result at once. Failed sends are
@@ -20,7 +20,24 @@ and 4 are not started. Where the implementation differs from the text below:
   change or it is turned off, not on a rename.
 - The rule form is a dialog on **Settings → Alert rules**; the Alerts page is
   `/alerts`. The form's options come from `GET /api/alert-rule-options`.
-- Messages link to the device's page; the alert detail page is milestone 3.
+- Messages link to the alert's page, `/alerts/:id`, which links to the
+  device's.
+- Event rules (`new_device`, `destination_port`, `destination_country`) have
+  no repeat interval: port and country rules stay quiet for 24 hours about the
+  same device and port or country, and new devices are reported once.
+- `destination_port` watches the connections a device opens (it is the
+  source of the flow), and the `protocol` param is `tcp`, `udp` or `any`.
+- `device_inactive` only counts quiet time while netmon ran: after a restart,
+  a device is quiet from the start on at the earliest, so downtime raises no
+  alerts.
+- `traffic_threshold` with `network: true` adds up the internet traffic of
+  all devices (or those in `macs`); traffic between local devices doesn't
+  count, so it isn't counted twice.
+- The preview (`POST /api/alert-rules/preview`) also lists what doesn't fire
+  for traffic and inactive rules, to help pick a threshold, and looks back 24
+  hours for event rules.
+- "Create alert" on a device's page is one button that opens the rule form
+  for that device; the type can be changed there.
 
 **Decisions so far:**
 
@@ -656,7 +673,7 @@ DuckDB plus the real migrations) and the `api/*_test.go` setup.
 | 0 | **Groundwork** ✅ | `lookup` package (moved out of `api/`); `collector.Options{OnFlush}` on Linux, macOS and unsupported, firing on empty minutes too; `004_devices.sql` + `storage.SyncDevices` + `GET /api/devices`; `Compact` keeps the last complete hour raw | Existing UI and tests unchanged; `devices` fills; a 1 h window right after compaction counts the full hour |
 | 1 | **Channels** ✅ | shoutrrr v0.25.0 (`go` directive → 1.27); `005_notification_channels.sql`; `notify` package (`Inspect`, `Send`, redaction, service list with docs links); channel API + test endpoints; Settings → Notifications page | You can paste a Telegram or ntfy URL in the UI and receive a test message |
 | 2 | **Rules MVP** ✅ | `006_alerts.sql`; `notify` dispatcher + delivery log (§4.5); engine; `new_device` + `traffic_threshold` (with `app`); rules API; rules list + form; alerts list; `NETMON_ALERT_RETENTION_DAYS` (default 30) + `storage.ExpireAlerts` in the hourly loop; README updates (tick the Alerts TODO) | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved; alerts older than 30 days disappear |
-| 3 | **More rules + UX** | `device_inactive`, `destination_port`, `destination_country`; preview/dry run; alert detail + delivery log; sidebar badge; presets; "Create alert" from the client page | All five rule types are usable from the UI |
+| 3 | **More rules + UX** ✅ | `device_inactive`, `destination_port`, `destination_country`; preview/dry run; alert detail + delivery log; sidebar badge; presets; "Create alert" from the client page | All five rule types are usable from the UI |
 | 4 | **Polish** (optional) | Generated per-service channel forms (§4.6); calendar windows ("per day", "per month") for `traffic_threshold`, which covers the README's ISP data-cap TODO; custom templates; quiet hours and "mute until"; digest mode | n/a |
 | n/a | **Auth** (separate work) | Login or token, CORS, secret encryption, SSRF limits | n/a |
 

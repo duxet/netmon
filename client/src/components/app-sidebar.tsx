@@ -54,7 +54,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       to: "/alerts",
       label: "Alerts",
       icon: TriangleAlertIcon,
-      active: pathname === "/alerts",
+      active: pathname.startsWith("/alerts"),
       badge: firing?.total || undefined,
     },
   ] as const

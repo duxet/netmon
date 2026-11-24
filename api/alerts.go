@@ -9,10 +9,12 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
@@ -153,8 +155,12 @@ func toAlertDTO(a storage.AlertRecord, deliveries []storage.DeliveryRecord) Aler
 	return dto
 }
 
+// previewRuleName stands in for the name of a rule previewed before it has
+// one, in the messages it would send.
+const previewRuleName = "New rule"
+
 // registerAlertRoutes adds the endpoints for alert rules and alerts.
-func registerAlertRoutes(app *fiber.App, db *sql.DB) {
+func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, countries *lookup.Countries) {
 	// What the rule form offers.
 	app.Get("/api/alert-rule-options", func(c fiber.Ctx) error {
 		names := make([]string, 0, len(apps.Known)+1)
@@ -169,7 +175,41 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB) {
 			MinWindowSeconds: alerting.MinWindowSeconds,
 			MaxWindowSeconds: alerting.MaxWindowSeconds,
 			MinRepeatSeconds: alerting.MinRepeatSeconds,
+			GeoIP:            countries.Available(),
 		})
+	})
+
+	// What a rule would find now, without saving it.
+	app.Post("/api/alert-rules/preview", func(c fiber.Ctx) error {
+		body := new(ruleBody)
+		if err := c.Bind().Body(body); err != nil {
+			return badRequest("invalid request body: " + err.Error())
+		}
+		if strings.TrimSpace(body.Name) == "" {
+			body.Name = previewRuleName
+		}
+		rule, err := parseRule(db, body)
+		if err != nil {
+			return err
+		}
+		rule.CreatedAt = time.Now()
+
+		preview, err := alerts.Preview(c.Context(), rule)
+		if errors.Is(err, alerting.ErrNoGeoIP) {
+			return badRequest(err.Error())
+		}
+		if err != nil {
+			return err
+		}
+
+		dto := AlertRulePreviewDTO{Findings: []FindingDTO{}, Total: preview.Total}
+		if !preview.Since.IsZero() {
+			dto.Since = &preview.Since
+		}
+		for _, f := range preview.Findings {
+			dto.Findings = append(dto.Findings, FindingDTO(f))
+		}
+		return c.JSON(dto)
 	})
 
 	app.Get("/api/alert-rules", func(c fiber.Ctx) error {

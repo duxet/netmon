@@ -5,6 +5,7 @@ package lookup
 
 import (
 	"log"
+	"net/netip"
 
 	"github.com/duxet/netmon/common"
 	"github.com/oschwald/geoip2-golang/v2"
@@ -50,6 +51,34 @@ func (l *Countries) Country(ipAddress common.IPAddress) *string {
 	}
 
 	return &country.Country.ISOCode
+}
+
+// Available reports whether a database is loaded, so lookups can succeed.
+func (l *Countries) Available() bool {
+	return l != nil && l.db != nil
+}
+
+// Lookup returns the ISO 3166-1 alpha-2 code and the English name of the
+// address's country; ok is false when it is unknown.
+func (l *Countries) Lookup(addr netip.Addr) (code, name string, ok bool) {
+	if !l.Available() {
+		return "", "", false
+	}
+
+	country, err := l.db.Country(addr.Unmap())
+	if err != nil {
+		log.Printf("GeoIP lookup for %s failed: %v", addr, err)
+		return "", "", false
+	}
+	if country.Country.ISOCode == "" {
+		return "", "", false
+	}
+
+	name = country.Country.Names.English
+	if name == "" {
+		name = country.Country.ISOCode
+	}
+	return country.Country.ISOCode, name, true
 }
 
 // Close closes the database.

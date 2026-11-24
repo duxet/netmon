@@ -5,6 +5,7 @@ import {
   ActivityIcon,
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
+  BellPlusIcon,
   CableIcon,
   GlobeIcon,
   NetworkIcon,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 
+import { AlertRuleDialog } from "@/components/alert-rule-dialog"
 import { AppTrafficCard } from "@/components/app-traffic"
 import { ChartCard } from "@/components/chart-card"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
@@ -26,6 +28,7 @@ import { RenameDeviceButton } from "@/components/rename-device"
 import { ShareBar } from "@/components/share-bar"
 import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -345,6 +348,16 @@ function ClientDetail() {
           </div>
         }
       >
+        {device && (
+          <AlertRuleDialog
+            preset={{ name: `${title} traffic`.slice(0, 64), type: "traffic_threshold", macs: [device.mac] }}
+          >
+            <Button variant="outline" size="sm">
+              <BellPlusIcon data-icon="inline-start" />
+              Create alert
+            </Button>
+          </AlertRuleDialog>
+        )}
         <RangeFilter />
       </PageHeader>
 

@@ -339,7 +339,12 @@ export function fetchKnownDevices() {
   return requestList<KnownDevice>("/api/devices")
 }
 
-export type AlertRuleType = "new_device" | "traffic_threshold"
+export type AlertRuleType =
+  | "new_device"
+  | "traffic_threshold"
+  | "device_inactive"
+  | "destination_port"
+  | "destination_country"
 export type Severity = "info" | "warning" | "critical"
 export type TrafficDirection = "download" | "upload" | "total"
 
@@ -356,14 +361,38 @@ export interface TrafficParams {
   app?: string
   /** Limits the rule to these devices; absent or empty for every device. */
   macs?: string[]
+  /** Counts the internet traffic of all devices together, as one alert. */
+  network?: boolean
 }
+
+export interface InactiveParams {
+  inactive_s: number
+  /** The devices to watch; at least one. */
+  macs: string[]
+}
+
+export interface PortParams {
+  ports: number[]
+  protocol: "tcp" | "udp" | "any"
+  macs?: string[]
+}
+
+export interface CountryParams {
+  /** deny alerts on the listed countries, allow on all others. */
+  mode: "deny" | "allow"
+  /** ISO 3166-1 alpha-2 codes, e.g. "DE". */
+  countries: string[]
+  macs?: string[]
+}
+
+export type AlertRuleParams = NewDeviceParams | TrafficParams | InactiveParams | PortParams | CountryParams
 
 /** When to send notifications. */
 export interface AlertRule {
   ID: number
   Name: string
   Type: AlertRuleType
-  Params: Partial<NewDeviceParams & TrafficParams>
+  Params: Partial<NewDeviceParams & TrafficParams & InactiveParams & PortParams & CountryParams>
   Severity: Severity
   /** How often a firing alert is sent again, or null to send it once. */
   RepeatIntervalSeconds: number | null
@@ -379,7 +408,7 @@ export interface AlertRule {
 export interface AlertRuleInput {
   name: string
   type: AlertRuleType
-  params: NewDeviceParams | TrafficParams
+  params: AlertRuleParams
   severity: Severity
   repeat_interval_s: number | null
   notify_on_resolve: boolean
@@ -395,6 +424,30 @@ export interface AlertRuleOptions {
   MinWindowSeconds: number
   MaxWindowSeconds: number
   MinRepeatSeconds: number
+  /** Whether a GeoIP database is loaded, which country rules need. */
+  GeoIP: boolean
+}
+
+/** Something a previewed rule finds. */
+export interface Finding {
+  Subject: string
+  /** Who it is about: a device's name, or "the network". */
+  Label: string
+  /** Bytes for traffic and events, seconds for quiet devices. */
+  Value: number | null
+  /** Whether the rule would alert about it. */
+  Fires: boolean
+  Title: string
+  Body: string
+}
+
+/** What a rule would find now. */
+export interface AlertRulePreview {
+  /** The first 20, those it would alert about first. */
+  Findings: Finding[]
+  Total: number
+  /** Where a preview of an event rule starts looking; null for the others. */
+  Since: string | null
 }
 
 /** A notification sent, or not, about an alert. */
@@ -468,4 +521,12 @@ export async function fetchAlerts({ state, ruleId, limit, offset }: AlertsReques
   const response = await send(withQuery("/api/alerts", { state, rule_id: ruleId, limit, offset }))
   const alerts = ((await response.json()) as Alert[] | null) ?? []
   return { alerts, total: Number(response.headers.get("X-Total-Count") ?? alerts.length) }
+}
+
+export function previewAlertRule(rule: AlertRuleInput) {
+  return request<AlertRulePreview>("/api/alert-rules/preview", jsonBody("POST", rule))
+}
+
+export function fetchAlert(id: number) {
+  return request<Alert>(`/api/alerts/${id}`)
 }

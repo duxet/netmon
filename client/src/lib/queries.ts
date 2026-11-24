@@ -1,6 +1,7 @@
 import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query"
 
 import {
+  fetchAlert,
   fetchAlertRuleOptions,
   fetchAlertRules,
   fetchAlerts,
@@ -143,5 +144,13 @@ export function alertsQuery(request: AlertsRequest) {
     queryFn: () => fetchAlerts(request),
     refetchInterval: REFRESH_INTERVAL,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function alertQuery(id: number) {
+  return queryOptions({
+    queryKey: ["alerts", "detail", id],
+    queryFn: () => fetchAlert(id),
+    refetchInterval: REFRESH_INTERVAL,
   })
 }

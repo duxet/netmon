@@ -224,3 +224,31 @@ func TestDeviceTraffic(t *testing.T) {
 		t.Errorf("rolled up traffic = %v", rolled)
 	}
 }
+
+func TestPortTraffic(t *testing.T) {
+	db := openTestDB(t)
+	seed(t, db)
+	insert(t, db, row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("203.0.113.5"), 6, 23, 40, 60, seedAt})
+
+	records, err := GetPortTraffic(db, seedAt, []uint16{23, 445}, []int{6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := map[uint16]uint64{}
+	for _, r := range records {
+		if r.MACAddress.String() != laptopMAC {
+			t.Errorf("record of %s, want only the laptop's connections", r.MACAddress)
+		}
+		ports[r.Port] += r.Bytes
+	}
+	if len(records) != 2 || ports[23] != 100 || ports[445] != 2020 {
+		t.Errorf("records = %+v, want telnet and SMB", records)
+	}
+
+	if records, _ := GetPortTraffic(db, seedAt, []uint16{23}, []int{17}); len(records) != 0 {
+		t.Errorf("UDP records = %+v, want none", records)
+	}
+	if records, _ := GetPortTraffic(db, seedAt.Add(time.Minute), []uint16{23, 443}, nil); len(records) != 1 || records[0].Port != 443 {
+		t.Errorf("later records = %+v, want the second HTTPS round", records)
+	}
+}

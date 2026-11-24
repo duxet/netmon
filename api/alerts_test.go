@@ -47,7 +47,7 @@ func TestAlertRuleOptions(t *testing.T) {
 	app, _ := newTestApp(t)
 	var options AlertRuleOptionsDTO
 	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
-	if len(options.Types) != 2 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
+	if len(options.Types) != 5 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
 		t.Errorf("options = %+v", options)
 	}
 }
@@ -224,5 +224,62 @@ func TestAlerts(t *testing.T) {
 	var body json.RawMessage
 	if _, total := get(t, app, "/api/alerts?state=resolved", &body); total != "2" {
 		t.Errorf("resolved alerts after deleting the rule = %s, want 2", total)
+	}
+}
+
+func TestAlertRulePreview(t *testing.T) {
+	app, db := newTestApp(t)
+	if err := storage.SyncDevices(db, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The test flow downloaded 1000 bytes: over 500, under 5000.
+	preview := func(params string) AlertRulePreviewDTO {
+		t.Helper()
+		var p AlertRulePreviewDTO
+		doJSON(t, app, "POST", "/api/alert-rules/preview",
+			`{"type": "traffic_threshold", "params": `+params+`}`, fiber.StatusOK, &p)
+		return p
+	}
+	over := preview(`{"direction": "download", "threshold_bytes": 500, "window_s": 3600}`)
+	if over.Total != 1 || len(over.Findings) != 1 || !over.Findings[0].Fires || *over.Findings[0].Value != 1000 ||
+		over.Findings[0].Label != "Synology device" || over.Since != nil ||
+		!strings.Contains(over.Findings[0].Body, "of the rule “New rule”") {
+		t.Errorf("preview over the threshold = %+v", over)
+	}
+	if under := preview(`{"direction": "download", "threshold_bytes": 5000, "window_s": 3600}`); under.Total != 1 || under.Findings[0].Fires {
+		t.Errorf("preview under the threshold = %+v, want the device listed but not firing", under)
+	}
+
+	// Event rules look back a day.
+	var devices AlertRulePreviewDTO
+	doJSON(t, app, "POST", "/api/alert-rules/preview", `{"type": "new_device"}`, fiber.StatusOK, &devices)
+	if devices.Total != 1 || devices.Since == nil || !devices.Findings[0].Fires {
+		t.Errorf("new device preview = %+v", devices)
+	}
+
+	var quiet AlertRulePreviewDTO
+	doJSON(t, app, "POST", "/api/alert-rules/preview",
+		`{"type": "device_inactive", "params": {"inactive_s": 600, "macs": ["`+testNASMAC+`"]}}`, fiber.StatusOK, &quiet)
+	if quiet.Total != 1 || quiet.Findings[0].Fires {
+		t.Errorf("inactive preview = %+v, want the NAS, not quiet", quiet)
+	}
+
+	// Countries need a GeoIP database, which the tests don't have.
+	body := doJSON(t, app, "POST", "/api/alert-rules/preview",
+		`{"type": "destination_country", "params": {"mode": "deny", "countries": ["RU"]}}`, fiber.StatusBadRequest, nil)
+	if msg := errorMessage(t, body); !strings.Contains(msg, "GeoLite2-Country.mmdb") {
+		t.Errorf("country preview error = %q", msg)
+	}
+	var options AlertRuleOptionsDTO
+	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
+	if options.GeoIP || len(options.Types) != 5 {
+		t.Errorf("options = %+v, want five types and no GeoIP", options)
+	}
+
+	doJSON(t, app, "POST", "/api/alert-rules/preview", `{"type": "traffic_threshold", "params": {}}`, fiber.StatusBadRequest, nil)
+	// Previews save nothing.
+	if body := doJSON(t, app, "GET", "/api/alert-rules", "", fiber.StatusOK, nil); body != "[]" {
+		t.Errorf("rules after previews = %s, want none", body)
 	}
 }

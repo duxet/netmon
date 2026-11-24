@@ -91,7 +91,11 @@ func main() {
 	// brings the devices up to date, and the notifications they raise are
 	// sent in the background.
 	dispatcher := notify.NewDispatcher(db, notify.DispatcherOptions{})
-	engine := alerting.NewEngine(db, dispatcher, alerting.Options{Hostnames: hostnames, PublicURL: publicURL()})
+	engine := alerting.NewEngine(db, dispatcher, alerting.Options{
+		Hostnames: hostnames,
+		Countries: countries,
+		PublicURL: publicURL(),
+	})
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)
@@ -112,7 +116,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter})
+	app := api.CreateHTTPApp(db, assets, api.Options{Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine})
 
 	go func() {
 		<-ctx.Done()

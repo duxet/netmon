@@ -157,27 +157,45 @@ a channel is a name and a shoutrrr service URL, such as
 format of each service's URL and links to its documentation, which explains where to find
 the values. Send a test message to check that a channel works, before or after saving it.
 
-Then add **alert rules** under **Settings → Alert rules**: what netmon should alert
-about, and which channels to send it to. Rules are checked every minute, right after
-the traffic is recorded. There are two kinds so far:
+Then add **alert rules** under **Settings → Alert rules**, or with **Create alert** on a
+device's page: what netmon should alert about, and which channels to send it to. Rules
+are checked every minute, right after the traffic is recorded. **Preview** in the rule
+form shows what a rule would find before you save it: what it measures right now, or
+what it would have alerted about in the last 24 hours.
+
+Rules about something that lasts fire while it does, resolve when it's over, and can be
+sent again every hour, 6 hours or day while they last, and once more at the end:
+
+- **Traffic goes over a threshold**: a device's download, upload or total over the last
+  5 minutes to 24 hours, for all traffic or one app's, for every device or only the ones
+  you pick. With **Whole network**, the internet traffic of all devices is added up
+  instead, as an ISP data cap counts it (traffic between local devices doesn't count
+  then). The alert resolves once the traffic falls under 90 % of the threshold. Windows
+  longer than an hour are rounded to whole hours, as the stored data is (see
+  [Configuration](#configuration)).
+- **A device has no traffic for a while**: 15 minutes to a day, for the devices you
+  pick. netmon can only tell for the time it was running, so after a restart a device
+  counts as quiet only from then on. This suits devices that are always on, such as a
+  NAS or a camera, rather than phones and laptops, which go quiet when they sleep.
+
+Rules about events alert once per event, at most once a day for the same device and
+port or country, and only about traffic after the rule was created:
 
 - **A new device joins the network**: once for every device first seen after the rule
   was created. Phones join with a private, random Wi-Fi address per network, which
   counts as a new device; turn on "Ignore private Wi-Fi addresses" if that is too many.
-- **A device uses more traffic than a threshold**: while a device's download, upload or
-  total over the last 5 minutes to 24 hours is above the threshold, for all traffic or
-  one app's, for every device or only the ones you pick. The alert resolves once the
-  traffic falls under 90 % of the threshold. It can be sent again every hour, 6 hours
-  or day while it lasts, and once more when it's over. Windows longer than an hour are
-  rounded to whole hours, as the stored data is (see [Configuration](#configuration)).
+- **A device connects to a port**: connections a device opens to some ports (TCP, UDP
+  or either) of any address, such as telnet (23, 2323) from a smart plug.
+- **A device exchanges traffic with a country**: with any of a list of countries, or
+  with any country not on it. This needs `GeoLite2-Country.mmdb` next to the binary.
 
-The **Alerts** page shows what is firing now, the history, and where each notification
-went, or why it didn't. Messages link to the device's page in netmon, at
-`NETMON_PUBLIC_URL`. A channel gets at most 20 messages in 5 minutes: more are held
-back, and the next message says how many. Several alerts for one channel at once (new
-devices after a while offline, say) arrive as one message, except on webhooks. Failed
-sends are tried three times, and only while netmon runs: notifications still queued
-when it stops are not sent.
+The **Alerts** page shows what is firing now and the history; each alert has a page of
+its own, with what it was about and every message sent about it, or why it wasn't.
+Messages link to that page, at `NETMON_PUBLIC_URL`. A channel gets at most 20 messages
+in 5 minutes: more are held back, and the next message says how many. Several alerts
+for one channel at once (new devices after a while offline, say) arrive as one message,
+except on webhooks. Failed sends are tried three times, and only while netmon runs:
+notifications still queued when it stops are not sent.
 
 Things to know:
 
@@ -253,6 +271,7 @@ rounded to whole hours.
 | `POST /api/notification-channels/:id/test` | |
 | `POST /api/notification-channels/test` | body `{"url": "...", "name": "..."}` |
 | `GET /api/alert-rule-options` | |
+| `POST /api/alert-rules/preview` | body as for `POST /api/alert-rules`, `name` optional |
 | `GET /api/alert-rules` | |
 | `POST /api/alert-rules` | body, see below |
 | `GET /api/alert-rules/:id` | |
@@ -294,16 +313,29 @@ rounded to whole hours.
 - The test endpoints send a test message, to a saved channel or to a URL that isn't saved
   yet, and answer 204. When the service fails, they answer 502 with its reason in `error`.
 - An alert rule is `{"name", "type", "params", "severity", "repeat_interval_s",
-  "notify_on_resolve", "enabled", "channel_ids"}`. `type` is `new_device`, with params
-  `{"ignore_random_macs": false}`, or `traffic_threshold`, with params `{"direction":
-  "download" | "upload" | "total", "threshold_bytes", "window_s" (300 to 86400), "app",
-  "macs": [...]}` (`app` and `macs` are optional; `app` is a name from
-  `/api/alert-rule-options`). `severity` is `info`, `warning` (default) or `critical`;
-  `repeat_interval_s` is at least 900, or null to notify once. Changing what a rule
-  checks, or turning it off, resolves its firing alerts without a notification.
-- Alerts have the rule's `RuleName`, a `Subject` (the device's MAC address), `State`,
-  `Title`, `Body`, `Labels` about the device (`mac`, `ip`, `device_name`, `hostname`,
-  `vendor`), times, and `Deliveries`: per channel and kind (`firing`, `reminder`,
+  "notify_on_resolve", "enabled", "channel_ids"}`. `severity` is `info`, `warning`
+  (default) or `critical`; `repeat_interval_s` is at least 900, or null to notify once.
+  Changing what a rule checks, or turning it off, resolves its firing alerts without a
+  notification. `type` and its `params` are one of these (`macs` limits a rule to some
+  devices, and is optional but for `device_inactive`):
+  - `new_device`: `{"ignore_random_macs": false}`
+  - `traffic_threshold`: `{"direction": "download" | "upload" | "total",
+    "threshold_bytes", "window_s" (300 to 86400), "app", "macs": [...], "network": false}`,
+    where `app` is optional and a name from `/api/alert-rule-options`
+  - `device_inactive`: `{"inactive_s" (300 to 604800), "macs": [...]}`
+  - `destination_port`: `{"ports": [23, ...], "protocol": "tcp" | "udp" | "any", "macs"}`
+  - `destination_country`: `{"mode": "deny" | "allow", "countries": ["RU", ...], "macs"}`;
+    `GeoIP` in `/api/alert-rule-options` tells whether netmon can look up countries
+- A preview answers `{"Findings": [...], "Total", "Since"}`: the first 20 findings, each
+  with a `Subject`, a `Label`, a `Value` (bytes, or seconds for quiet devices),
+  `Fires`, and the `Title` and `Body` it would send. Rules about traffic and quiet
+  devices list what they measure now, including what doesn't fire; rules about events
+  what they would have found since `Since`, 24 hours ago. Nothing is saved or sent.
+- Alerts have the rule's `RuleName`, a `Subject` (the device's MAC address, with the
+  port or country for those rules, or `network`), `State`, `Title`, `Body`, `Labels`
+  about the device (`mac`, `ip`, `device_name`, `hostname`, `vendor`, and `port`,
+  `protocol`, `country`, `country_name`, `peer` or `peers` where they apply; `scope`
+  is `network` for the whole network), times, and `Deliveries`: per channel and kind (`firing`, `reminder`,
   `resolved`), whether it was `sent`, `failed` (with `Error`) or `suppressed` by the rate
   limit. The number of matching alerts is in `X-Total-Count`.
 - Webhook channels get alerts as JSON with `title`, `message`, `level`, `event`

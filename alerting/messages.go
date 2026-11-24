@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// device is what is known about a device, for messages.
+// device is what is known about a device, for messages; or, with network
+// set, the whole network.
 type device struct {
 	mac       string
 	ip        string
@@ -16,12 +17,30 @@ type device struct {
 	hostname  string
 	vendor    string
 	firstSeen time.Time
+	lastSeen  time.Time
+	network   bool
+}
+
+// theNetwork stands for all devices together.
+var theNetwork = device{network: true}
+
+// deviceFromLabels is the device an alert's labels describe.
+func deviceFromLabels(labels map[string]string) device {
+	if labels["scope"] == "network" {
+		return theNetwork
+	}
+	return device{
+		mac: labels["mac"], ip: labels["ip"], name: labels["device_name"],
+		hostname: labels["hostname"], vendor: labels["vendor"],
+	}
 }
 
 // label is how messages call a device: the name the user gave it, else its
 // hostname, else who made it, else its MAC address.
 func (d device) label() string {
 	switch {
+	case d.network:
+		return "the network"
 	case d.name != "":
 		return d.name
 	case d.hostname != "":
@@ -36,6 +55,9 @@ func (d device) label() string {
 // details are what identifies a device besides its label, e.g.
 // "Samsung, 3c:22:fb:12:34:56, 192.168.1.40".
 func (d device) details() string {
+	if d.network {
+		return ""
+	}
 	var parts []string
 	if d.vendor != "" && d.name+d.hostname != "" {
 		parts = append(parts, d.vendor)
@@ -57,8 +79,19 @@ func (d device) labelled() string {
 	return d.label()
 }
 
+// subject is labelled, to start a sentence with.
+func (d device) subject() string {
+	if d.network {
+		return "The network"
+	}
+	return d.labelled()
+}
+
 // labels describe a device in an alert record and webhook payloads.
 func (d device) labels() map[string]string {
+	if d.network {
+		return map[string]string{"scope": "network"}
+	}
 	labels := map[string]string{"mac": d.mac}
 	for key, value := range map[string]string{
 		"ip": d.ip, "device_name": d.name, "hostname": d.hostname, "vendor": d.vendor,
@@ -170,10 +203,13 @@ func trafficTitle(p TrafficParams, d device) string {
 // in the last hour".
 func trafficAmount(p TrafficParams, value float64) string {
 	verb := map[string]string{Download: "downloaded", Upload: "uploaded", Total: "used"}[p.Direction]
+	preposition := map[string]string{Download: " from ", Upload: " to ", Total: " with "}[p.Direction]
 	app := ""
-	if p.App != "" {
-		preposition := map[string]string{Download: " from ", Upload: " to ", Total: " with "}[p.Direction]
+	switch {
+	case p.App != "":
 		app = preposition + p.App
+	case p.Network:
+		app = preposition + "the internet"
 	}
 	return fmt.Sprintf("%s %s%s in %s", verb, formatBytes(value), app, lastWindow(p.WindowSeconds))
 }
@@ -181,20 +217,84 @@ func trafficAmount(p TrafficParams, value float64) string {
 func trafficFiringText(ruleName string, p TrafficParams, d device, value float64) (title, body string) {
 	title = trafficTitle(p, d)
 	body = fmt.Sprintf("%s %s, over the %s of the rule “%s”.",
-		d.labelled(), trafficAmount(p, value), formatBytes(float64(p.ThresholdBytes)), ruleName)
+		d.subject(), trafficAmount(p, value), formatBytes(float64(p.ThresholdBytes)), ruleName)
 	return title, body
 }
 
 func trafficReminderText(ruleName string, p TrafficParams, d device, value float64, since time.Time) (title, body string) {
 	title = "Still: " + trafficTitle(p, d)
 	body = fmt.Sprintf("%s %s, over the %s of the rule “%s” since %s.",
-		d.labelled(), trafficAmount(p, value), formatBytes(float64(p.ThresholdBytes)), ruleName, clock(since))
+		d.subject(), trafficAmount(p, value), formatBytes(float64(p.ThresholdBytes)), ruleName, clock(since))
 	return title, body
 }
 
 func trafficResolvedText(p TrafficParams, d device, lasted time.Duration) (title, body string) {
 	title = "Resolved: " + trafficTitle(p, d)
+	label := d.label()
+	if d.network {
+		label = "The network"
+	}
 	body = fmt.Sprintf("%s is back under %s in %s, after %s.",
-		d.label(), formatBytes(float64(p.ThresholdBytes)), lastWindow(p.WindowSeconds), formatDuration(lasted))
+		label, formatBytes(float64(p.ThresholdBytes)), lastWindow(p.WindowSeconds), formatDuration(lasted))
+	return title, body
+}
+
+// quietSince says since when a device has had no traffic, as far as netmon
+// knows: it can't tell about the time it wasn't running.
+func quietSince(d device, since, started time.Time) string {
+	if d.lastSeen.Before(started) {
+		return "since netmon started at " + clock(since)
+	}
+	return "since " + clock(since)
+}
+
+func inactiveText(ruleName string, p InactiveParams, d device, since, started time.Time, now time.Time) (title, body string) {
+	title = "No traffic from " + d.label()
+	body = fmt.Sprintf("%s has had no traffic %s, for %s. The rule “%s” expects some at least every %s.",
+		d.labelled(), quietSince(d, since, started), formatDuration(now.Sub(since)), ruleName,
+		formatDuration(time.Duration(p.InactiveSeconds)*time.Second))
+	return title, body
+}
+
+// inactiveResolvedText is about a device that was quiet for as long as the
+// alert's last value says: an alert starts only once the device has been
+// quiet for a while.
+func inactiveResolvedText(d device, lasted time.Duration) (title, body string) {
+	title = "Traffic again from " + d.label()
+	body = fmt.Sprintf("%s has traffic again, after %s without.", d.label(), formatDuration(lasted))
+	return title, body
+}
+
+// others says how many more addresses there were besides the example.
+func others(peers int) string {
+	switch peers {
+	case 0, 1:
+		return ""
+	case 2:
+		return " and 1 other address"
+	default:
+		return fmt.Sprintf(" and %d other addresses", peers-1)
+	}
+}
+
+func portText(ruleName string, p PortParams, d device, port string, peer string, peers int, bytes uint64) (title, body string) {
+	title = fmt.Sprintf("%s connected to port %s", d.label(), port)
+	watched := make([]string, 0, len(p.Ports))
+	for _, port := range p.Ports {
+		watched = append(watched, strconv.Itoa(port))
+	}
+	body = fmt.Sprintf("%s connected to port %s of %s%s, %s in all. The rule “%s” watches ports %s.",
+		d.labelled(), port, peer, others(peers), formatBytes(float64(bytes)), ruleName, strings.Join(watched, ", "))
+	return title, body
+}
+
+func countryText(ruleName string, p CountryParams, d device, code, name, peer string, peers int, bytes uint64) (title, body string) {
+	title = fmt.Sprintf("%s exchanged traffic with %s", d.label(), name)
+	reason := fmt.Sprintf("The rule “%s” alerts on traffic with %s.", ruleName, strings.Join(p.Countries, ", "))
+	if p.Mode == Allow {
+		reason = fmt.Sprintf("The rule “%s” allows only %s.", ruleName, strings.Join(p.Countries, ", "))
+	}
+	body = fmt.Sprintf("%s exchanged %s with %s%s in %s (%s). %s",
+		d.labelled(), formatBytes(float64(bytes)), peer, others(peers), name, code, reason)
 	return title, body
 }

@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { BanIcon, CircleCheckIcon, CircleXIcon, ListChecksIcon, TriangleAlertIcon } from "lucide-react"
+import { ListChecksIcon, TriangleAlertIcon } from "lucide-react"
 import * as React from "react"
 
+import { AlertSubject, Deliveries, SeverityBadge } from "@/components/alert-parts"
 import { Page, PageHeader } from "@/components/page-header"
 import { ErrorState } from "@/components/query-state"
 import { Badge } from "@/components/ui/badge"
@@ -26,83 +27,34 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useNow } from "@/hooks/use-now"
-import { alertDevice, alertSubjectLabel } from "@/lib/alerts"
-import type { Alert, Delivery, NotificationChannel, Severity } from "@/lib/api"
+import type { Alert, NotificationChannel } from "@/lib/api"
 import { formatDayTime, formatRelative } from "@/lib/format"
 import { alertsQuery, notificationChannelsQuery } from "@/lib/queries"
 
-export const Route = createFileRoute("/alerts")({
-  staticData: { breadcrumb: "Alerts" },
+export const Route = createFileRoute("/alerts/")({
   component: AlertsPage,
 })
 
 const PAGE_SIZE = 50
-
-function SeverityBadge({ severity }: { severity: Severity }) {
-  if (severity === "critical") return <Badge variant="destructive">Critical</Badge>
-  if (severity === "warning") return <Badge variant="secondary">Warning</Badge>
-  return <Badge variant="outline">Info</Badge>
-}
-
-const KIND_LABELS: Record<Delivery["Kind"], string> = {
-  firing: "",
-  reminder: "reminder",
-  resolved: "resolved",
-}
-
-/** Where the notifications about an alert went, and how that went. */
-function Deliveries({ alert, channels }: { alert: Alert; channels: NotificationChannel[] }) {
-  if (alert.Deliveries.length === 0) {
-    return <span className="text-muted-foreground">Not sent</span>
-  }
-
-  return (
-    <ul className="flex flex-wrap gap-x-3 gap-y-1">
-      {alert.Deliveries.map((d, index) => {
-        const name = channels.find((c) => c.ID === d.ChannelID)?.Name ?? "Deleted channel"
-        const kind = KIND_LABELS[d.Kind]
-        const label = kind ? `${name} (${kind})` : name
-        const detail =
-          d.Status === "sent"
-            ? `Sent ${formatDayTime(new Date(d.CreatedAt))}`
-            : d.Status === "suppressed"
-              ? "Held back: too many notifications to this channel at once"
-              : `Failed after ${d.Attempts} attempts: ${d.Error ?? "unknown error"}`
-        return (
-          <li key={index} className="flex items-center gap-1" title={detail}>
-            {d.Status === "sent" && <CircleCheckIcon className="size-3.5 text-chart-3" aria-label="Sent" />}
-            {d.Status === "failed" && <CircleXIcon className="size-3.5 text-destructive" aria-label="Failed" />}
-            {d.Status === "suppressed" && <BanIcon className="size-3.5 text-muted-foreground" aria-label="Held back" />}
-            <span>{label}</span>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-function Subject({ alert }: { alert: Alert }) {
-  const mac = alertDevice(alert)
-  if (!mac) return <span>{alert.Subject}</span>
-  return (
-    <Link to="/clients/$clientId" params={{ clientId: mac }} className="underline-offset-4 hover:underline">
-      {alertSubjectLabel(alert)}
-    </Link>
-  )
-}
 
 function FiringAlert({ alert, channels, now }: { alert: Alert; channels: NotificationChannel[]; now: number }) {
   return (
     <li className="flex flex-col gap-2 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <TriangleAlertIcon className="size-4 text-destructive" />
-        <span className="font-medium">{alert.Title}</span>
+        <Link
+          to="/alerts/$alertId"
+          params={{ alertId: String(alert.ID) }}
+          className="font-medium underline-offset-4 hover:underline"
+        >
+          {alert.Title}
+        </Link>
         <SeverityBadge severity={alert.Severity} />
       </div>
       <p className="text-sm whitespace-pre-line">{alert.Body}</p>
       <p className="text-xs text-muted-foreground">
         Since {formatDayTime(new Date(alert.StartedAt))} ({formatRelative(Date.parse(alert.StartedAt), now)}) ·{" "}
-        {alert.RuleName} · <Subject alert={alert} />
+        {alert.RuleName} · <AlertSubject alert={alert} />
       </p>
       <div className="text-xs">
         <Deliveries alert={alert} channels={channels} />
@@ -212,11 +164,16 @@ function AlertsPage() {
                       {formatDayTime(new Date(alert.StartedAt))}
                     </TableCell>
                     <TableCell className="max-w-md">
-                      <div className="truncate font-medium" title={alert.Body}>
+                      <Link
+                        to="/alerts/$alertId"
+                        params={{ alertId: String(alert.ID) }}
+                        className="block truncate font-medium underline-offset-4 hover:underline"
+                        title={alert.Body}
+                      >
                         {alert.Title}
-                      </div>
+                      </Link>
                       <div className="truncate text-xs text-muted-foreground">
-                        <Subject alert={alert} />
+                        <AlertSubject alert={alert} />
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{alert.RuleName}</TableCell>

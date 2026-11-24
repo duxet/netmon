@@ -87,9 +87,15 @@ type testEngine struct {
 
 func newTestEngine(t *testing.T, db *sql.DB) *testEngine {
 	t.Helper()
+	return newTestEngineWith(t, db, nil)
+}
+
+func newTestEngineWith(t *testing.T, db *sql.DB, countries CountryLookup) *testEngine {
+	t.Helper()
 	te := &testEngine{now: start, dispatcher: &fakeDispatcher{}}
 	te.Engine = NewEngine(db, te.dispatcher, Options{
 		Classifier: apps.NewClassifier(apps.Known, ""),
+		Countries:  countries,
 		PublicURL:  "http://netmon.lan:2137",
 		Now:        func() time.Time { return te.now },
 	})
@@ -157,7 +163,7 @@ func TestTrafficThreshold(t *testing.T) {
 	}
 	n := ns[0]
 	if !strings.Contains(n.Message.Body, "downloaded 6 kB in the last hour, over the 5 kB of the rule “Big downloads”") ||
-		!strings.Contains(n.Message.Body, "http://netmon.lan:2137/clients/"+tvMAC) {
+		!strings.Contains(n.Message.Body, "http://netmon.lan:2137/alerts/"+n.Message.Fields["alert_id"]) {
 		t.Errorf("body = %q", n.Message.Body)
 	}
 	if n.Message.Severity != notify.Warning || len(n.ChannelIDs) != 1 || n.ChannelIDs[0] != 7 {
@@ -166,7 +172,7 @@ func TestTrafficThreshold(t *testing.T) {
 	fields := n.Message.Fields
 	if fields["event"] != "alert.firing" || fields["mac"] != tvMAC || fields["ip"] != "192.168.1.40" ||
 		fields["device_name"] != "Living room TV" || fields["value"] != "6000" || fields["rule_type"] != TrafficThreshold ||
-		fields["url"] != "http://netmon.lan:2137/clients/"+tvMAC {
+		fields["url"] != "http://netmon.lan:2137/alerts/"+fields["alert_id"] {
 		t.Errorf("fields = %v", fields)
 	}
 

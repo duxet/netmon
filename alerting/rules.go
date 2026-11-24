@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/notify"
@@ -23,17 +25,30 @@ const (
 	// TrafficThreshold fires while a device's traffic over a sliding window
 	// is above a threshold, and resolves when it is back under.
 	TrafficThreshold = "traffic_threshold"
+	// DeviceInactive fires while a device has had no traffic for a while,
+	// and resolves when it has some again.
+	DeviceInactive = "device_inactive"
+	// DestinationPort fires when a device connects to one of some ports.
+	DestinationPort = "destination_port"
+	// DestinationCountry fires when a device exchanges traffic with a
+	// country it shouldn't: one of a list, or one outside of it.
+	DestinationCountry = "destination_country"
 )
 
 // Types lists the rule types.
-var Types = []string{NewDevice, TrafficThreshold}
+var Types = []string{NewDevice, TrafficThreshold, DeviceInactive, DestinationPort, DestinationCountry}
 
 // IsEvent reports whether rules of a type are about events, whose alerts
 // are over as soon as they are raised, rather than conditions that hold for
 // a while.
 func IsEvent(ruleType string) bool {
-	return ruleType == NewDevice
+	return ruleType == NewDevice || ruleType == DestinationPort || ruleType == DestinationCountry
 }
+
+// EventCooldown is how long an event rule stays quiet about a subject (a
+// device and port, say) after alerting about it, so that a device that
+// keeps doing the same thing doesn't raise an alert every minute.
+const EventCooldown = 24 * time.Hour
 
 // NewDeviceParams are the settings of a new_device rule.
 type NewDeviceParams struct {
@@ -69,6 +84,60 @@ type TrafficParams struct {
 	// App counts only the traffic of one app, by its name in /api/apps
 	// ("Other" for traffic of no known app); empty counts all traffic.
 	App string `json:"app,omitempty"`
+	// MACs limits the rule to these devices; empty is every device.
+	MACs []string `json:"macs,omitempty"`
+	// Network counts the internet traffic of all these devices together,
+	// as one alert about the whole network, instead of each on its own.
+	// Traffic between local devices doesn't count then.
+	Network bool `json:"network,omitempty"`
+}
+
+// InactiveParams are the settings of a device_inactive rule.
+type InactiveParams struct {
+	InactiveSeconds int64 `json:"inactive_s"`
+	// MACs are the devices to watch; at least one.
+	MACs []string `json:"macs"`
+}
+
+// Bounds of device_inactive rules, in seconds.
+const (
+	MinInactiveSeconds = 5 * 60
+	MaxInactiveSeconds = 7 * 24 * 60 * 60
+)
+
+// Protocols a destination_port rule can watch.
+const (
+	TCP = "tcp"
+	UDP = "udp"
+	Any = "any"
+)
+
+// maxPorts bounds the ports of a destination_port rule.
+const maxPorts = 32
+
+// PortParams are the settings of a destination_port rule.
+type PortParams struct {
+	Ports []int `json:"ports"`
+	// Protocol is tcp, udp or any.
+	Protocol string `json:"protocol"`
+	// MACs limits the rule to these devices; empty is every device.
+	MACs []string `json:"macs,omitempty"`
+}
+
+// Modes of destination_country rules.
+const (
+	// Deny alerts on traffic with the listed countries.
+	Deny = "deny"
+	// Allow alerts on traffic with any country not listed.
+	Allow = "allow"
+)
+
+// CountryParams are the settings of a destination_country rule.
+type CountryParams struct {
+	// Mode is deny or allow.
+	Mode string `json:"mode"`
+	// Countries are ISO 3166-1 alpha-2 codes, such as "DE".
+	Countries []string `json:"countries"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
 }
@@ -124,6 +193,36 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		}
 		params = p
 
+	case DeviceInactive:
+		var p InactiveParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		if err := p.validate(); err != nil {
+			return "", err
+		}
+		params = p
+
+	case DestinationPort:
+		var p PortParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		if err := p.validate(); err != nil {
+			return "", err
+		}
+		params = p
+
+	case DestinationCountry:
+		var p CountryParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		if err := p.validate(); err != nil {
+			return "", err
+		}
+		params = p
+
 	default:
 		return "", invalid("unknown rule type %q; want one of %v", ruleType, Types)
 	}
@@ -148,21 +247,85 @@ func (p *TrafficParams) validate() error {
 	if p.App != "" && !isApp(p.App) {
 		return invalid("unknown app %q", p.App)
 	}
-	if len(p.MACs) > maxScopedDevices {
-		return invalid("a rule can be limited to at most %d devices", maxScopedDevices)
-	}
+	macs, err := normalizeMACs(p.MACs)
+	p.MACs = macs
+	return err
+}
 
-	macs := make([]string, 0, len(p.MACs))
-	for _, s := range p.MACs {
+func (p *InactiveParams) validate() error {
+	if p.InactiveSeconds < MinInactiveSeconds || p.InactiveSeconds > MaxInactiveSeconds {
+		return invalid("inactive_s must be between %d and %d seconds", MinInactiveSeconds, MaxInactiveSeconds)
+	}
+	macs, err := normalizeMACs(p.MACs)
+	if err != nil {
+		return err
+	}
+	if len(macs) == 0 {
+		return invalid("macs must name at least one device to watch")
+	}
+	p.MACs = macs
+	return nil
+}
+
+func (p *PortParams) validate() error {
+	if !slices.Contains([]string{TCP, UDP, Any}, p.Protocol) {
+		return invalid("protocol must be tcp, udp or any")
+	}
+	if len(p.Ports) == 0 || len(p.Ports) > maxPorts {
+		return invalid("ports must list 1 to %d ports", maxPorts)
+	}
+	for _, port := range p.Ports {
+		if port < 1 || port > 65535 {
+			return invalid("invalid port %d", port)
+		}
+	}
+	slices.Sort(p.Ports)
+	p.Ports = slices.Compact(p.Ports)
+
+	macs, err := normalizeMACs(p.MACs)
+	p.MACs = macs
+	return err
+}
+
+func (p *CountryParams) validate() error {
+	if p.Mode != Deny && p.Mode != Allow {
+		return invalid("mode must be deny or allow")
+	}
+	if len(p.Countries) == 0 || len(p.Countries) > 300 {
+		return invalid("countries must list 1 to 300 country codes")
+	}
+	countries := make([]string, 0, len(p.Countries))
+	for _, code := range p.Countries {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+			return invalid("invalid country code %q; want two letters, such as DE", code)
+		}
+		countries = append(countries, code)
+	}
+	slices.Sort(countries)
+	p.Countries = slices.Compact(countries)
+
+	macs, err := normalizeMACs(p.MACs)
+	p.MACs = macs
+	return err
+}
+
+// normalizeMACs parses MAC addresses into canonical form, sorted and
+// without duplicates.
+func normalizeMACs(list []string) ([]string, error) {
+	if len(list) > maxScopedDevices {
+		return nil, invalid("a rule can be limited to at most %d devices", maxScopedDevices)
+	}
+	macs := make([]string, 0, len(list))
+	for _, s := range list {
 		mac, err := net.ParseMAC(s)
 		if err != nil {
-			return invalid("invalid mac address %q", s)
+			return nil, invalid("invalid mac address %q", s)
 		}
 		macs = append(macs, mac.String())
 	}
 	slices.Sort(macs)
-	p.MACs = slices.Compact(macs)
-	return nil
+	return slices.Compact(macs), nil
 }
 
 func isApp(name string) bool {

@@ -82,3 +82,13 @@ type DeviceTrafficRecord struct {
 	Download   uint64
 	Upload     uint64
 }
+
+// PortTrafficRecord is what a device exchanged with a remote address on a
+// port it connected to.
+type PortTrafficRecord struct {
+	MACAddress common.MACAddress
+	Peer       common.IPAddress
+	Port       uint16
+	IPProto    uint8
+	Bytes      uint64
+}

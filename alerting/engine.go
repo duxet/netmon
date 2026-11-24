@@ -1,16 +1,15 @@
 package alerting
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
-	"maps"
-	"net"
 	"net/netip"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/duxet/netmon/apps"
@@ -26,10 +25,20 @@ type Dispatcher interface {
 	Dispatch([]notify.Notification)
 }
 
+// CountryLookup tells the country of an address; lookup.Countries is one.
+type CountryLookup interface {
+	// Available reports whether lookups can succeed at all.
+	Available() bool
+	Lookup(addr netip.Addr) (code, name string, ok bool)
+}
+
 // Options configures an Engine.
 type Options struct {
 	// Hostnames names devices in messages; without it, they have none.
 	Hostnames *lookup.Hostnames
+	// Countries tells destination_country rules where traffic goes;
+	// without it, those rules find nothing.
+	Countries CountryLookup
 	// Classifier recognizes apps for rules limited to one; default
 	// apps.Default().
 	Classifier *apps.Classifier
@@ -47,9 +56,21 @@ const (
 	// newDeviceLookback bounds how long after it was first seen a device
 	// still counts as new, e.g. for a rule that was turned off for a while.
 	newDeviceLookback = 24 * time.Hour
+	// eventLookback bounds how far back an event rule looks for traffic,
+	// e.g. after netmon was stopped for a while. Per-minute rows always
+	// cover it.
+	eventLookback = time.Hour
+	// eventOverlap is how far each evaluation of an event rule looks back
+	// before the previous one, so that traffic written while it ran isn't
+	// missed. The cooldown keeps it from alerting twice.
+	eventOverlap = 2 * time.Minute
 	// hostnameTimeout bounds the reverse DNS lookups for messages.
 	hostnameTimeout = 5 * time.Second
 )
+
+// ErrNoGeoIP is returned for rules that need a GeoIP database when there is
+// none.
+var ErrNoGeoIP = errors.New("countries need GeoLite2-Country.mmdb next to the netmon binary")
 
 // Engine evaluates the alert rules when triggered, after every collection
 // round. Evaluations run one at a time, on Run's goroutine.
@@ -58,6 +79,11 @@ type Engine struct {
 	dispatcher Dispatcher
 	opts       Options
 	trigger    chan struct{}
+	// started is when the engine started: netmon knows nothing about
+	// traffic from before then, when it may not have been running.
+	started time.Time
+
+	noGeoIP sync.Once
 }
 
 // NewEngine returns an engine; Run starts evaluating.
@@ -68,7 +94,7 @@ func NewEngine(db *sql.DB, dispatcher Dispatcher, opts Options) *Engine {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Engine{db: db, dispatcher: dispatcher, opts: opts, trigger: make(chan struct{}, 1)}
+	return &Engine{db: db, dispatcher: dispatcher, opts: opts, trigger: make(chan struct{}, 1), started: opts.Now()}
 }
 
 // Trigger asks for an evaluation, e.g. because new flows were written. It
@@ -120,7 +146,11 @@ func (e *Engine) Evaluate(ctx context.Context) {
 	var notifications []notify.Notification
 	for _, rule := range rules {
 		ns, err := e.evaluateRule(ctx, rule, devices, now)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrNoGeoIP):
+			e.noGeoIP.Do(func() { log.Printf("Alert rule %d (%s) can't run: %v", rule.ID, rule.Type, err) })
+			continue
+		case err != nil:
 			log.Printf("Alert rule %d (%s) failed: %v", rule.ID, rule.Type, err)
 			continue
 		}
@@ -142,14 +172,73 @@ func (e *Engine) evaluateRule(ctx context.Context, rule storage.RuleRecord, devi
 		}
 	}()
 
+	if IsEvent(rule.Type) {
+		since, cooldown := e.eventWindow(rule, now)
+		found, err := e.observe(ctx, rule, devices, now, since, nil)
+		if err != nil {
+			return nil, err
+		}
+		alerted, err := storage.AlertedSubjects(e.db, rule.ID, cooldown)
+		if err != nil {
+			return nil, err
+		}
+		found = slices.DeleteFunc(found, func(c candidate) bool { return alerted[c.subject] })
+		return e.raise(rule, now, found)
+	}
+
+	open, err := storage.FiringAlerts(e.db, rule.ID)
+	if err != nil {
+		return nil, err
+	}
+	found, err := e.observe(ctx, rule, devices, now, time.Time{}, open)
+	if err != nil {
+		return nil, err
+	}
+	found = slices.DeleteFunc(found, func(c candidate) bool { return !c.fires })
+
 	switch rule.Type {
-	case NewDevice:
-		return e.evaluateNewDevice(ctx, rule, devices, now)
 	case TrafficThreshold:
-		return e.evaluateTraffic(ctx, rule, devices, now)
+		p, err := parseParams[TrafficParams](rule.Params)
+		if err != nil {
+			return nil, err
+		}
+		return e.reconcile(rule, now, open, found, func(alert storage.AlertRecord, lasted time.Duration) (string, string) {
+			return trafficResolvedText(p, deviceFromLabels(alert.Labels), lasted)
+		})
+	case DeviceInactive:
+		return e.reconcile(rule, now, open, found, func(alert storage.AlertRecord, lasted time.Duration) (string, string) {
+			// The device was quiet since before the alert started: for as
+			// long as last measured.
+			if alert.Value != nil {
+				lasted = time.Duration(*alert.Value) * time.Second
+			}
+			return inactiveResolvedText(deviceFromLabels(alert.Labels), lasted)
+		})
 	default:
 		return nil, fmt.Errorf("unknown rule type %q", rule.Type)
 	}
+}
+
+// eventWindow returns since when an event rule looks for events, and since
+// when what it alerted about doesn't count again.
+func (e *Engine) eventWindow(rule storage.RuleRecord, now time.Time) (since, cooldown time.Time) {
+	if rule.Type == NewDevice {
+		// Devices seen before the rule existed aren't new to it.
+		since = now.Add(-newDeviceLookback)
+		if rule.CreatedAt.After(since) {
+			since = rule.CreatedAt
+		}
+		return since, since
+	}
+
+	since = rule.CreatedAt
+	if rule.LastEvaluatedAt != nil && rule.LastEvaluatedAt.Add(-eventOverlap).After(since) {
+		since = rule.LastEvaluatedAt.Add(-eventOverlap)
+	}
+	if earliest := now.Add(-eventLookback); since.Before(earliest) {
+		since = earliest
+	}
+	return since, now.Add(-EventCooldown)
 }
 
 // devices returns what is known about every device, by MAC address.
@@ -162,7 +251,10 @@ func (e *Engine) devices() (map[string]device, error) {
 	devices := make(map[string]device, len(records))
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		d := device{mac: mac, ip: r.IPAddress.String(), vendor: vendors.Lookup(r.MACAddress.HardwareAddr), firstSeen: r.FirstSeen}
+		d := device{
+			mac: mac, ip: r.IPAddress.String(), vendor: vendors.Lookup(r.MACAddress.HardwareAddr),
+			firstSeen: r.FirstSeen, lastSeen: r.LastSeen,
+		}
 		if r.Name != nil {
 			d.name = *r.Name
 		}
@@ -171,8 +263,8 @@ func (e *Engine) devices() (map[string]device, error) {
 	return devices, nil
 }
 
-// withHostnames looks up the hostnames of the devices with the given MAC
-// addresses, which messages are about.
+// withHostnames returns the devices with the given MAC addresses, which
+// messages are about, with their hostnames.
 func (e *Engine) withHostnames(ctx context.Context, devices map[string]device, macs []string) map[string]device {
 	result := make(map[string]device, len(macs))
 	var addrs []netip.Addr
@@ -202,149 +294,39 @@ func (e *Engine) withHostnames(ctx context.Context, devices map[string]device, m
 	return result
 }
 
-// isRandomMAC reports whether a MAC address is locally administered, as the
-// private addresses phones use on Wi-Fi are.
-func isRandomMAC(mac string) bool {
-	hw, err := net.ParseMAC(mac)
-	return err == nil && len(hw) > 0 && hw[0]&0x02 != 0
-}
-
-func (e *Engine) evaluateNewDevice(ctx context.Context, rule storage.RuleRecord, devices map[string]device, now time.Time) ([]notify.Notification, error) {
-	p, err := parseParams[NewDeviceParams](rule.Params)
-	if err != nil {
-		return nil, err
-	}
-
-	// Devices seen before the rule existed aren't new to it.
-	baseline := now.Add(-newDeviceLookback)
-	if rule.CreatedAt.After(baseline) {
-		baseline = rule.CreatedAt
-	}
-	alerted, err := storage.AlertedSubjects(e.db, rule.ID, baseline)
-	if err != nil {
-		return nil, err
-	}
-
-	var fresh []string
-	for mac, d := range devices {
-		if d.firstSeen.Before(baseline) || alerted[mac] || (p.IgnoreRandomMACs && isRandomMAC(mac)) {
-			continue
-		}
-		fresh = append(fresh, mac)
-	}
-	slices.SortFunc(fresh, func(a, b string) int {
-		return cmp.Or(devices[a].firstSeen.Compare(devices[b].firstSeen), cmp.Compare(a, b))
-	})
-
-	named := e.withHostnames(ctx, devices, fresh)
+// reconcile brings a stateful rule's alerts in line with the conditions
+// that hold now: new ones fire, lasting ones are repeated when the rule
+// says so, and the others resolve.
+func (e *Engine) reconcile(
+	rule storage.RuleRecord, now time.Time, open map[string]storage.AlertRecord, holding []candidate,
+	resolvedText func(alert storage.AlertRecord, lasted time.Duration) (title, body string),
+) ([]notify.Notification, error) {
 	var ns []notify.Notification
-	for _, mac := range fresh {
-		d := named[mac]
-		title, body := newDeviceText(d)
-		labels := d.labels()
-		labels["first_seen"] = d.firstSeen.UTC().Format(time.RFC3339)
+	held := map[string]bool{}
 
-		alert := storage.AlertRecord{
-			RuleID: rule.ID, RuleName: rule.Name, Subject: mac, State: storage.AlertResolved, Severity: rule.Severity,
-			Title: title, Body: body, Labels: labels,
-			StartedAt: now, LastEvaluatedAt: now, LastNotifiedAt: &now, ResolvedAt: &now,
-		}
-		if alert.ID, err = storage.InsertAlert(e.db, alert); err != nil {
-			return ns, err
-		}
-		ns = append(ns, e.notification(rule, alert, "firing", title, body))
-	}
-	return ns, nil
-}
-
-// trafficUsage sums each device's traffic in a rule's window.
-func (e *Engine) trafficUsage(p TrafficParams, now time.Time) (map[string]float64, error) {
-	records, err := storage.GetDeviceTraffic(e.db, now.Add(-time.Duration(p.WindowSeconds)*time.Second))
-	if err != nil {
-		return nil, err
-	}
-
-	usage := map[string]float64{}
-	for _, r := range records {
-		mac := r.MACAddress.String()
-		if len(p.MACs) > 0 && !slices.Contains(p.MACs, mac) {
-			continue
-		}
-		if p.App != "" {
-			if r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) || e.opts.Classifier.Classify(*r.Peer.Addr) != p.App {
-				continue
-			}
-		}
-
-		switch p.Direction {
-		case Download:
-			usage[mac] += float64(r.Download)
-		case Upload:
-			usage[mac] += float64(r.Upload)
-		default:
-			usage[mac] += float64(r.Download + r.Upload)
-		}
-	}
-	return usage, nil
-}
-
-func (e *Engine) evaluateTraffic(ctx context.Context, rule storage.RuleRecord, devices map[string]device, now time.Time) ([]notify.Notification, error) {
-	p, err := parseParams[TrafficParams](rule.Params)
-	if err != nil {
-		return nil, err
-	}
-	usage, err := e.trafficUsage(p, now)
-	if err != nil {
-		return nil, err
-	}
-	open, err := storage.FiringAlerts(e.db, rule.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	// An alert keeps firing until the traffic is well under the threshold.
-	threshold := float64(p.ThresholdBytes)
-	firing := map[string]float64{}
-	for mac, value := range usage {
-		if _, isOpen := open[mac]; value > threshold || (isOpen && value >= ResolveFraction*threshold) {
-			firing[mac] = value
-		}
-	}
-
-	subjects := slices.Sorted(maps.Keys(firing))
-	var resolved []string
-	for mac := range open {
-		if _, ok := firing[mac]; !ok {
-			resolved = append(resolved, mac)
-		}
-	}
-	slices.Sort(resolved)
-	named := e.withHostnames(ctx, devices, append(slices.Clone(subjects), resolved...))
-
-	var ns []notify.Notification
-	for _, mac := range subjects {
-		d, value := named[mac], firing[mac]
-		title, body := trafficFiringText(rule.Name, p, d, value)
-
-		alert, isOpen := open[mac]
+	for _, c := range holding {
+		held[c.subject] = true
+		alert, isOpen := open[c.subject]
 		if !isOpen {
 			alert = storage.AlertRecord{
-				RuleID: rule.ID, RuleName: rule.Name, Subject: mac, State: storage.AlertFiring, Severity: rule.Severity,
-				Value: &value, Title: title, Body: body, Labels: d.labels(),
+				RuleID: rule.ID, RuleName: rule.Name, Subject: c.subject, State: storage.AlertFiring, Severity: rule.Severity,
+				Value: c.value, Title: c.title, Body: c.body, Labels: c.labels,
 				StartedAt: now, LastEvaluatedAt: now, LastNotifiedAt: &now,
 			}
-			if alert.ID, err = storage.InsertAlert(e.db, alert); err != nil {
+			id, err := storage.InsertAlert(e.db, alert)
+			if err != nil {
 				return ns, err
 			}
-			ns = append(ns, e.notification(rule, alert, "firing", title, body))
+			alert.ID = id
+			ns = append(ns, e.notification(rule, alert, "firing", c.title, c.body))
 			continue
 		}
 
-		alert.Value, alert.Title, alert.Body, alert.Labels, alert.LastEvaluatedAt = &value, title, body, d.labels(), now
+		alert.Value, alert.Title, alert.Body, alert.Labels, alert.LastEvaluatedAt = c.value, c.title, c.body, c.labels, now
 		if repeat := rule.RepeatIntervalSeconds; repeat != nil &&
 			(alert.LastNotifiedAt == nil || now.Sub(*alert.LastNotifiedAt) >= time.Duration(*repeat)*time.Second) {
 			alert.LastNotifiedAt = &now
-			title, body := trafficReminderText(rule.Name, p, d, value, alert.StartedAt)
+			title, body := c.reminder(alert.StartedAt)
 			ns = append(ns, e.notification(rule, alert, "reminder", title, body))
 		}
 		if err := storage.UpdateAlert(e.db, alert); err != nil {
@@ -352,12 +334,19 @@ func (e *Engine) evaluateTraffic(ctx context.Context, rule storage.RuleRecord, d
 		}
 	}
 
-	for _, mac := range resolved {
-		alert := open[mac]
+	resolved := make([]string, 0, len(open))
+	for subject := range open {
+		if !held[subject] {
+			resolved = append(resolved, subject)
+		}
+	}
+	slices.Sort(resolved)
+	for _, subject := range resolved {
+		alert := open[subject]
 		alert.State, alert.ResolvedAt, alert.LastEvaluatedAt = storage.AlertResolved, &now, now
 		if rule.NotifyOnResolve {
 			alert.LastNotifiedAt = &now
-			title, body := trafficResolvedText(p, named[mac], now.Sub(alert.StartedAt))
+			title, body := resolvedText(alert, now.Sub(alert.StartedAt))
 			ns = append(ns, e.notification(rule, alert, "resolved", title, body))
 		}
 		if err := storage.UpdateAlert(e.db, alert); err != nil {
@@ -367,15 +356,32 @@ func (e *Engine) evaluateTraffic(ctx context.Context, rule storage.RuleRecord, d
 	return ns, nil
 }
 
-// link is where a message about an alert points: the device's page.
+// raise records an alert for each event an event rule found, resolved as it
+// starts, and notifies about it.
+func (e *Engine) raise(rule storage.RuleRecord, now time.Time, events []candidate) ([]notify.Notification, error) {
+	var ns []notify.Notification
+	for _, c := range events {
+		alert := storage.AlertRecord{
+			RuleID: rule.ID, RuleName: rule.Name, Subject: c.subject, State: storage.AlertResolved, Severity: rule.Severity,
+			Value: c.value, Title: c.title, Body: c.body, Labels: c.labels,
+			StartedAt: now, LastEvaluatedAt: now, LastNotifiedAt: &now, ResolvedAt: &now,
+		}
+		id, err := storage.InsertAlert(e.db, alert)
+		if err != nil {
+			return ns, err
+		}
+		alert.ID = id
+		ns = append(ns, e.notification(rule, alert, "firing", c.title, c.body))
+	}
+	return ns, nil
+}
+
+// link is where a message about an alert points: its page in netmon.
 func (e *Engine) link(alert storage.AlertRecord) string {
 	if e.opts.PublicURL == "" {
 		return ""
 	}
-	if mac := alert.Labels["mac"]; mac != "" {
-		return e.opts.PublicURL + "/clients/" + mac
-	}
-	return e.opts.PublicURL + "/alerts"
+	return e.opts.PublicURL + "/alerts/" + strconv.FormatInt(alert.ID, 10)
 }
 
 // notification is a message about an alert for the rule's channels. Its
