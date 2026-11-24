@@ -23,6 +23,8 @@ type ClientDTO struct {
 	Name *string
 	// Hostname is from reverse DNS, with the trailing dot.
 	Hostname *string
+	// Vendor is the manufacturer the MAC address was assigned to, if known.
+	Vendor   *string
 	Endpoint EndpointDTO
 	Traffic  TrafficDTO
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/static"
@@ -262,9 +263,15 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				name = &n
 			}
 
+			var vendor *string
+			if v := vendors.Lookup(record.MACAddress.HardwareAddr); v != "" {
+				vendor = &v
+			}
+
 			clients = append(clients, ClientDTO{
 				Name:     name,
 				Hostname: hostname,
+				Vendor:   vendor,
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
 					IPAddress:  record.IPAddress,

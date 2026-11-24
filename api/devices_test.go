@@ -89,3 +89,16 @@ func TestDeviceNameValidation(t *testing.T) {
 		t.Errorf("64-character name = %d: %s", status, body)
 	}
 }
+
+func TestClientsHaveVendors(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	var clients []struct {
+		Vendor   *string
+		Endpoint struct{ MACAddress string }
+	}
+	get(t, app, "/api/clients", &clients)
+	if len(clients) != 1 || clients[0].Vendor == nil || *clients[0].Vendor != "Synology" {
+		t.Errorf("clients = %+v, want the NAS (00:11:32) made by Synology", clients)
+	}
+}
