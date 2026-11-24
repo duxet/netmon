@@ -19,9 +19,18 @@ type TrafficDTO struct {
 }
 
 type ClientDTO struct {
+	// Name is the name the user gave the device, if any.
+	Name *string
+	// Hostname is from reverse DNS, with the trailing dot.
 	Hostname *string
 	Endpoint EndpointDTO
 	Traffic  TrafficDTO
+}
+
+// DeviceNameDTO is a device's user-given name.
+type DeviceNameDTO struct {
+	MACAddress string
+	Name       string
 }
 
 type FlowDTO struct {

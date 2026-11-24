@@ -237,6 +237,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
+		deviceNames, err := storage.GetDeviceNames(db)
+		if err != nil {
+			return err
+		}
+
 		addrs := make([]netip.Addr, 0, len(records))
 		for _, record := range records {
 			if record.IPAddress.Addr != nil {
@@ -252,7 +257,13 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				hostname = names[record.IPAddress.Unmap()]
 			}
 
+			var name *string
+			if n, ok := deviceNames[record.MACAddress.String()]; ok {
+				name = &n
+			}
+
 			clients = append(clients, ClientDTO{
+				Name:     name,
 				Hostname: hostname,
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
@@ -281,6 +292,8 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 		return serveFlows(c, filter)
 	})
+
+	registerDeviceRoutes(app, db)
 
 	type HostnamesBody struct {
 		IPAddresses []string `json:"ip_addresses"`
