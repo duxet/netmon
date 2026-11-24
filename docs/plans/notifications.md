@@ -11,7 +11,7 @@ Status: proposal, revision 3 · 2026-11-24 · based on `main` at `b12fcd2`
 | 2 | Auth | **Out of scope for now**; it will be added later (§8) |
 | 3 | Should `new_device` ignore randomized MACs by default? | **No.** The filter exists as an option and is off by default |
 | 4 | Alert retention | Alert history and the delivery log are kept for **30 days by default**, configurable |
-| 5 | Flow retention | **Configurable.** This already exists on `main`: `NETMON_RETENTION_DAYS`, applied by `storage.Compact`, default `0` (keep everything). Alert retention plugs into the same hourly loop (§3.4) |
+| 5 | Flow retention | **Configurable, and keep everything by default.** This already exists on `main`: `NETMON_RETENTION_DAYS`, applied by `storage.Compact`, default `0` (keep everything); the default stays as it is. Alert retention plugs into the same hourly loop (§3.4) |
 
 ## 1. Goal
 
@@ -665,5 +665,4 @@ DuckDB plus the real migrations) and the `api/*_test.go` setup.
 
 ## 11. Open questions
 
-None blocking. Optionally: should `NETMON_RETENTION_DAYS` get a non-zero default
-(for example 365) now that alerts default to 30 days, or stay "keep everything"?
+None. All decisions are recorded at the top of this document.
