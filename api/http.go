@@ -2,18 +2,18 @@ package api
 
 import (
 	"database/sql"
-	"embed"
+	"io/fs"
 	"log"
-	"net/http"
 	"net/netip"
+	"path"
 	"strings"
 
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/filesystem"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
 type Pagination struct {
@@ -64,30 +64,37 @@ func toFlowDTOs(records []storage.FlowRecord, countries *countryLookup) []FlowDT
 	return flows
 }
 
-func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.App {
+// spaFallback serves the app shell for client-side routes such as
+// /clients/:id, which have no file of their own. Missing files (paths with
+// an extension, e.g. a stale /assets/index-1234.js) stay 404s rather than
+// getting HTML a browser can't use.
+func spaFallback(assets fs.FS) fiber.Handler {
+	index, err := fs.ReadFile(assets, "index.html")
+	if err != nil {
+		log.Printf("Web UI not available (build it with `npm run build` in client/): %v", err)
+	}
+
+	return func(c fiber.Ctx) error {
+		if index == nil || path.Ext(c.Path()) != "" {
+			return fiber.ErrNotFound
+		}
+		c.Type("html")
+		return c.Status(fiber.StatusOK).Send(index)
+	}
+}
+
+// CreateHTTPApp serves the API and the web UI, whose built files assets holds
+// at its root.
+func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	countries := newCountryLookup(options.GeoIPDatabase)
 	hostnames := newHostnameResolver(options.LocalDNS, options.PublicDNS)
 
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
-	app.Hooks().OnShutdown(countries.Close)
+	app.Hooks().OnPostShutdown(func(error) error { return countries.Close() })
 
 	app.Use(cors.New())
 
-	app.Use("/", filesystem.New(filesystem.Config{
-		// API requests go to the handlers below, never to the SPA fallback.
-		Next: func(c *fiber.Ctx) bool {
-			return strings.HasPrefix(c.Path(), "/api/")
-		},
-		Root:       http.FS(clientAssets),
-		PathPrefix: "client/dist",
-		Browse:     true,
-		// Client-side routes such as /clients/:id have no file of their own,
-		// so serve the app shell and let the router handle them. Unlike other
-		// paths, NotFoundFile is not joined with PathPrefix.
-		NotFoundFile: "client/dist/index.html",
-	}))
-
-	app.Get("/api/flows", func(c *fiber.Ctx) error {
+	app.Get("/api/flows", func(c fiber.Ctx) error {
 		log.Println("Returning list of flows")
 
 		filter, err := parseFlowsFilter(c)
@@ -103,7 +110,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 		return c.JSON(toFlowDTOs(records, countries))
 	})
 
-	app.Get("/api/stats", func(c *fiber.Ctx) error {
+	app.Get("/api/stats", func(c fiber.Ctx) error {
 		log.Println("Returning stats")
 
 		record, err := storage.GetStats(db)
@@ -118,7 +125,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 		})
 	})
 
-	app.Get("/api/apps", func(c *fiber.Ctx) error {
+	app.Get("/api/apps", func(c fiber.Ctx) error {
 		log.Println("Returning traffic per app")
 
 		filter, err := parseFlowsFilter(c)
@@ -134,7 +141,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 		return c.JSON(aggregateAppTraffic(apps.Default(), records))
 	})
 
-	app.Get("/api/traffic-measurements", func(c *fiber.Ctx) error {
+	app.Get("/api/traffic-measurements", func(c fiber.Ctx) error {
 		log.Println("Returning traffic measurements")
 
 		records, err := storage.GetTrafficMeasurements(db)
@@ -154,7 +161,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 		return c.JSON(trafficMeasurements)
 	})
 
-	app.Get("/api/clients", func(c *fiber.Ctx) error {
+	app.Get("/api/clients", func(c fiber.Ctx) error {
 		log.Println("Returning list of clients")
 
 		records, err := storage.GetClients(db)
@@ -168,7 +175,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 				addrs = append(addrs, *record.IPAddress.Addr)
 			}
 		}
-		names := hostnames.LookupAll(c.UserContext(), addrs)
+		names := hostnames.LookupAll(c.Context(), addrs)
 
 		var clients []ClientDTO
 		for _, record := range records {
@@ -196,7 +203,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 	})
 
 	// Same as /api/flows, for a client identified by MAC or IP address.
-	app.Get("/api/clients/:clientId/flows", func(c *fiber.Ctx) error {
+	app.Get("/api/clients/:clientId/flows", func(c fiber.Ctx) error {
 		log.Println("Returning list of client flows")
 
 		filter, err := parseClientID(c.Params("clientId"))
@@ -216,11 +223,11 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 		IPAddresses []string `json:"ip_addresses"`
 	}
 
-	app.Post("/api/hostnames", func(c *fiber.Ctx) error {
+	app.Post("/api/hostnames", func(c fiber.Ctx) error {
 		log.Println("Returning hostnames")
 
 		r := new(HostnamesBody)
-		if err := c.BodyParser(r); err != nil {
+		if err := c.Bind().Body(r); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid request body: "+err.Error())
 		}
 
@@ -236,7 +243,7 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 				lookup = append(lookup, *ipAddress.Addr)
 			}
 		}
-		names := hostnames.LookupAll(c.UserContext(), lookup)
+		names := hostnames.LookupAll(c.Context(), lookup)
 
 		var result []HostnameDTO
 		for _, addr := range addrs {
@@ -248,6 +255,16 @@ func CreateHTTPApp(db *sql.DB, clientAssets embed.FS, options Options) *fiber.Ap
 
 		return c.JSON(result)
 	})
+
+	// The web UI, registered after the API so that API routes match first.
+	// Unknown /api/ paths are left to the default 404.
+	app.Get("/*", static.New("", static.Config{
+		FS: assets,
+		Next: func(c fiber.Ctx) bool {
+			return strings.HasPrefix(c.Path(), "/api/")
+		},
+		NotFoundHandler: spaFallback(assets),
+	}))
 
 	return app
 }

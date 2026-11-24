@@ -7,6 +7,7 @@ import (
 	"embed"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -61,7 +62,12 @@ func main() {
 		log.Println("Collector failed to start:", err)
 	}
 
-	app := api.CreateHTTPApp(db, clientAssets, api.Options{
+	assets, err := fs.Sub(clientAssets, "client/dist")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	app := api.CreateHTTPApp(db, assets, api.Options{
 		GeoIPDatabase: "GeoLite2-Country.mmdb",
 		LocalDNS:      envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"),
 		PublicDNS:     envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"),

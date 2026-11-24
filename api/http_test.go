@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"io"
 	"net"
@@ -10,10 +9,11 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	migrate "github.com/rubenv/sql-migrate"
 )
 
@@ -39,8 +39,14 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 		t.Fatal(err)
 	}
 
+	assets := fstest.MapFS{
+		"index.html":      {Data: []byte("<!doctype html><title>netmon</title>")},
+		"assets/index.js": {Data: []byte("console.log('netmon')")},
+		"favicon.svg":     {Data: []byte("<svg/>")},
+	}
+
 	// No GeoIP database and the system resolver: nothing here resolves names.
-	return CreateHTTPApp(db, embed.FS{}, Options{LocalDNS: "system", PublicDNS: "system"}), db
+	return CreateHTTPApp(db, assets, Options{LocalDNS: "system", PublicDNS: "system"}), db
 }
 
 func do(t *testing.T, app *fiber.App, method, path, body string) (int, string) {
@@ -50,7 +56,7 @@ func do(t *testing.T, app *fiber.App, method, path, body string) (int, string) {
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,5 +163,29 @@ func TestCountryLookupWithoutDatabase(t *testing.T) {
 
 	if country := lookup.Country(ip(t, "140.82.121.4")); country != nil {
 		t.Errorf("country = %q, want nil without a database", *country)
+	}
+}
+
+func TestWebUIRoutes(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	for _, tc := range []struct {
+		path   string
+		status int
+		body   string
+	}{
+		{"/", fiber.StatusOK, "<title>netmon</title>"},
+		{"/assets/index.js", fiber.StatusOK, "console.log"},
+		// Client-side routes get the app shell...
+		{"/clients", fiber.StatusOK, "<title>netmon</title>"},
+		{"/clients/00:11:32:9b:c4:01", fiber.StatusOK, "<title>netmon</title>"},
+		// ...but missing files and API paths do not.
+		{"/assets/index-old.js", fiber.StatusNotFound, ""},
+		{"/api/nope", fiber.StatusNotFound, `"error"`},
+	} {
+		status, body := do(t, app, "GET", tc.path, "")
+		if status != tc.status || !strings.Contains(body, tc.body) {
+			t.Errorf("GET %s = %d %q, want %d containing %q", tc.path, status, body, tc.status, tc.body)
+		}
 	}
 }

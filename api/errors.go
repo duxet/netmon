@@ -6,7 +6,7 @@ import (
 
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/storage"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 type ErrorDTO struct {
@@ -16,7 +16,7 @@ type ErrorDTO struct {
 // errorHandler answers failed requests with a JSON body. Errors raised with
 // fiber.NewError keep their status and message; anything else is logged and
 // reported as a 500 without internal details.
-func errorHandler(c *fiber.Ctx, err error) error {
+func errorHandler(c fiber.Ctx, err error) error {
 	status := fiber.StatusInternalServerError
 	message := "internal server error"
 
@@ -33,7 +33,7 @@ func errorHandler(c *fiber.Ctx, err error) error {
 
 // parseFlowsFilter reads the optional mac and ip query parameters. An invalid
 // value is a client error rather than a reason to return unfiltered data.
-func parseFlowsFilter(c *fiber.Ctx) (storage.FlowsFilter, error) {
+func parseFlowsFilter(c fiber.Ctx) (storage.FlowsFilter, error) {
 	var filter storage.FlowsFilter
 
 	if value := c.Query("mac"); value != "" {
