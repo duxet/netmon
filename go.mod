@@ -24,8 +24,8 @@ require (
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/goccy/go-json v0.12.0 // indirect
-	github.com/gofiber/schema v1.9.3 // indirect
-	github.com/gofiber/utils/v2 v2.6.4 // indirect
+	github.com/gofiber/schema v1.10.0 // indirect
+	github.com/gofiber/utils/v2 v2.6.5 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -39,7 +39,7 @@ require (
 	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/socket v0.8.0 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
-	github.com/oschwald/maxminddb-golang/v2 v2.8.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.9.1 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.34 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
