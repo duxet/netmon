@@ -1,0 +1,173 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"log"
+	"net"
+	"net/netip"
+	"sync"
+	"time"
+)
+
+const (
+	hostnameTTL        = time.Hour
+	notFoundTTL        = 10 * time.Minute
+	failureTTL         = time.Minute
+	lookupTimeout      = 2 * time.Second
+	lookupConcurrency  = 16
+	maxCachedHostnames = 10_000
+)
+
+type lookupFunc func(ctx context.Context, addr string) ([]string, error)
+
+// dnsLookup returns a reverse lookup that queries the DNS server at address
+// ("host" or "host:port"), or the system resolver for "system" or "".
+func dnsLookup(address string) lookupFunc {
+	if address == "" || address == "system" {
+		return net.DefaultResolver.LookupAddr
+	}
+
+	if _, _, err := net.SplitHostPort(address); err != nil {
+		address = net.JoinHostPort(address, "53")
+	}
+
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, network, address)
+		},
+	}
+
+	return resolver.LookupAddr
+}
+
+type hostnameEntry struct {
+	hostname *string
+	expires  time.Time
+}
+
+// hostnameResolver does reverse DNS lookups, using one server for local
+// addresses (which knows DHCP names) and another for public ones. Results,
+// including failures, are cached so a slow or unreachable server costs at
+// most one timeout per address per cache period.
+type hostnameResolver struct {
+	local       lookupFunc
+	public      lookupFunc
+	timeout     time.Duration
+	concurrency int
+	now         func() time.Time
+
+	mu    sync.Mutex
+	cache map[netip.Addr]hostnameEntry
+}
+
+func newHostnameResolver(localDNS, publicDNS string) *hostnameResolver {
+	return &hostnameResolver{
+		local:       dnsLookup(localDNS),
+		public:      dnsLookup(publicDNS),
+		timeout:     lookupTimeout,
+		concurrency: lookupConcurrency,
+		now:         time.Now,
+		cache:       map[netip.Addr]hostnameEntry{},
+	}
+}
+
+func isLocalAddress(addr netip.Addr) bool {
+	return addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()
+}
+
+// Lookup returns the first PTR name for addr, or nil if it has none or the
+// lookup failed.
+func (r *hostnameResolver) Lookup(ctx context.Context, addr netip.Addr) *string {
+	addr = addr.Unmap()
+
+	r.mu.Lock()
+	entry, ok := r.cache[addr]
+	r.mu.Unlock()
+	if ok && r.now().Before(entry.expires) {
+		return entry.hostname
+	}
+
+	lookup := r.public
+	if isLocalAddress(addr) {
+		lookup = r.local
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	names, err := lookup(ctx, addr.String())
+
+	var hostname *string
+	ttl := hostnameTTL
+	var dnsErr *net.DNSError
+	switch {
+	case err == nil && len(names) > 0:
+		hostname = &names[0]
+	case err == nil, errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		ttl = notFoundTTL
+	default:
+		log.Printf("Reverse DNS lookup for %s failed: %v", addr, err)
+		ttl = failureTTL
+	}
+
+	r.store(addr, hostnameEntry{hostname: hostname, expires: r.now().Add(ttl)})
+	return hostname
+}
+
+func (r *hostnameResolver) store(addr netip.Addr, entry hostnameEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.cache) >= maxCachedHostnames {
+		now := r.now()
+		for key, cached := range r.cache {
+			if !now.Before(cached.expires) {
+				delete(r.cache, key)
+			}
+		}
+		if len(r.cache) >= maxCachedHostnames {
+			r.cache = map[netip.Addr]hostnameEntry{}
+		}
+	}
+
+	r.cache[addr] = entry
+}
+
+// LookupAll resolves the given addresses in parallel, with bounded
+// concurrency, and returns the hostname for each unique address.
+func (r *hostnameResolver) LookupAll(ctx context.Context, addrs []netip.Addr) map[netip.Addr]*string {
+	results := make(map[netip.Addr]*string, len(addrs))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, max(1, r.concurrency))
+
+	for _, addr := range addrs {
+		addr = addr.Unmap()
+		mu.Lock()
+		_, seen := results[addr]
+		if !seen {
+			results[addr] = nil
+		}
+		mu.Unlock()
+		if seen {
+			continue
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			hostname := r.Lookup(ctx, addr)
+			mu.Lock()
+			results[addr] = hostname
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	return results
+}

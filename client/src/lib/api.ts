@@ -72,9 +72,15 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
+    // The API answers errors with {"error": "..."}; proxies may not.
+    const body: unknown = await response.json().catch(() => null)
+    const detail =
+      body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? `: ${body.error}`
+        : ` ${response.statusText}`
     throw new ApiError(
       response.status,
-      `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status} ${response.statusText}`.trim()
+      `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status}${detail}`.trim()
     )
   }
   return (await response.json()) as T

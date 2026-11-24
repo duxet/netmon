@@ -44,13 +44,28 @@ Services that share infrastructure can't be told apart by IP (YouTube and other
 Google services; Facebook, Instagram and WhatsApp), and traffic served from shared
 CDNs such as Cloudflare or Akamai is reported as "Other".
 
+## Configuration
+
+Hostnames are looked up with reverse DNS: local addresses on a server that
+knows your DHCP names, public addresses on a public resolver. Set either to
+`host`, `host:port` or `system` (the OS resolver):
+
+| Variable            | Default          |
+|---------------------|------------------|
+| `NETMON_LOCAL_DNS`  | `192.168.1.1:54` |
+| `NETMON_PUBLIC_DNS` | `8.8.8.8:53`     |
+
+Lookups time out after 2 seconds and are cached (names for an hour, failures
+for a minute). Countries need `GeoLite2-Country.mmdb` next to the binary when
+it starts.
+
 ## TODO
 
 ### Stability
-- [ ] Return errors from storage queries as HTTP 500s instead of calling `log.Fatal`, which stops the server
-- [ ] Fix or remove `/api/clients/:clientId/flows`: it scans 8 of the 10 selected columns, so every call fails
-- [ ] Open the GeoIP database once at startup: `getCountry` opens it for every endpoint, never closes it, and crashes when a lookup fails
-- [ ] Make reverse DNS configurable (the local resolver is hard-coded to `192.168.1.1:54`), cached, parallel and with short timeouts
+- [x] Return errors from storage queries as HTTP 500s instead of calling `log.Fatal`, which stops the server
+- [x] Fix or remove `/api/clients/:clientId/flows`: it scans 8 of the 10 selected columns, so every call fails
+- [x] Open the GeoIP database once at startup: `getCountry` opens it for every endpoint, never closes it, and crashes when a lookup fails
+- [x] Make reverse DNS configurable (`NETMON_LOCAL_DNS`, `NETMON_PUBLIC_DNS`), cached, parallel and with short timeouts
 
 ### API
 - [ ] Add `from`/`to` time ranges to stats, clients, flows and apps, so the dashboard range filter scopes the whole page

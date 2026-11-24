@@ -2,10 +2,10 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
+
 	sq "github.com/Masterminds/squirrel"
 	"github.com/duxet/netmon/common"
-	"log"
-	"net"
 )
 
 type FlowsFilter struct {
@@ -13,13 +13,8 @@ type FlowsFilter struct {
 	IP  *common.IPAddress
 }
 
-func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
-	var query = sq.
-		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
-		From("flows").
-		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
-		OrderBy("sum(in_bytes) + sum(out_bytes) DESC")
-
+// apply restricts a query to flows where either endpoint matches the filter.
+func (filter FlowsFilter) apply(query sq.SelectBuilder) sq.SelectBuilder {
 	if filter.MAC != nil {
 		var mac []byte = filter.MAC.HardwareAddr
 		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
@@ -30,17 +25,43 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
 	}
 
-	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		log.Fatal(err)
+	return query
+}
+
+// collect runs a query and scans every row with scan, closing the rows and
+// reporting errors from the query, scanning and iteration alike.
+func collect[T any](rows *sql.Rows, queryErr error, scan func(*sql.Rows, *T) error) ([]T, error) {
+	if queryErr != nil {
+		return nil, queryErr
 	}
 	defer rows.Close()
 
-	var flows []FlowRecord
-
+	var records []T
 	for rows.Next() {
-		var flow FlowRecord
-		if err := rows.Scan(
+		var record T
+		if err := scan(rows, &record); err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return records, nil
+}
+
+func GetFlows(db *sql.DB, filter FlowsFilter) ([]FlowRecord, error) {
+	query := filter.apply(sq.
+		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
+		From("flows").
+		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
+		OrderBy("sum(in_bytes) + sum(out_bytes) DESC"))
+
+	rows, err := query.RunWith(db).Query()
+	flows, err := collect(rows, err, func(rows *sql.Rows, flow *FlowRecord) error {
+		return rows.Scan(
 			&flow.SourceMACAddress,
 			&flow.DestinationMACAddress,
 			&flow.SourceIPAddress,
@@ -51,59 +72,16 @@ func GetFlows(db *sql.DB, filter FlowsFilter) []FlowRecord {
 			&flow.InPackets,
 			&flow.OutBytes,
 			&flow.OutPackets,
-		); err != nil {
-			log.Fatal(err)
-		}
-		flows = append(flows, flow)
-	}
-
-	return flows
-}
-
-func GetClientFlows(db *sql.DB, clientId string) []FlowRecord {
-	var query = sq.
-		Select("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
-		From("flows").
-		GroupBy("src_mac", "dst_mac", "src_ip", "dst_ip", "ip_proto", "port").
-		OrderBy("sum(in_bytes + out_bytes) DESC")
-
-	if mac, err := net.ParseMAC(clientId); err == nil {
-		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
-	}
-
-	if ip := net.ParseIP(clientId); ip != nil {
-		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
-	}
-
-	rows, err := query.RunWith(db).Query()
+		)
+	})
 	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	var flows []FlowRecord
-
-	for rows.Next() {
-		var flow FlowRecord
-		if err := rows.Scan(
-			&flow.SourceIPAddress,
-			&flow.DestinationIPAddress,
-			&flow.IPProto,
-			&flow.Port,
-			&flow.InBytes,
-			&flow.InPackets,
-			&flow.OutBytes,
-			&flow.OutPackets,
-		); err != nil {
-			log.Fatal(err)
-		}
-		flows = append(flows, flow)
+		return nil, fmt.Errorf("query flows: %w", err)
 	}
 
-	return flows
+	return flows, nil
 }
 
-func GetStats(db *sql.DB) StatsRecord {
+func GetStats(db *sql.DB) (StatsRecord, error) {
 	row := db.QueryRow(
 		`SELECT count(DISTINCT src_mac), sum(in_bytes + out_bytes)::INT64, sum(in_packets + out_packets)::INT64
 		FROM flows
@@ -115,13 +93,13 @@ func GetStats(db *sql.DB) StatsRecord {
 		&stats.TotalBytes,
 		&stats.TotalPackets,
 	); err != nil {
-		log.Fatal(err)
+		return StatsRecord{}, fmt.Errorf("query stats: %w", err)
 	}
 
-	return stats
+	return stats, nil
 }
 
-func GetClients(db *sql.DB) []ClientRecord {
+func GetClients(db *sql.DB) ([]ClientRecord, error) {
 	rows, err := db.Query(`
 		SELECT
 		    CASE WHEN src_mac IS NOT NULL THEN src_mac ELSE dst_mac END AS mac,
@@ -135,31 +113,24 @@ func GetClients(db *sql.DB) []ClientRecord {
 		HAVING mac IS NOT NULL
 		ORDER BY sum(in_bytes + out_bytes) DESC
 	`)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	var clients []ClientRecord
-	for rows.Next() {
-		var client ClientRecord
-		if err := rows.Scan(
+	clients, err := collect(rows, err, func(rows *sql.Rows, client *ClientRecord) error {
+		return rows.Scan(
 			&client.MACAddress,
 			&client.IPAddress,
 			&client.InBytes,
 			&client.InPackets,
 			&client.OutBytes,
 			&client.OutPackets,
-		); err != nil {
-			log.Fatal(err)
-		}
-		clients = append(clients, client)
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query clients: %w", err)
 	}
 
-	return clients
+	return clients, nil
 }
 
-func GetTrafficMeasurements(db *sql.DB) []TrafficMeasurementRecord {
+func GetTrafficMeasurements(db *sql.DB) ([]TrafficMeasurementRecord, error) {
 	rows, err := db.Query(`
 		SELECT
 			sum(in_bytes)::INT64 as in_bytes,
@@ -169,66 +140,41 @@ func GetTrafficMeasurements(db *sql.DB) []TrafficMeasurementRecord {
 		GROUP BY bucket
 		ORDER BY bucket ASC
 	`)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	var measurements []TrafficMeasurementRecord
-	for rows.Next() {
-		var measurement TrafficMeasurementRecord
-		if err := rows.Scan(
+	measurements, err := collect(rows, err, func(rows *sql.Rows, measurement *TrafficMeasurementRecord) error {
+		return rows.Scan(
 			&measurement.InBytes,
 			&measurement.OutBytes,
 			&measurement.Date,
-		); err != nil {
-			log.Fatal(err)
-		}
-		measurements = append(measurements, measurement)
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query traffic measurements: %w", err)
 	}
 
-	return measurements
+	return measurements, nil
 }
 
 // GetEndpointPairTraffic returns traffic totals grouped by source and destination IP address.
-func GetEndpointPairTraffic(db *sql.DB, filter FlowsFilter) []EndpointPairTrafficRecord {
-	var query = sq.
+func GetEndpointPairTraffic(db *sql.DB, filter FlowsFilter) ([]EndpointPairTrafficRecord, error) {
+	query := filter.apply(sq.
 		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
 		From("flows").
-		GroupBy("src_ip", "dst_ip")
-
-	if filter.MAC != nil {
-		var mac []byte = filter.MAC.HardwareAddr
-		query = query.Where(sq.Or{sq.Eq{"src_mac": mac}, sq.Eq{"dst_mac": mac}})
-	}
-
-	if filter.IP != nil {
-		ip := filter.IP.AsSlice()
-		query = query.Where(sq.Or{sq.Eq{"src_ip": ip}, sq.Eq{"dst_ip": ip}})
-	}
+		GroupBy("src_ip", "dst_ip"))
 
 	rows, err := query.RunWith(db).Query()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	var records []EndpointPairTrafficRecord
-
-	for rows.Next() {
-		var record EndpointPairTrafficRecord
-		if err := rows.Scan(
+	records, err := collect(rows, err, func(rows *sql.Rows, record *EndpointPairTrafficRecord) error {
+		return rows.Scan(
 			&record.SourceIPAddress,
 			&record.DestinationIPAddress,
 			&record.InBytes,
 			&record.InPackets,
 			&record.OutBytes,
 			&record.OutPackets,
-		); err != nil {
-			log.Fatal(err)
-		}
-		records = append(records, record)
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query endpoint pair traffic: %w", err)
 	}
 
-	return records
+	return records, nil
 }

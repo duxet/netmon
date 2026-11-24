@@ -55,7 +55,7 @@ func TestFlushedFlowsAreReadableByTheApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	flows := storage.GetFlows(db, storage.FlowsFilter{})
+	flows := getFlows(t, db, storage.FlowsFilter{})
 	if len(flows) != 3 {
 		t.Fatalf("got %d flows, want 3: %+v", len(flows), flows)
 	}
@@ -108,7 +108,7 @@ func TestFlushedFlowsAreReadableByTheApplication(t *testing.T) {
 	}
 
 	// The remote server must not show up as a client, nor the gateway.
-	clients := storage.GetClients(db)
+	clients := getClients(t, db)
 	if len(clients) != 1 {
 		t.Fatalf("got %d clients, want only the Mac: %+v", len(clients), clients)
 	}
@@ -120,15 +120,15 @@ func TestFlushedFlowsAreReadableByTheApplication(t *testing.T) {
 	}
 
 	// The per-client queries of the UI find the flows by MAC and by IP.
-	if n := len(storage.GetFlows(db, storage.FlowsFilter{MAC: &common.MACAddress{HardwareAddr: hostMAC.hw()}})); n != 3 {
+	if n := len(getFlows(t, db, storage.FlowsFilter{MAC: &common.MACAddress{HardwareAddr: hostMAC.hw()}})); n != 3 {
 		t.Errorf("%d flows found by MAC, want 3", n)
 	}
 	ip := common.IPAddress{Addr: &host}
-	if n := len(storage.GetFlows(db, storage.FlowsFilter{IP: &ip})); n != 3 {
+	if n := len(getFlows(t, db, storage.FlowsFilter{IP: &ip})); n != 3 {
 		t.Errorf("%d flows found by IP, want 3", n)
 	}
 
-	stats := storage.GetStats(db)
+	stats := getStats(t, db)
 	if stats.TotalClients != 1 || stats.TotalBytes == nil || *stats.TotalBytes != 560+9060+200+300+60+60 {
 		t.Errorf("stats = %+v", stats)
 	}
@@ -141,7 +141,7 @@ func TestFlushingNothingWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if n := len(storage.GetFlows(db, storage.FlowsFilter{})); n != 0 {
+	if n := len(getFlows(t, db, storage.FlowsFilter{})); n != 0 {
 		t.Errorf("%d flows stored", n)
 	}
 }
@@ -157,8 +157,37 @@ func TestIPv6FlowsAreStored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	flows := storage.GetFlows(db, storage.FlowsFilter{})
+	flows := getFlows(t, db, storage.FlowsFilter{})
 	if len(flows) != 1 || *flows[0].SourceIPAddress.Addr != src || *flows[0].DestinationIPAddress.Addr != dst {
 		t.Errorf("unexpected flows %+v", flows)
 	}
+}
+
+// The storage queries return errors; these helpers fail the test on one.
+
+func getFlows(t *testing.T, db *sql.DB, filter storage.FlowsFilter) []storage.FlowRecord {
+	t.Helper()
+	flows, err := storage.GetFlows(db, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return flows
+}
+
+func getClients(t *testing.T, db *sql.DB) []storage.ClientRecord {
+	t.Helper()
+	clients, err := storage.GetClients(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return clients
+}
+
+func getStats(t *testing.T, db *sql.DB) storage.StatsRecord {
+	t.Helper()
+	stats, err := storage.GetStats(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stats
 }

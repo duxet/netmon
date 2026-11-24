@@ -62,7 +62,11 @@ func main() {
 		log.Println("Collector failed to start:", err)
 	}
 
-	app := api.CreateHTTPApp(db, clientAssets)
+	app := api.CreateHTTPApp(db, clientAssets, api.Options{
+		GeoIPDatabase: "GeoLite2-Country.mmdb",
+		LocalDNS:      envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"),
+		PublicDNS:     envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"),
+	})
 
 	go func() {
 		<-ctx.Done()
@@ -75,5 +79,16 @@ func main() {
 		_ = app.ShutdownWithContext(context.Background())
 	}()
 
-	log.Fatal(app.Listen(":2137"))
+	// Listen returns nil after a graceful shutdown; returning normally (rather
+	// than log.Fatal) lets the deferred db.Close run.
+	if err := app.Listen(":2137"); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
