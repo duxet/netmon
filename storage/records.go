@@ -73,3 +73,12 @@ type CompactResult struct {
 	// Expired is the number of hourly rows deleted for being past retention.
 	Expired int64
 }
+
+// DeviceTrafficRecord is what a device exchanged with one remote address,
+// from the device's side: Download is what it received.
+type DeviceTrafficRecord struct {
+	MACAddress common.MACAddress
+	Peer       common.IPAddress
+	Download   uint64
+	Upload     uint64
+}

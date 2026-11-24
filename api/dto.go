@@ -1,8 +1,10 @@
 package api
 
 import (
-	"github.com/duxet/netmon/common"
+	"encoding/json"
 	"time"
+
+	"github.com/duxet/netmon/common"
 )
 
 type EndpointDTO struct {
@@ -153,6 +155,72 @@ type NotificationChannelDTO struct {
 	// MaskedURL is the URL with its secrets replaced by "REDACTED".
 	MaskedURL string
 	Enabled   bool
+	// UsedByRules is the number of alert rules that notify the channel.
+	UsedByRules int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// AlertRuleOptionsDTO is what the rule form offers.
+type AlertRuleOptionsDTO struct {
+	Types []string
+	// Apps are the apps a traffic rule can be limited to.
+	Apps             []string
+	MinWindowSeconds int64
+	MaxWindowSeconds int64
+	MinRepeatSeconds int64
+}
+
+// AlertRuleDTO is an alert rule.
+type AlertRuleDTO struct {
+	ID   int64
+	Name string
+	// Type is new_device or traffic_threshold; Params are its settings.
+	Type     string
+	Params   json.RawMessage
+	Severity string
+	// RepeatIntervalSeconds is how often a firing alert is sent again, or
+	// null to send it once.
+	RepeatIntervalSeconds *int64
+	NotifyOnResolve       bool
+	Enabled               bool
+	ChannelIDs            []int64
+	// FiringAlerts is the number of the rule's alerts that are firing.
+	FiringAlerts    int
+	LastEvaluatedAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// AlertDTO is an alert: a rule firing for a subject, usually a device.
+type AlertDTO struct {
+	ID       int64
+	RuleID   int64
+	RuleName string
+	Subject  string
+	// State is firing or resolved.
+	State    string
+	Severity string
+	Value    *float64
+	Title    string
+	Body     string
+	// Labels describe the subject, e.g. mac, ip, device_name, vendor.
+	Labels          map[string]string
+	StartedAt       time.Time
+	LastEvaluatedAt time.Time
+	LastNotifiedAt  *time.Time
+	ResolvedAt      *time.Time
+	Deliveries      []DeliveryDTO
+}
+
+// DeliveryDTO is a notification sent, or not, about an alert.
+type DeliveryDTO struct {
+	ChannelID int64
+	// Kind is firing, reminder or resolved; Status is sent, failed or
+	// suppressed.
+	Kind      string
+	Status    string
+	Attempts  int
+	Error     *string
 	CreatedAt time.Time
-	UpdatedAt time.Time
 }

@@ -10,15 +10,22 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as ClientsRouteRouteImport } from './routes/clients/route'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as ClientsIndexRouteImport } from './routes/clients/index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients/$clientId'
+import { Route as SettingsAlertRulesRouteImport } from './routes/settings/alert-rules'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AlertsRoute = AlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientsRouteRoute = ClientsRouteRouteImport.update({
@@ -41,6 +48,11 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   path: '/$clientId',
   getParentRoute: () => ClientsRouteRoute,
 } as any)
+const SettingsAlertRulesRoute = SettingsAlertRulesRouteImport.update({
+  id: '/settings/alert-rules',
+  path: '/settings/alert-rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
   id: '/settings/notifications',
   path: '/settings/notifications',
@@ -50,15 +62,19 @@ const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteRouteWithChildren
+  '/alerts': typeof AlertsRoute
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients/': typeof ClientsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients': typeof ClientsIndexRoute
 }
@@ -66,8 +82,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteRouteWithChildren
+  '/alerts': typeof AlertsRoute
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients/': typeof ClientsIndexRoute
 }
@@ -76,23 +94,29 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/clients'
+    | '/alerts'
     | '/live'
     | '/clients/$clientId'
+    | '/settings/alert-rules'
     | '/settings/notifications'
     | '/clients/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/alerts'
     | '/live'
     | '/clients/$clientId'
+    | '/settings/alert-rules'
     | '/settings/notifications'
     | '/clients'
   id:
     | '__root__'
     | '/'
     | '/clients'
+    | '/alerts'
     | '/live'
     | '/clients/$clientId'
+    | '/settings/alert-rules'
     | '/settings/notifications'
     | '/clients/'
   fileRoutesById: FileRoutesById
@@ -100,7 +124,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClientsRouteRoute: typeof ClientsRouteRouteWithChildren
+  AlertsRoute: typeof AlertsRoute
   LiveRoute: typeof LiveRoute
+  SettingsAlertRulesRoute: typeof SettingsAlertRulesRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
 }
 
@@ -111,6 +137,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/alerts': {
+      id: '/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof AlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/clients': {
@@ -141,6 +174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientsClientIdRouteImport
       parentRoute: typeof ClientsRouteRoute
     }
+    '/settings/alert-rules': {
+      id: '/settings/alert-rules'
+      path: '/settings/alert-rules'
+      fullPath: '/settings/alert-rules'
+      preLoaderRoute: typeof SettingsAlertRulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/notifications': {
       id: '/settings/notifications'
       path: '/settings/notifications'
@@ -168,7 +208,9 @@ const ClientsRouteRouteWithChildren = ClientsRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClientsRouteRoute: ClientsRouteRouteWithChildren,
+  AlertsRoute: AlertsRoute,
   LiveRoute: LiveRoute,
+  SettingsAlertRulesRoute: SettingsAlertRulesRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
 }
 export const routeTree = rootRouteImport

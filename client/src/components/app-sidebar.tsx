@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { BellIcon, LayoutDashboardIcon, MonitorSmartphoneIcon, RadarIcon, RadioIcon } from "lucide-react"
+import {
+  BellIcon,
+  LayoutDashboardIcon,
+  ListChecksIcon,
+  MonitorSmartphoneIcon,
+  RadarIcon,
+  RadioIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 import type * as React from "react"
 
 import {
@@ -21,12 +29,14 @@ import {
 import { useRange } from "@/hooks/use-range"
 import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
-import { devicesQuery } from "@/lib/queries"
+import { alertsQuery, devicesQuery } from "@/lib/queries"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const range = useRange()
   const { data: devices, isPending } = useQuery(devicesQuery(range))
+  // The same query as the Alerts page's, so they share one request.
+  const { data: firing } = useQuery(alertsQuery({ state: "firing", limit: 100 }))
   const { isMobile, setOpenMobile } = useSidebar()
   const closeOnMobile = () => isMobile && setOpenMobile(false)
 
@@ -40,6 +50,18 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       active: pathname.startsWith("/clients"),
       badge: devices?.length,
     },
+    {
+      to: "/alerts",
+      label: "Alerts",
+      icon: TriangleAlertIcon,
+      active: pathname === "/alerts",
+      badge: firing?.total || undefined,
+    },
+  ] as const
+
+  const settings = [
+    { to: "/settings/alert-rules", label: "Alert rules", icon: ListChecksIcon },
+    { to: "/settings/notifications", label: "Notifications", icon: BellIcon },
   ] as const
 
   return (
@@ -90,18 +112,16 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupLabel>Settings</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === "/settings/notifications"}
-                  tooltip="Notifications"
-                >
-                  <Link to="/settings/notifications" onClick={closeOnMobile}>
-                    <BellIcon />
-                    <span>Notifications</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {settings.map((item) => (
+                <SidebarMenuItem key={item.to}>
+                  <SidebarMenuButton asChild isActive={pathname === item.to} tooltip={item.label}>
+                    <Link to={item.to} onClick={closeOnMobile}>
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

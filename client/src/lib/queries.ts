@@ -1,15 +1,20 @@
 import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query"
 
 import {
+  fetchAlertRuleOptions,
+  fetchAlertRules,
+  fetchAlerts,
   fetchAppTraffic,
   fetchClients,
   fetchFlowsPage,
   fetchFlowSummary,
   fetchHostnames,
+  fetchKnownDevices,
   fetchNotificationChannels,
   fetchNotificationServices,
   fetchStats,
   fetchTrafficMeasurements,
+  type AlertsRequest,
   type FlowsPageRequest,
 } from "@/lib/api"
 import { cleanHostname, groupDevices } from "@/lib/network"
@@ -107,5 +112,36 @@ export function notificationServicesQuery() {
     queryKey: ["notification-services"],
     queryFn: fetchNotificationServices,
     staleTime: Infinity,
+  })
+}
+
+/** Every device ever seen, for picking the ones a rule is about. */
+export function knownDevicesQuery() {
+  return queryOptions({ queryKey: ["known-devices"], queryFn: fetchKnownDevices })
+}
+
+export function alertRulesQuery() {
+  return queryOptions({
+    queryKey: ["alert-rules"],
+    queryFn: fetchAlertRules,
+    refetchInterval: REFRESH_INTERVAL,
+  })
+}
+
+export function alertRuleOptionsQuery() {
+  return queryOptions({
+    queryKey: ["alert-rule-options"],
+    queryFn: fetchAlertRuleOptions,
+    staleTime: Infinity,
+  })
+}
+
+/** Alerts are evaluated about once a minute, so they are fetched as often. */
+export function alertsQuery(request: AlertsRequest) {
+  return queryOptions({
+    queryKey: ["alerts", request],
+    queryFn: () => fetchAlerts(request),
+    refetchInterval: REFRESH_INTERVAL,
+    placeholderData: keepPreviousData,
   })
 }

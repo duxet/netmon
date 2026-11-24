@@ -99,3 +99,31 @@ func GetDevices(db *sql.DB) ([]DeviceRecord, error) {
 	}
 	return devices, nil
 }
+
+// GetDeviceTraffic returns the traffic of every device since the given time,
+// per remote address, from the device's own side, as the client pages count
+// it: a flow between two local devices counts for both. Hourly rows count
+// when their hour starts at or after since, so for older data the window is
+// rounded to whole hours.
+func GetDeviceTraffic(db *sql.DB, since time.Time) ([]DeviceTrafficRecord, error) {
+	rows, err := db.Query(`
+		SELECT mac, peer, sum(download)::UBIGINT, sum(upload)::UBIGINT
+		FROM (
+			SELECT src_mac AS mac, dst_ip AS peer, in_bytes AS download, out_bytes AS upload
+			FROM all_flows
+			WHERE octet_length(src_mac) > 0 AND created_at >= ?::TIMESTAMPTZ
+			UNION ALL
+			SELECT dst_mac, src_ip, out_bytes, in_bytes
+			FROM all_flows
+			WHERE octet_length(dst_mac) > 0 AND created_at >= ?::TIMESTAMPTZ
+		)
+		GROUP BY mac, peer
+	`, since, since)
+	records, err := collect(rows, err, func(rows *sql.Rows, r *DeviceTrafficRecord) error {
+		return rows.Scan(&r.MACAddress, &r.Peer, &r.Download, &r.Upload)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query device traffic: %w", err)
+	}
+	return records, nil
+}

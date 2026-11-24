@@ -321,3 +321,151 @@ export async function testNotificationChannel(id: number) {
 export async function testNotificationURL(url: string, name?: string) {
   await send("/api/notification-channels/test", jsonBody("POST", { url, name }))
 }
+
+/** A device seen on the network, from /api/devices. */
+export interface KnownDevice {
+  MACAddress: string
+  /** The address the device used last. */
+  IPAddress: string
+  Name: string | null
+  /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
+  Hostname: string | null
+  Vendor: string | null
+  FirstSeen: string
+  LastSeen: string
+}
+
+export function fetchKnownDevices() {
+  return requestList<KnownDevice>("/api/devices")
+}
+
+export type AlertRuleType = "new_device" | "traffic_threshold"
+export type Severity = "info" | "warning" | "critical"
+export type TrafficDirection = "download" | "upload" | "total"
+
+export interface NewDeviceParams {
+  /** Skips the private, changing Wi-Fi addresses of phones. */
+  ignore_random_macs: boolean
+}
+
+export interface TrafficParams {
+  direction: TrafficDirection
+  threshold_bytes: number
+  window_s: number
+  /** Counts only one app's traffic; absent for all traffic. */
+  app?: string
+  /** Limits the rule to these devices; absent or empty for every device. */
+  macs?: string[]
+}
+
+/** When to send notifications. */
+export interface AlertRule {
+  ID: number
+  Name: string
+  Type: AlertRuleType
+  Params: Partial<NewDeviceParams & TrafficParams>
+  Severity: Severity
+  /** How often a firing alert is sent again, or null to send it once. */
+  RepeatIntervalSeconds: number | null
+  NotifyOnResolve: boolean
+  Enabled: boolean
+  ChannelIDs: number[]
+  FiringAlerts: number
+  LastEvaluatedAt: string | null
+  CreatedAt: string
+  UpdatedAt: string
+}
+
+export interface AlertRuleInput {
+  name: string
+  type: AlertRuleType
+  params: NewDeviceParams | TrafficParams
+  severity: Severity
+  repeat_interval_s: number | null
+  notify_on_resolve: boolean
+  enabled: boolean
+  channel_ids: number[]
+}
+
+/** What the rule form offers. */
+export interface AlertRuleOptions {
+  Types: AlertRuleType[]
+  /** Apps a traffic rule can be limited to; "Other" is traffic of no known app. */
+  Apps: string[]
+  MinWindowSeconds: number
+  MaxWindowSeconds: number
+  MinRepeatSeconds: number
+}
+
+/** A notification sent, or not, about an alert. */
+export interface Delivery {
+  ChannelID: number
+  Kind: "firing" | "reminder" | "resolved"
+  Status: "sent" | "failed" | "suppressed"
+  Attempts: number
+  /** Why it failed, with the channel's secrets redacted. */
+  Error: string | null
+  CreatedAt: string
+}
+
+/** A rule firing for a subject, usually a device. */
+export interface Alert {
+  ID: number
+  RuleID: number
+  RuleName: string
+  Subject: string
+  State: "firing" | "resolved"
+  Severity: Severity
+  Value: number | null
+  Title: string
+  Body: string
+  /** What the alert is about: mac, ip, device_name, hostname, vendor… */
+  Labels: Record<string, string>
+  StartedAt: string
+  LastEvaluatedAt: string
+  LastNotifiedAt: string | null
+  ResolvedAt: string | null
+  Deliveries: Delivery[]
+}
+
+export interface AlertsRequest {
+  state?: "firing" | "resolved"
+  ruleId?: number
+  limit?: number
+  offset?: number
+}
+
+export interface AlertsPage {
+  alerts: Alert[]
+  total: number
+}
+
+export function fetchAlertRules() {
+  return requestList<AlertRule>("/api/alert-rules")
+}
+
+export function fetchAlertRuleOptions() {
+  return request<AlertRuleOptions>("/api/alert-rule-options")
+}
+
+export function createAlertRule(rule: AlertRuleInput) {
+  return request<AlertRule>("/api/alert-rules", jsonBody("POST", rule))
+}
+
+export function updateAlertRule(id: number, rule: AlertRuleInput) {
+  return request<AlertRule>(`/api/alert-rules/${id}`, jsonBody("PUT", rule))
+}
+
+export function setAlertRuleEnabled(id: number, enabled: boolean) {
+  return request<AlertRule>(`/api/alert-rules/${id}`, jsonBody("PATCH", { enabled }))
+}
+
+export async function deleteAlertRule(id: number) {
+  await send(`/api/alert-rules/${id}`, { method: "DELETE" })
+}
+
+export async function fetchAlerts({ state, ruleId, limit, offset }: AlertsRequest = {}): Promise<AlertsPage> {
+  const response = await send(withQuery("/api/alerts", { state, rule_id: ruleId, limit, offset }))
+  const alerts = ((await response.json()) as Alert[] | null) ?? []
+  return { alerts, total: Number(response.headers.get("X-Total-Count") ?? alerts.length) }
+}

@@ -3,11 +3,24 @@
 Status: revision 3 · 2026-11-24 · based on `main` at `b12fcd2`
 (after `next` was merged into it)
 
-**Progress:** milestones 0 and 1 are implemented (see §10); milestones 2 to 4
-are not started. One change on the way: the dispatcher (§4.5), with its queue,
-retries, rate limit and delivery log, moved from milestone 1 to milestone 2,
-where alert rules become its first caller. Test messages don't need it: they
-are sent directly, so the page can show the result at once.
+**Progress:** milestones 0, 1 and 2 are implemented (see §10); milestones 3
+and 4 are not started. Where the implementation differs from the text below:
+
+- The dispatcher (§4.5) came with milestone 2, its first caller; test messages
+  are sent directly, so the page can show the result at once. Failed sends are
+  tried 3 times, 5 and 30 seconds apart.
+- `traffic_threshold` params are `direction` (`download`, `upload` or
+  `total`), `threshold_bytes`, `window_s`, `app` and `macs` (no `scope`
+  object). The `aggregate: "network"` option moved to milestone 3.
+- `new_device` doesn't compare `first_seen` with the last evaluation: a device
+  is new when it was first seen after the rule was created, at most 24 hours
+  ago, and the rule has no alert about it yet. That can't miss a device whose
+  flows were written while an evaluation ran.
+- Editing a rule resolves its firing alerts only when its type or params
+  change or it is turned off, not on a rename.
+- The rule form is a dialog on **Settings → Alert rules**; the Alerts page is
+  `/alerts`. The form's options come from `GET /api/alert-rule-options`.
+- Messages link to the device's page; the alert detail page is milestone 3.
 
 **Decisions so far:**
 
@@ -642,7 +655,7 @@ DuckDB plus the real migrations) and the `api/*_test.go` setup.
 |---|---|---|---|
 | 0 | **Groundwork** ✅ | `lookup` package (moved out of `api/`); `collector.Options{OnFlush}` on Linux, macOS and unsupported, firing on empty minutes too; `004_devices.sql` + `storage.SyncDevices` + `GET /api/devices`; `Compact` keeps the last complete hour raw | Existing UI and tests unchanged; `devices` fills; a 1 h window right after compaction counts the full hour |
 | 1 | **Channels** ✅ | shoutrrr v0.25.0 (`go` directive → 1.27); `005_notification_channels.sql`; `notify` package (`Inspect`, `Send`, redaction, service list with docs links); channel API + test endpoints; Settings → Notifications page | You can paste a Telegram or ntfy URL in the UI and receive a test message |
-| 2 | **Rules MVP** | `006_alerts.sql`; `notify` dispatcher + delivery log (§4.5); engine; `new_device` + `traffic_threshold` (with `app`); rules API; rules list + form; alerts list; `NETMON_ALERT_RETENTION_DAYS` (default 30) + `storage.ExpireAlerts` in the hourly loop; README updates (tick the Alerts TODO) | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved; alerts older than 30 days disappear |
+| 2 | **Rules MVP** ✅ | `006_alerts.sql`; `notify` dispatcher + delivery log (§4.5); engine; `new_device` + `traffic_threshold` (with `app`); rules API; rules list + form; alerts list; `NETMON_ALERT_RETENTION_DAYS` (default 30) + `storage.ExpireAlerts` in the hourly loop; README updates (tick the Alerts TODO) | A phone joining the network produces a message within about a minute; a big download produces firing, then resolved; alerts older than 30 days disappear |
 | 3 | **More rules + UX** | `device_inactive`, `destination_port`, `destination_country`; preview/dry run; alert detail + delivery log; sidebar badge; presets; "Create alert" from the client page | All five rule types are usable from the UI |
 | 4 | **Polish** (optional) | Generated per-service channel forms (§4.6); calendar windows ("per day", "per month") for `traffic_threshold`, which covers the README's ISP data-cap TODO; custom templates; quiet hours and "mute until"; digest mode | n/a |
 | n/a | **Auth** (separate work) | Login or token, CORS, secret encryption, SSRF limits | n/a |

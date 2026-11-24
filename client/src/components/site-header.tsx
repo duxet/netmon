@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useNow } from "@/hooks/use-now"
 import { formatRelative } from "@/lib/format"
 import { REFRESH_INTERVAL } from "@/lib/queries"
 
@@ -67,15 +68,6 @@ function useLastUpdated() {
     (onChange) => cache.subscribe(onChange),
     () => Math.max(0, ...cache.getAll().map((query) => query.state.dataUpdatedAt))
   )
-}
-
-function useNow(intervalMs: number) {
-  const [now, setNow] = React.useState(() => Date.now())
-  React.useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs)
-    return () => window.clearInterval(id)
-  }, [intervalMs])
-  return now
 }
 
 function RefreshStatus() {

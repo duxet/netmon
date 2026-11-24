@@ -157,8 +157,27 @@ a channel is a name and a shoutrrr service URL, such as
 format of each service's URL and links to its documentation, which explains where to find
 the values. Send a test message to check that a channel works, before or after saving it.
 
-Alert rules that send to these channels are not there yet; see
-[docs/plans/notifications.md](docs/plans/notifications.md).
+Then add **alert rules** under **Settings → Alert rules**: what netmon should alert
+about, and which channels to send it to. Rules are checked every minute, right after
+the traffic is recorded. There are two kinds so far:
+
+- **A new device joins the network**: once for every device first seen after the rule
+  was created. Phones join with a private, random Wi-Fi address per network, which
+  counts as a new device; turn on "Ignore private Wi-Fi addresses" if that is too many.
+- **A device uses more traffic than a threshold**: while a device's download, upload or
+  total over the last 5 minutes to 24 hours is above the threshold, for all traffic or
+  one app's, for every device or only the ones you pick. The alert resolves once the
+  traffic falls under 90 % of the threshold. It can be sent again every hour, 6 hours
+  or day while it lasts, and once more when it's over. Windows longer than an hour are
+  rounded to whole hours, as the stored data is (see [Configuration](#configuration)).
+
+The **Alerts** page shows what is firing now, the history, and where each notification
+went, or why it didn't. Messages link to the device's page in netmon, at
+`NETMON_PUBLIC_URL`. A channel gets at most 20 messages in 5 minutes: more are held
+back, and the next message says how many. Several alerts for one channel at once (new
+devices after a while offline, say) arrive as one message, except on webhooks. Failed
+sends are tried three times, and only while netmon runs: notifications still queued
+when it stops are not sent.
 
 Things to know:
 
@@ -182,11 +201,13 @@ Hostnames are looked up with reverse DNS: local addresses on a server that
 knows your DHCP names, public addresses on a public resolver. Set either to
 `host`, `host:port` or `system` (the OS resolver):
 
-| Variable                | Default          |
-|-------------------------|------------------|
-| `NETMON_LOCAL_DNS`      | `192.168.1.1:54` |
-| `NETMON_PUBLIC_DNS`     | `8.8.8.8:53`     |
-| `NETMON_RETENTION_DAYS` | `0` (keep all)   |
+| Variable                      | Default                        |
+|-------------------------------|--------------------------------|
+| `NETMON_LOCAL_DNS`            | `192.168.1.1:54`               |
+| `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`                   |
+| `NETMON_RETENTION_DAYS`       | `0` (keep all)                 |
+| `NETMON_ALERT_RETENTION_DAYS` | `30`                           |
+| `NETMON_PUBLIC_URL`           | `http://<hostname>:2137`       |
 
 Lookups time out after 2 seconds and are cached (names for an hour, failures
 for a minute). Countries need `GeoLite2-Country.mmdb` next to the binary when
@@ -197,7 +218,10 @@ of complete hours are rolled up into one row per flow and hour, so the
 database grows with the number of flows rather than with uptime. The
 previous hour is kept per minute along with the current one, so the last 60
 minutes can always be read at full detail. With `NETMON_RETENTION_DAYS` set,
-hourly data older than that many days is deleted.
+hourly data older than that many days is deleted. Resolved alerts and the record of
+their notifications are deleted after `NETMON_ALERT_RETENTION_DAYS` (0 keeps them);
+alerts still firing are kept. `NETMON_PUBLIC_URL` is where notifications link to,
+e.g. `http://router.lan:2137`.
 
 ## API
 
@@ -228,6 +252,15 @@ rounded to whole hours.
 | `DELETE /api/notification-channels/:id` | |
 | `POST /api/notification-channels/:id/test` | |
 | `POST /api/notification-channels/test` | body `{"url": "...", "name": "..."}` |
+| `GET /api/alert-rule-options` | |
+| `GET /api/alert-rules` | |
+| `POST /api/alert-rules` | body, see below |
+| `GET /api/alert-rules/:id` | |
+| `PUT /api/alert-rules/:id` | body as for `POST` |
+| `PATCH /api/alert-rules/:id` | body `{"enabled": false}` |
+| `DELETE /api/alert-rules/:id` | |
+| `GET /api/alerts` | `state` (`firing` or `resolved`), `rule_id`, `limit` (default 50, at most 500), `offset` |
+| `GET /api/alerts/:id` | |
 
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
@@ -260,6 +293,23 @@ rounded to whole hours.
   empty `url` keeps the URL too. `enabled` defaults to true.
 - The test endpoints send a test message, to a saved channel or to a URL that isn't saved
   yet, and answer 204. When the service fails, they answer 502 with its reason in `error`.
+- An alert rule is `{"name", "type", "params", "severity", "repeat_interval_s",
+  "notify_on_resolve", "enabled", "channel_ids"}`. `type` is `new_device`, with params
+  `{"ignore_random_macs": false}`, or `traffic_threshold`, with params `{"direction":
+  "download" | "upload" | "total", "threshold_bytes", "window_s" (300 to 86400), "app",
+  "macs": [...]}` (`app` and `macs` are optional; `app` is a name from
+  `/api/alert-rule-options`). `severity` is `info`, `warning` (default) or `critical`;
+  `repeat_interval_s` is at least 900, or null to notify once. Changing what a rule
+  checks, or turning it off, resolves its firing alerts without a notification.
+- Alerts have the rule's `RuleName`, a `Subject` (the device's MAC address), `State`,
+  `Title`, `Body`, `Labels` about the device (`mac`, `ip`, `device_name`, `hostname`,
+  `vendor`), times, and `Deliveries`: per channel and kind (`firing`, `reminder`,
+  `resolved`), whether it was `sent`, `failed` (with `Error`) or `suppressed` by the rate
+  limit. The number of matching alerts is in `X-Total-Count`.
+- Webhook channels get alerts as JSON with `title`, `message`, `level`, `event`
+  (`alert.firing`, `alert.reminder` or `alert.resolved`), `alert_id`, `rule_id`,
+  `rule_name`, `rule_type`, `severity`, `subject`, `state`, `value`, `started_at`,
+  `resolved_at`, `url`, the labels, and `payload_version` (`1`). All values are strings.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
@@ -284,7 +334,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
 ### Features
 - [x] Live view of current bandwidth per device
-- [ ] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
+- [x] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
 - [ ] Monthly usage per device, for ISP data caps
 - [ ] CSV export
 

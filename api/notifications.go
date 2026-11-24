@@ -68,13 +68,14 @@ func toChannelDTO(record storage.ChannelRecord) NotificationChannelDTO {
 	}
 
 	return NotificationChannelDTO{
-		ID:        record.ID,
-		Name:      record.Name,
-		Service:   record.Service,
-		MaskedURL: masked,
-		Enabled:   record.Enabled,
-		CreatedAt: record.CreatedAt,
-		UpdatedAt: record.UpdatedAt,
+		ID:          record.ID,
+		Name:        record.Name,
+		Service:     record.Service,
+		MaskedURL:   masked,
+		Enabled:     record.Enabled,
+		UsedByRules: record.UsedByRules,
+		CreatedAt:   record.CreatedAt,
+		UpdatedAt:   record.UpdatedAt,
 	}
 }
 

@@ -175,3 +175,52 @@ func TestDevicesMigrationSeedsHistory(t *testing.T) {
 	checkDevice(t, devices, laptopMAC, "192.168.1.30", seedAt.Truncate(time.Hour), current)
 	checkDevice(t, devices, nasMAC, "192.168.1.10", seedAt.Truncate(time.Hour), seedAt.Truncate(time.Hour))
 }
+
+func TestDeviceTraffic(t *testing.T) {
+	db := openTestDB(t)
+	seed(t, db)
+
+	traffic := func(since time.Time) map[string][2]uint64 {
+		t.Helper()
+		records, err := GetDeviceTraffic(db, since)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byPair := map[string][2]uint64{}
+		for _, r := range records {
+			key := r.MACAddress.String() + " " + r.Peer.String()
+			byPair[key] = [2]uint64{r.Download, r.Upload}
+		}
+		return byPair
+	}
+
+	// The laptop's HTTPS over both rounds, and SMB with the NAS seen from
+	// both sides: what the laptop sent, the NAS received.
+	all := traffic(seedAt)
+	want := map[string][2]uint64{
+		laptopMAC + " 142.250.186.78": {1500, 150},
+		laptopMAC + " 192.168.1.10":   {20, 2000},
+		nasMAC + " 192.168.1.23":      {2000, 20},
+	}
+	if len(all) != len(want) {
+		t.Errorf("traffic = %v, want %v", all, want)
+	}
+	for key, value := range want {
+		if all[key] != value {
+			t.Errorf("traffic[%s] = %v, want %v", key, all[key], value)
+		}
+	}
+
+	// Only the second round is in a window starting after the first.
+	if later := traffic(seedAt.Add(time.Minute)); len(later) != 1 || later[laptopMAC+" 142.250.186.78"] != [2]uint64{500, 50} {
+		t.Errorf("traffic of the second round = %v", later)
+	}
+
+	// Rolled up, the first round counts as of the start of its hour.
+	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0); err != nil {
+		t.Fatal(err)
+	}
+	if rolled := traffic(seedAt.Truncate(time.Hour)); rolled[laptopMAC+" 142.250.186.78"] != [2]uint64{1500, 150} {
+		t.Errorf("rolled up traffic = %v", rolled)
+	}
+}
