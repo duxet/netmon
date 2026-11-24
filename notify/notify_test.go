@@ -22,7 +22,7 @@ func TestInspect(t *testing.T) {
 		url, scheme, masked, secret string
 	}{
 		{telegramURL, "telegram", "telegram://REDACTED@telegram?chats=%40mychan", "AAHsecret"},
-		{"ntfy://:tk_supersecrettoken99@ntfy.sh/home-net", "ntfy", "", "tk_supersecret"},
+		{"ntfy://:tk_supersecrettoken99@ntfy.sh/home-net", "ntfy", "ntfy://ntfy.sh/home-net", "tk_supersecret"},
 		{"discord://discordsecrettoken@123456", "discord", "discord://REDACTED@123456", "discordsecret"},
 		// The "generic+" shortcut is the webhook service too.
 		{"generic+https://example.com/hook", "generic", "", ""},

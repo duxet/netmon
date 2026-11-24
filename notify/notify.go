@@ -92,6 +92,8 @@ func Inspect(rawURL string) (Service, error) {
 	}
 
 	masked := format.MaskedURL(format.GetServiceConfig(service)).String()
+	// A URL whose query was all secrets ends in a bare "?".
+	masked = strings.TrimSuffix(masked, "?")
 	return Service{Scheme: scheme, MaskedURL: masked}, nil
 }
 
