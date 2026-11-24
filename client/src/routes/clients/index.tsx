@@ -7,6 +7,7 @@ import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
 import { ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
+import { RenameDeviceButton } from "@/components/rename-device"
 import { ShareBar } from "@/components/share-bar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -78,9 +79,12 @@ function useColumns(totalTraffic: number) {
                 className="group/link flex min-w-0 flex-col"
               >
                 <span className="truncate font-medium group-hover/link:underline">
-                  {device.hostname ?? "Unknown device"}
+                  {device.name ?? device.hostname ?? "Unknown device"}
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">{device.mac}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {device.name && device.hostname && `${device.hostname} · `}
+                  <span className="font-mono">{device.mac}</span>
+                </span>
               </Link>
             )
           },
@@ -123,6 +127,12 @@ function useColumns(totalTraffic: number) {
           ),
           meta: { className: "hidden sm:table-cell w-48" },
         }),
+        column.display({
+          id: "actions",
+          header: () => <span className="sr-only">Actions</span>,
+          cell: ({ row }) => <RenameDeviceButton device={row.original} />,
+          meta: { className: "w-10" },
+        }),
       ]),
     [totalTraffic]
   )
@@ -133,6 +143,7 @@ function matches(device: Device, query: string) {
   const needle = query.toLowerCase()
   return (
     device.mac.includes(needle) ||
+    (device.name?.toLowerCase().includes(needle) ?? false) ||
     (device.hostname?.toLowerCase().includes(needle) ?? false) ||
     device.addresses.some(
       (address) =>

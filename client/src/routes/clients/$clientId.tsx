@@ -21,6 +21,7 @@ import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
+import { RenameDeviceButton } from "@/components/rename-device"
 import { ShareBar } from "@/components/share-bar"
 import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
@@ -35,6 +36,7 @@ import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import {
   countryFlag,
   countryName,
+  deviceLabelsByIp,
   findDevice,
   parseServiceKey,
   parseSubject,
@@ -265,9 +267,19 @@ function ClientDetail() {
   const topPeerIps = (summary.data?.TopPeers.Items ?? []).map((group) => group.Key)
   const topHostnames = useHostnames(topPeerIps)
   const pageHostnames = useHostnames(flows.map((flow) => flow.peer.IPAddress))
+  // Local peers go by their device names (the user's, else DNS) instead.
+  const localLabels = React.useMemo(
+    () => (devices.data ? deviceLabelsByIp(devices.data) : new Map<string, string>()),
+    [devices.data]
+  )
   const hostnames = React.useMemo(
-    () => new Map([...(topHostnames.data ?? []), ...(pageHostnames.data ?? [])]),
-    [topHostnames.data, pageHostnames.data]
+    () =>
+      new Map<string, string | null>([
+        ...(topHostnames.data ?? []),
+        ...(pageHostnames.data ?? []),
+        ...localLabels,
+      ]),
+    [topHostnames.data, pageHostnames.data, localLabels]
   )
 
   const destinations = toRanked(summary.data?.TopPeers, (ip) => hostnames.get(ip) ?? ip)
@@ -282,7 +294,9 @@ function ClientDetail() {
 
   const isLocal = subject.kind === "mac" || device !== undefined
   const title =
-    device?.hostname ?? (subject.kind === "ip" ? (hostnames.get(subject.ip) ?? clientId) : clientId)
+    device?.name ??
+    device?.hostname ??
+    (subject.kind === "ip" ? (hostnames.get(subject.ip) ?? clientId) : clientId)
   const loading = summary.isPending
   const period = rangePhrase(range)
 
@@ -293,13 +307,23 @@ function ClientDetail() {
   return (
     <Page>
       <PageHeader
-        title={<span className="break-all">{title}</span>}
+        title={
+          <span className="flex items-center gap-1">
+            <span className="break-all">{title}</span>
+            {device && <RenameDeviceButton device={device} />}
+          </span>
+        }
         description={
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <Badge variant="outline">
               {isLocal ? <CableIcon data-icon="inline-start" /> : <GlobeIcon data-icon="inline-start" />}
               {isLocal ? "Local device" : "Remote host"}
             </Badge>
+            {device?.name && device.hostname && (
+              <Badge variant="outline" className="font-normal" title="Hostname from reverse DNS">
+                {device.hostname}
+              </Badge>
+            )}
             {device && (
               <Badge variant="secondary" className="font-mono font-normal" asChild>
                 <Link to="/clients/$clientId" params={{ clientId: device.mac }}>

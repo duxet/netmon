@@ -82,6 +82,8 @@ rounded to whole hours.
 | `GET /api/clients/:mac-or-ip/flows` | as `/api/flows` |
 | `GET /api/flows/summary` | `mac` or `ip`, `from`, `to`, `top` |
 | `POST /api/hostnames` | body `{"ip_addresses": [...]}`, at most 256 |
+| `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
+| `DELETE /api/devices/:mac/name` | |
 
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
@@ -92,6 +94,8 @@ rounded to whole hours.
   number of matching flows is in the `X-Total-Count` header.
 - The summary has totals and the `top` (default 8) remote hosts, services
   (`"protocol/port"`) and countries, plus the sum of the rest.
+- Device names are keyed by MAC address and returned by `/api/clients` as
+  `Name`, next to the reverse-DNS `Hostname`.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 
@@ -110,7 +114,7 @@ Invalid parameters are answered with a 400 and `{"error": "..."}`.
 - [x] Use server-side pagination for flows (the `Pagination` type is unused)
 
 ### Devices
-- [ ] Let users rename devices, stored in the database
+- [x] Let users rename devices, stored in the database
 - [ ] Show the device manufacturer from an offline MAC vendor (OUI) database when there is no hostname
 - [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
 

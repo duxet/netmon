@@ -17,6 +17,8 @@ export interface Traffic {
 }
 
 export interface Client {
+  /** The name the user gave the device, if any. */
+  Name: string | null
   /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
   Hostname: string | null
   Endpoint: Endpoint
@@ -198,4 +200,17 @@ export function fetchHostnames(ipAddresses: string[]) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ip_addresses: ipAddresses }),
   })
+}
+
+// MAC addresses are URL-safe; the API does not unescape %3A in paths.
+export async function renameDevice(mac: string, name: string) {
+  return request<{ MACAddress: string; Name: string }>(`/api/devices/${mac}/name`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function resetDeviceName(mac: string) {
+  await send(`/api/devices/${mac}/name`, { method: "DELETE" })
 }

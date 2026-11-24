@@ -45,6 +45,8 @@ export interface DeviceAddress {
 
 export interface Device {
   mac: string
+  /** The name the user gave the device. */
+  name: string | null
   /** First reverse-DNS name found across the device's addresses. */
   hostname: string | null
   addresses: DeviceAddress[]
@@ -67,6 +69,7 @@ export function groupDevices(clients: Client[]): Device[] {
     if (!device) {
       device = {
         mac,
+        name: client.Name,
         hostname: null,
         addresses: [],
         traffic: EMPTY_TRAFFIC,
@@ -102,8 +105,19 @@ export function groupDevices(clients: Client[]): Device[] {
   return devices.sort((a, b) => b.total - a.total)
 }
 
-export function deviceLabel(device: Pick<Device, "hostname" | "addresses" | "mac">): string {
-  return device.hostname ?? device.addresses[0]?.ip ?? device.mac
+/** The user's name for a device, else its hostname, IP or MAC address. */
+export function deviceLabel(device: Pick<Device, "name" | "hostname" | "addresses" | "mac">): string {
+  return device.name ?? device.hostname ?? device.addresses[0]?.ip ?? device.mac
+}
+
+/** Labels of named or resolved local devices, by each of their IP addresses. */
+export function deviceLabelsByIp(devices: Device[]): Map<string, string> {
+  const labels = new Map<string, string>()
+  for (const device of devices) {
+    if (!device.name && !device.hostname) continue
+    for (const address of device.addresses) labels.set(address.ip, deviceLabel(device))
+  }
+  return labels
 }
 
 export function findDevice(devices: Device[], id: string): Device | undefined {
