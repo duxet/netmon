@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 
 import { Sparkline } from "@/components/charts/sparkline"
 import { DeviceVendor } from "@/components/device-vendor"
+import { DeviceNetworks } from "@/components/network-badge"
 import {
   Table,
   TableBody,
@@ -87,9 +88,10 @@ export function LiveDevices({
                   >
                     {label}
                   </Link>
-                  <span className="flex min-w-0 flex-wrap gap-x-2 text-xs text-muted-foreground">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                     {device.ip && label !== device.ip && <span className="font-mono">{device.ip}</span>}
                     <DeviceVendor device={info ?? { mac: device.mac, vendor: null }} />
+                    {info && <DeviceNetworks ids={info.networks} />}
                   </span>
                 </div>
               </TableCell>

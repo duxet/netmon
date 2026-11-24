@@ -27,11 +27,9 @@ function Breadcrumbs() {
       matches.flatMap((match) => {
         const { breadcrumb } = match.staticData
         if (!breadcrumb) return []
-        const title =
-          typeof breadcrumb === "function"
-            ? breadcrumb(match.params as Record<string, string>)
-            : breadcrumb
-        return [{ id: match.id, title, pathname: match.pathname }]
+        return [
+          { id: match.id, breadcrumb, params: match.params as Record<string, string>, pathname: match.pathname },
+        ]
       }),
   })
 
@@ -40,15 +38,18 @@ function Breadcrumbs() {
       <BreadcrumbList className="flex-nowrap">
         {crumbs.map((crumb, index) => {
           const last = index === crumbs.length - 1
+          // Elements are made here rather than in the selector, which compares
+          // what it returns by value.
+          const title = typeof crumb.breadcrumb === "function" ? crumb.breadcrumb(crumb.params) : crumb.breadcrumb
           return (
             <React.Fragment key={crumb.id}>
               {index > 0 && <BreadcrumbSeparator />}
               <BreadcrumbItem className={cn(!last && "hidden sm:inline-flex", "min-w-0")}>
                 {last ? (
-                  <BreadcrumbPage className="truncate">{crumb.title}</BreadcrumbPage>
+                  <BreadcrumbPage className="truncate">{title}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
-                    <Link to={crumb.pathname}>{crumb.title}</Link>
+                    <Link to={crumb.pathname}>{title}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>

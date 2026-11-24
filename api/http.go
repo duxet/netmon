@@ -128,8 +128,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		hasClient := filter.MAC != nil || filter.IP != nil
-		flows, total := pageFlows(orientFlows(records, filter), page, hasClient)
+		flows, total := pageFlows(orientFlows(records, filter), page, hasSubject(filter))
 		c.Set(totalCountHeader, strconv.Itoa(total))
 
 		return c.JSON(toFlowDTOs(flows, countries))
@@ -138,7 +137,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/flows", func(c fiber.Ctx) error {
 		log.Println("Returning list of flows")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -151,7 +150,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/flows/summary", func(c fiber.Ctx) error {
 		log.Println("Returning flow summary")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -172,7 +171,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/stats", func(c fiber.Ctx) error {
 		log.Println("Returning stats")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -192,7 +191,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/apps", func(c fiber.Ctx) error {
 		log.Println("Returning traffic per app")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -210,7 +209,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/traffic-measurements", func(c fiber.Ctx) error {
 		log.Println("Returning traffic measurements")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -248,7 +247,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app.Get("/api/clients", func(c fiber.Ctx) error {
 		log.Println("Returning list of clients")
 
-		filter, err := parseFlowsFilter(c)
+		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
 		}
@@ -259,6 +258,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		}
 
 		deviceNames, err := storage.GetDeviceNames(db)
+		if err != nil {
+			return err
+		}
+
+		matcher, err := storage.NetworkMatcher(db)
 		if err != nil {
 			return err
 		}
@@ -289,9 +293,10 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			}
 
 			clients = append(clients, ClientDTO{
-				Name:     name,
-				Hostname: hostname,
-				Vendor:   vendor,
+				Name:      name,
+				Hostname:  hostname,
+				Vendor:    vendor,
+				NetworkID: networkIDOf(matcher, record.IPAddress),
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
 					IPAddress:  record.IPAddress,
@@ -322,6 +327,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	registerSessionRoutes(app, options.Auth != nil)
 	registerDeviceRoutes(app, db, hostnames)
+	registerNetworkRoutes(app, db)
 	registerNotificationRoutes(app, db)
 	alerts := options.Alerts
 	if alerts == nil {

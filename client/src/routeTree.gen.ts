@@ -13,10 +13,13 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AlertsRouteRouteImport } from './routes/alerts/route'
 import { Route as ClientsRouteRouteImport } from './routes/clients/route'
 import { Route as LiveRouteImport } from './routes/live'
+import { Route as NetworksRouteRouteImport } from './routes/networks/route'
 import { Route as AlertsIndexRouteImport } from './routes/alerts/index'
 import { Route as AlertsAlertIdRouteImport } from './routes/alerts/$alertId'
 import { Route as ClientsIndexRouteImport } from './routes/clients/index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients/$clientId'
+import { Route as NetworksIndexRouteImport } from './routes/networks/index'
+import { Route as NetworksNetworkIdRouteImport } from './routes/networks/$networkId'
 import { Route as SettingsAlertRulesRouteImport } from './routes/settings/alert-rules'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
 
@@ -40,6 +43,11 @@ const LiveRoute = LiveRouteImport.update({
   path: '/live',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NetworksRouteRoute = NetworksRouteRouteImport.update({
+  id: '/networks',
+  path: '/networks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AlertsIndexRoute = AlertsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -60,6 +68,16 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   path: '/$clientId',
   getParentRoute: () => ClientsRouteRoute,
 } as any)
+const NetworksIndexRoute = NetworksIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => NetworksRouteRoute,
+} as any)
+const NetworksNetworkIdRoute = NetworksNetworkIdRouteImport.update({
+  id: '/$networkId',
+  path: '/$networkId',
+  getParentRoute: () => NetworksRouteRoute,
+} as any)
 const SettingsAlertRulesRoute = SettingsAlertRulesRouteImport.update({
   id: '/settings/alert-rules',
   path: '/settings/alert-rules',
@@ -75,36 +93,44 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRouteRouteWithChildren
   '/clients': typeof ClientsRouteRouteWithChildren
+  '/networks': typeof NetworksRouteRouteWithChildren
   '/live': typeof LiveRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts/': typeof AlertsIndexRoute
   '/clients/': typeof ClientsIndexRoute
+  '/networks/': typeof NetworksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts': typeof AlertsIndexRoute
   '/clients': typeof ClientsIndexRoute
+  '/networks': typeof NetworksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRouteRouteWithChildren
   '/clients': typeof ClientsRouteRouteWithChildren
+  '/networks': typeof NetworksRouteRouteWithChildren
   '/live': typeof LiveRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/networks/$networkId': typeof NetworksNetworkIdRoute
   '/settings/alert-rules': typeof SettingsAlertRulesRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/alerts/': typeof AlertsIndexRoute
   '/clients/': typeof ClientsIndexRoute
+  '/networks/': typeof NetworksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -112,41 +138,50 @@ export interface FileRouteTypes {
     | '/'
     | '/alerts'
     | '/clients'
+    | '/networks'
     | '/live'
     | '/alerts/$alertId'
     | '/clients/$clientId'
+    | '/networks/$networkId'
     | '/settings/alert-rules'
     | '/settings/notifications'
     | '/alerts/'
     | '/clients/'
+    | '/networks/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/live'
     | '/alerts/$alertId'
     | '/clients/$clientId'
+    | '/networks/$networkId'
     | '/settings/alert-rules'
     | '/settings/notifications'
     | '/alerts'
     | '/clients'
+    | '/networks'
   id:
     | '__root__'
     | '/'
     | '/alerts'
     | '/clients'
+    | '/networks'
     | '/live'
     | '/alerts/$alertId'
     | '/clients/$clientId'
+    | '/networks/$networkId'
     | '/settings/alert-rules'
     | '/settings/notifications'
     | '/alerts/'
     | '/clients/'
+    | '/networks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AlertsRouteRoute: typeof AlertsRouteRouteWithChildren
   ClientsRouteRoute: typeof ClientsRouteRouteWithChildren
+  NetworksRouteRoute: typeof NetworksRouteRouteWithChildren
   LiveRoute: typeof LiveRoute
   SettingsAlertRulesRoute: typeof SettingsAlertRulesRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
@@ -182,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LiveRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/networks': {
+      id: '/networks'
+      path: '/networks'
+      fullPath: '/networks'
+      preLoaderRoute: typeof NetworksRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/alerts/': {
       id: '/alerts/'
       path: '/'
@@ -209,6 +251,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/clients/$clientId'
       preLoaderRoute: typeof ClientsClientIdRouteImport
       parentRoute: typeof ClientsRouteRoute
+    }
+    '/networks/': {
+      id: '/networks/'
+      path: '/'
+      fullPath: '/networks/'
+      preLoaderRoute: typeof NetworksIndexRouteImport
+      parentRoute: typeof NetworksRouteRoute
+    }
+    '/networks/$networkId': {
+      id: '/networks/$networkId'
+      path: '/$networkId'
+      fullPath: '/networks/$networkId'
+      preLoaderRoute: typeof NetworksNetworkIdRouteImport
+      parentRoute: typeof NetworksRouteRoute
     }
     '/settings/alert-rules': {
       id: '/settings/alert-rules'
@@ -255,10 +311,25 @@ const ClientsRouteRouteWithChildren = ClientsRouteRoute._addFileChildren(
   ClientsRouteRouteChildren,
 )
 
+interface NetworksRouteRouteChildren {
+  NetworksNetworkIdRoute: typeof NetworksNetworkIdRoute
+  NetworksIndexRoute: typeof NetworksIndexRoute
+}
+
+const NetworksRouteRouteChildren: NetworksRouteRouteChildren = {
+  NetworksNetworkIdRoute: NetworksNetworkIdRoute,
+  NetworksIndexRoute: NetworksIndexRoute,
+}
+
+const NetworksRouteRouteWithChildren = NetworksRouteRoute._addFileChildren(
+  NetworksRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AlertsRouteRoute: AlertsRouteRouteWithChildren,
   ClientsRouteRoute: ClientsRouteRouteWithChildren,
+  NetworksRouteRoute: NetworksRouteRouteWithChildren,
   LiveRoute: LiveRoute,
   SettingsAlertRulesRoute: SettingsAlertRulesRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,

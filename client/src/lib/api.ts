@@ -23,6 +23,8 @@ export interface Client {
   Hostname: string | null
   /** Manufacturer the MAC address was assigned to, if known. */
   Vendor: string | null
+  /** The network the client's IP address belongs to, if any. */
+  NetworkID: number | null
   Endpoint: Endpoint
   Traffic: Traffic
 }
@@ -181,10 +183,15 @@ async function requestList<T>(path: string, init?: RequestInit): Promise<T[]> {
   return (await request<T[] | null>(path, init)) ?? []
 }
 
-/** Restricts results to one client and/or a time range. */
+/** Restricts results to one client or network, and/or a time range. */
 export interface FlowsFilter {
   mac?: string
   ip?: string
+  /**
+   * A network's ID: traffic with either side in it, counted from its side.
+   * For /api/clients, the clients whose own address is in it.
+   */
+  network?: number
   /** Inclusive. */
   from?: Date
   /** Exclusive. */
@@ -202,8 +209,8 @@ function withQuery(path: string, params: Params) {
   return search.size > 0 ? `${path}?${search}` : path
 }
 
-function filterParams({ mac, ip, from, to }: FlowsFilter): Params {
-  return { mac, ip, from, to }
+function filterParams({ mac, ip, network, from, to }: FlowsFilter): Params {
+  return { mac, ip, network, from, to }
 }
 
 export function fetchStats(filter: FlowsFilter = {}) {
@@ -364,6 +371,8 @@ export interface KnownDevice {
   /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
   Hostname: string | null
   Vendor: string | null
+  /** The network IPAddress belongs to, if any. */
+  NetworkID: number | null
   FirstSeen: string
   LastSeen: string
 }
@@ -562,4 +571,79 @@ export function previewAlertRule(rule: AlertRuleInput) {
 
 export function fetchAlert(id: number) {
   return request<Alert>(`/api/alerts/${id}`)
+}
+
+/** The colors a network can be shown in, in the order new networks get them. */
+export const NETWORK_COLORS = ["blue", "orange", "aqua", "yellow", "magenta", "green", "violet", "red"] as const
+export type NetworkColor = (typeof NETWORK_COLORS)[number]
+
+/** A group of the local network's addresses, such as a VLAN or a subnet. */
+export interface Network {
+  ID: number
+  Name: string
+  /** The 802.1Q VLAN ID, if given; only shown, devices are matched by address. */
+  VLAN: number | null
+  Color: NetworkColor
+  /**
+   * The blocks of addresses the network uses, in CIDR notation. An address
+   * belongs to the network with the most specific block that holds it.
+   */
+  Prefixes: string[]
+  CreatedAt: string
+  UpdatedAt: string
+}
+
+export interface NetworkInput {
+  name: string
+  vlan: number | null
+  /** Left out, a new network gets a color no other network has. */
+  color?: NetworkColor
+  prefixes: string[]
+}
+
+/** One network's traffic over a time range, counted from its side. */
+export interface NetworkTraffic {
+  NetworkID: number
+  /** Devices with traffic from an address in the network. */
+  Devices: number
+  Download: number
+  Upload: number
+  Packets: number
+}
+
+export interface NetworkSummary {
+  /** Every network, in the order /api/networks lists them. */
+  Networks: NetworkTraffic[]
+  /** Devices with traffic that have no address in any network. */
+  UnassignedDevices: number
+}
+
+/** A block of addresses known devices use that no network has yet. */
+export interface NetworkSuggestion {
+  Prefix: string
+  Devices: number
+}
+
+export function fetchNetworks() {
+  return requestList<Network>("/api/networks")
+}
+
+export function createNetwork(network: NetworkInput) {
+  return request<Network>("/api/networks", jsonBody("POST", network))
+}
+
+export function updateNetwork(id: number, network: NetworkInput) {
+  return request<Network>(`/api/networks/${id}`, jsonBody("PUT", network))
+}
+
+export async function deleteNetwork(id: number) {
+  await send(`/api/networks/${id}`, { method: "DELETE" })
+}
+
+export function fetchNetworkSummary(filter: Pick<FlowsFilter, "from" | "to"> = {}) {
+  return request<NetworkSummary>(withQuery("/api/networks/summary", filterParams(filter)))
+}
+
+export function fetchNetworkSuggestions() {
+  return requestList<NetworkSuggestion>("/api/networks/suggestions")
 }

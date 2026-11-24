@@ -21,6 +21,7 @@ import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts
 import { TrafficChart, TrafficTable } from "@/components/charts/traffic-chart"
 import { DataTable } from "@/components/data-table"
 import { DeviceVendor } from "@/components/device-vendor"
+import { DeviceNetworks } from "@/components/network-badge"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
@@ -35,7 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useRange } from "@/hooks/use-range"
-import type { FlowSort, Groups } from "@/lib/api"
+import type { FlowSort } from "@/lib/api"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import {
   countryFlag,
@@ -59,13 +60,13 @@ import {
   useHostnames,
   type ClientFilter,
 } from "@/lib/queries"
+import { OTHER_KEY, toRanked } from "@/lib/ranked"
 import { createColumns } from "@/lib/table"
 import { buildTrafficSeries, DEFAULT_RANGE, rangePhrase } from "@/lib/timeseries"
 
 /** Bars per ranked chart: the largest groups, then "Other". */
 const TOP_GROUPS = 7
 const PAGE_SIZE = 15
-const OTHER_KEY = "__other__"
 
 function clientFilterOf(subject: Subject): ClientFilter {
   return subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip }
@@ -80,23 +81,6 @@ export const Route = createFileRoute("/clients/$clientId")({
   },
   component: ClientDetail,
 })
-
-/** Ranked chart rows from summary groups, with the rest folded into "Other". */
-function toRanked(groups: Groups | undefined, label: (key: string) => string): RankedRow[] {
-  if (!groups) return []
-  const rows: RankedRow[] = (groups.Items ?? []).map((group) => ({
-    key: group.Key,
-    label: label(group.Key),
-    download: group.Download,
-    upload: group.Upload,
-    total: group.Download + group.Upload,
-  }))
-  const rest = groups.Rest.Download + groups.Rest.Upload
-  if (rest > 0) {
-    rows.push({ key: OTHER_KEY, label: "Other", download: groups.Rest.Download, upload: groups.Rest.Upload, total: rest })
-  }
-  return rows
-}
 
 function Country({ code }: { code: string | null | undefined }) {
   if (!code) return null
@@ -323,6 +307,7 @@ function ClientDetail() {
               {isLocal ? <CableIcon data-icon="inline-start" /> : <GlobeIcon data-icon="inline-start" />}
               {isLocal ? "Local device" : "Remote host"}
             </Badge>
+            {device && <DeviceNetworks ids={device.networks} />}
             {device?.name && device.hostname && (
               <Badge variant="outline" className="font-normal" title="Hostname from reverse DNS">
                 {device.hostname}

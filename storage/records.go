@@ -92,3 +92,16 @@ type PortTrafficRecord struct {
 	IPProto    uint8
 	Bytes      uint64
 }
+
+// NetworkTrafficRecord is the traffic of flows from addresses of one network
+// to those of another, as GetNetworkTraffic returns it. Source and
+// Destination are network IDs, nil for addresses in no network. In is the
+// replies, what the source received; Out is what it sent.
+type NetworkTrafficRecord struct {
+	Source      *int64
+	Destination *int64
+	InBytes     uint64
+	InPackets   uint64
+	OutBytes    uint64
+	OutPackets  uint64
+}

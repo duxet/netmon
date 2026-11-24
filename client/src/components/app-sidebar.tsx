@@ -5,6 +5,7 @@ import {
   LayoutDashboardIcon,
   ListChecksIcon,
   MonitorSmartphoneIcon,
+  NetworkIcon,
   RadarIcon,
   RadioIcon,
   TriangleAlertIcon,
@@ -31,7 +32,7 @@ import {
 import { useRange } from "@/hooks/use-range"
 import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
-import { alertsQuery, devicesQuery } from "@/lib/queries"
+import { alertsQuery, devicesQuery, networksQuery } from "@/lib/queries"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -39,6 +40,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { data: devices, isPending } = useQuery(devicesQuery(range))
   // The same query as the Alerts page's, so they share one request.
   const { data: firing } = useQuery(alertsQuery({ state: "firing", limit: 100 }))
+  const { data: networks } = useQuery(networksQuery())
   const { isMobile, setOpenMobile } = useSidebar()
   const closeOnMobile = () => isMobile && setOpenMobile(false)
 
@@ -51,6 +53,13 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       icon: MonitorSmartphoneIcon,
       active: pathname.startsWith("/clients"),
       badge: devices?.length,
+    },
+    {
+      to: "/networks",
+      label: "Networks",
+      icon: NetworkIcon,
+      active: pathname.startsWith("/networks"),
+      badge: networks?.length || undefined,
     },
     {
       to: "/alerts",

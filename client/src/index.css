@@ -74,6 +74,16 @@
     --chart-3: #1baf7a;
     --chart-4: #eda100;
     --chart-5: #e87ba4;
+    /* Network colors: the same categorical palette, all eight slots in order. They
+       mark a network next to its name, never on their own. */
+    --network-blue: #2a78d6;
+    --network-orange: #eb6834;
+    --network-aqua: #1baf7a;
+    --network-yellow: #eda100;
+    --network-magenta: #e87ba4;
+    --network-green: #008300;
+    --network-violet: #6250d6;
+    --network-red: #e34948;
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -110,6 +120,14 @@
     --chart-3: #199e70;
     --chart-4: #c98500;
     --chart-5: #d55181;
+    --network-blue: #3987e5;
+    --network-orange: #d95926;
+    --network-aqua: #199e70;
+    --network-yellow: #c98500;
+    --network-magenta: #d55181;
+    --network-green: #0ca30c;
+    --network-violet: #9085e9;
+    --network-red: #e66767;
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);

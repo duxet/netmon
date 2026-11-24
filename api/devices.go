@@ -69,6 +69,11 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		}
 		names := hostnames.LookupAll(c.Context(), addrs)
 
+		matcher, err := storage.NetworkMatcher(db)
+		if err != nil {
+			return err
+		}
+
 		devices := make([]DeviceDTO, 0, len(records))
 		for _, record := range records {
 			var hostname *string
@@ -87,6 +92,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 				Name:       record.Name,
 				Hostname:   hostname,
 				Vendor:     vendor,
+				NetworkID:  networkIDOf(matcher, record.IPAddress),
 				FirstSeen:  record.FirstSeen,
 				LastSeen:   record.LastSeen,
 			})

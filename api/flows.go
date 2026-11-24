@@ -18,9 +18,9 @@ const (
 	maxTopGroups     = 50
 )
 
-// orientedFlow is a flow seen from the client a filter selects: Download is
-// what that client received, whichever side opened the connection. Without
-// a client filter, flows are seen from their source.
+// orientedFlow is a flow seen from the client or network a filter selects:
+// Download is what it received, whichever side opened the connection.
+// Without either, flows are seen from their source.
 type orientedFlow struct {
 	record   storage.FlowRecord
 	peer     common.IPAddress
@@ -41,6 +41,8 @@ func isClient(mac common.MACAddress, ip common.IPAddress, filter storage.FlowsFi
 		return bytes.Equal(mac.HardwareAddr, filter.MAC.HardwareAddr)
 	case filter.IP != nil:
 		return sameAddr(ip, *filter.IP)
+	case filter.Network != nil:
+		return ip.Addr != nil && filter.Network.Contains(*ip.Addr)
 	default:
 		return false
 	}

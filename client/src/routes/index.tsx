@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ActivityIcon, ArrowRightIcon, GaugeIcon, MonitorSmartphoneIcon } from "lucide-react"
+import { ActivityIcon, ArrowRightIcon, GaugeIcon, MonitorSmartphoneIcon, NetworkIcon } from "lucide-react"
 import * as React from "react"
 
 import { AppTrafficCard } from "@/components/app-traffic"
@@ -24,7 +24,8 @@ import {
   formatNumber,
 } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
-import { devicesQuery, statsQuery, trafficQuery } from "@/lib/queries"
+import { useNetworks } from "@/lib/networks"
+import { devicesQuery, networkSummaryQuery, statsQuery, trafficQuery } from "@/lib/queries"
 import { buildTrafficSeries, DEFAULT_RANGE, rangeInfo, rangePhrase } from "@/lib/timeseries"
 
 export const Route = createFileRoute("/")({
@@ -39,6 +40,56 @@ export const Route = createFileRoute("/")({
 
 const TOP_DEVICES = 8
 
+/** Each network's traffic, for telling the VLANs or subnets apart at a glance. */
+function NetworkTrafficCard({ className }: { className?: string }) {
+  const range = useRange()
+  const navigate = useNavigate()
+  const networks = useNetworks()
+  const summary = useQuery(networkSummaryQuery(range))
+
+  const rows: RankedRow[] = React.useMemo(() => {
+    const traffic = new Map(summary.data?.Networks.map((n) => [n.NetworkID, n]))
+    return networks.list
+      .map((network) => {
+        const t = traffic.get(network.ID)
+        const download = t?.Download ?? 0
+        const upload = t?.Upload ?? 0
+        return { key: String(network.ID), label: network.Name, download, upload, total: download + upload }
+      })
+      .sort((a, b) => b.total - a.total)
+  }, [networks.list, summary.data])
+
+  return (
+    <ChartCard
+      className={className}
+      title="Traffic by network"
+      description={`Counted from each network's side · ${rangePhrase(range)}`}
+      table={rows.length > 0 && <RankedTable rows={rows} labelHeader="Network" />}
+    >
+      {summary.isError ? (
+        <ErrorState error={summary.error} onRetry={() => void summary.refetch()} />
+      ) : summary.isPending || networks.isPending ? (
+        <Skeleton className="h-56 w-full" />
+      ) : rows.some((row) => row.total > 0) ? (
+        <div className="flex flex-col gap-2">
+          <RankedBarChart
+            rows={rows}
+            onSelect={(row) => void navigate({ to: "/networks/$networkId", params: { networkId: row.key } })}
+          />
+          <Button variant="ghost" size="sm" className="self-end" asChild>
+            <Link to="/networks">
+              All networks
+              <ArrowRightIcon data-icon="inline-end" />
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <EmptyChart icon={<NetworkIcon />} title="No traffic in any network in this period" />
+      )}
+    </ChartCard>
+  )
+}
+
 function Dashboard() {
   const range = useRange()
   const navigate = useNavigate()
@@ -47,6 +98,7 @@ function Dashboard() {
   const traffic = useQuery(trafficQuery(range))
   const stats = useQuery(statsQuery(range))
   const devices = useQuery(devicesQuery(range))
+  const networks = useNetworks()
 
   // Anchor the window to when the data was fetched, so it stays stable
   // between refreshes and moves forward with each one.
@@ -211,7 +263,14 @@ function Dashboard() {
         </ChartCard>
       </div>
 
-      <AppTrafficCard />
+      {networks.list.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <NetworkTrafficCard />
+          <AppTrafficCard />
+        </div>
+      ) : (
+        <AppTrafficCard />
+      )}
     </Page>
   )
 }

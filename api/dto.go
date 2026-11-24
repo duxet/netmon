@@ -26,9 +26,11 @@ type ClientDTO struct {
 	// Hostname is from reverse DNS, with the trailing dot.
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
-	Vendor   *string
-	Endpoint EndpointDTO
-	Traffic  TrafficDTO
+	Vendor *string
+	// NetworkID is the network the client's IP address belongs to, if any.
+	NetworkID *int64
+	Endpoint  EndpointDTO
+	Traffic   TrafficDTO
 }
 
 // DeviceDTO is a device seen on the network, identified by its MAC address.
@@ -42,6 +44,8 @@ type DeviceDTO struct {
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
 	Vendor *string
+	// NetworkID is the network IPAddress belongs to, if any.
+	NetworkID *int64
 	// FirstSeen and LastSeen are when the device was first and last seen in
 	// flows, on either side of a connection.
 	FirstSeen time.Time
@@ -265,4 +269,52 @@ type SessionDTO struct {
 type UserDTO struct {
 	Name  *string
 	Email *string
+}
+
+// NetworkDTO is a group of the local network's addresses, such as a VLAN.
+type NetworkDTO struct {
+	ID   int64
+	Name string
+	// VLAN is the network's 802.1Q VLAN ID, if it was given one.
+	VLAN *int
+	// Color is the color the network is shown in: blue, orange, aqua,
+	// yellow, magenta, green, violet or red.
+	Color string
+	// Prefixes are the blocks of addresses the network uses, in CIDR
+	// notation. An address belongs to the network with the most specific
+	// block holding it.
+	Prefixes  []string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// NetworkSummaryDTO is the traffic of every network over a time range.
+type NetworkSummaryDTO struct {
+	// Networks are all networks, in the order /api/networks lists them,
+	// with or without traffic.
+	Networks []NetworkTrafficDTO
+	// UnassignedDevices is the number of devices with traffic that have no
+	// address in any network.
+	UnassignedDevices int
+}
+
+// NetworkTrafficDTO is the traffic of one network, counted from its side:
+// Download is what its addresses received, from the internet and from
+// other networks alike. Traffic between two networks counts for both.
+type NetworkTrafficDTO struct {
+	NetworkID int64
+	// Devices is the number of devices with traffic from an address in the
+	// network.
+	Devices  int
+	Download uint64
+	Upload   uint64
+	Packets  uint64
+}
+
+// NetworkSuggestionDTO is a block of addresses devices use that no network
+// has yet.
+type NetworkSuggestionDTO struct {
+	Prefix string
+	// Devices is the number of known devices whose last address is in it.
+	Devices int
 }

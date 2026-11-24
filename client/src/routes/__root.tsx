@@ -17,8 +17,11 @@ import { isRangeKey, type RangeKey } from "@/lib/timeseries"
 
 declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
-    /** Label for the header breadcrumb; a function receives the route params. */
-    breadcrumb?: string | ((params: Record<string, string>) => string)
+    /**
+     * Label for the header breadcrumb; a function receives the route params,
+     * and can return an element that looks up a name.
+     */
+    breadcrumb?: string | ((params: Record<string, string>) => React.ReactNode)
   }
 }
 

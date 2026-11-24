@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"strconv"
 	"time"
 
@@ -34,10 +35,10 @@ func parseTimeRange(c fiber.Ctx, filter *storage.FlowsFilter) error {
 	return nil
 }
 
-// parseFlowsFilter reads the optional mac, ip, from and to query parameters.
-// An invalid value is a client error rather than a reason to return
-// unfiltered data.
-func parseFlowsFilter(c fiber.Ctx) (storage.FlowsFilter, error) {
+// parseFlowsFilter reads the optional mac, ip, network, from and to query
+// parameters. An invalid value is a client error rather than a reason to
+// return unfiltered data.
+func parseFlowsFilter(c fiber.Ctx, db *sql.DB) (storage.FlowsFilter, error) {
 	var filter storage.FlowsFilter
 
 	if value := c.Query("mac"); value != "" {
@@ -56,7 +57,29 @@ func parseFlowsFilter(c fiber.Ctx) (storage.FlowsFilter, error) {
 		filter.IP = ip
 	}
 
+	if value := c.Query("network"); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 {
+			return filter, badRequest("invalid network id: " + value)
+		}
+		matcher, err := storage.NetworkMatcher(db)
+		if err != nil {
+			return filter, err
+		}
+		scope, ok := matcher.Scope(id)
+		if !ok {
+			return filter, errNetworkNotFound
+		}
+		filter.Network = &scope
+	}
+
 	return filter, parseTimeRange(c, &filter)
+}
+
+// hasSubject reports whether a filter selects a client or a network, whose
+// side traffic is counted from.
+func hasSubject(filter storage.FlowsFilter) bool {
+	return filter.MAC != nil || filter.IP != nil || filter.Network != nil
 }
 
 // parseClientFilter accepts a client identified by either MAC or IP address

@@ -11,6 +11,9 @@ import {
   fetchFlowSummary,
   fetchHostnames,
   fetchKnownDevices,
+  fetchNetworks,
+  fetchNetworkSuggestions,
+  fetchNetworkSummary,
   fetchNotificationChannels,
   fetchNotificationServices,
   fetchSession,
@@ -24,10 +27,14 @@ import { rangeStart, rangeStartWithPrevious, type RangeKey } from "@/lib/timeser
 
 export const REFRESH_INTERVAL = 60_000
 
-/** A client by MAC or IP address; empty for the whole network. */
+/**
+ * A client by MAC or IP address, or a network (such as a VLAN) by its ID;
+ * empty for everything.
+ */
 export interface ClientFilter {
   mac?: string
   ip?: string
+  network?: number
 }
 
 // Query keys hold the range ("7d"), not a timestamp: the window's start is
@@ -60,10 +67,11 @@ export function trafficQuery(range: RangeKey, client: ClientFilter = {}, app?: s
   })
 }
 
-export function devicesQuery(range: RangeKey) {
+/** Devices with traffic in the range; with a network, only its addresses. */
+export function devicesQuery(range: RangeKey, scope: Pick<ClientFilter, "network"> = {}) {
   return queryOptions({
-    queryKey: ["clients", range],
-    queryFn: () => fetchClients({ from: rangeStart(range, Date.now()) }),
+    queryKey: ["clients", range, scope],
+    queryFn: () => fetchClients({ ...scope, from: rangeStart(range, Date.now()) }),
     select: groupDevices,
   })
 }
@@ -164,4 +172,22 @@ export function alertQuery(id: number) {
     queryFn: () => fetchAlert(id),
     refetchInterval: REFRESH_INTERVAL,
   })
+}
+
+/** The networks, such as VLANs, devices are grouped into. */
+export function networksQuery() {
+  return queryOptions({ queryKey: ["networks"], queryFn: fetchNetworks })
+}
+
+/** Every network's traffic and devices over the range. */
+export function networkSummaryQuery(range: RangeKey) {
+  return queryOptions({
+    queryKey: ["network-summary", range],
+    queryFn: () => fetchNetworkSummary({ from: rangeStart(range, Date.now()) }),
+  })
+}
+
+/** Blocks of addresses known devices use that no network has yet. */
+export function networkSuggestionsQuery() {
+  return queryOptions({ queryKey: ["network-suggestions"], queryFn: fetchNetworkSuggestions })
 }

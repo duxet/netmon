@@ -132,6 +132,36 @@ Services that share infrastructure can't be told apart by IP (YouTube and other
 Google services; Facebook, Instagram and WhatsApp), and traffic served from shared
 CDNs such as Cloudflare or Akamai is reported as "Other".
 
+## Networks
+
+Group devices into networks, such as VLANs or subnets, under **Networks**: a network
+is a name and the blocks of addresses it uses, in CIDR notation (`192.168.20.0/24`,
+`fd00:20::/64`) or as single addresses. With no networks yet, the page lists the
+blocks your devices use (the `/24` or `/64` of each one's last address), each a click
+away from a network, and later the blocks of devices that are still in none.
+
+Each device is then shown with its network's name and color: on the Clients page,
+which can be filtered by network or to the devices in none, on its own page and in the
+Live view. Every network has a page with its traffic over time, devices, destinations,
+services, apps and countries, the Networks page compares them, and the dashboard shows
+the traffic of each.
+
+- An address belongs to the network with the most specific block that holds it, as a
+  router picks a route, so a network can sit inside another one's block: with
+  `10.0.0.0/8` for Home and `10.0.20.0/24` for IoT, the IoT subnet's addresses belong
+  to IoT and all others to Home. Two networks can't have the same block.
+- A network's traffic is counted from its side: download is what its addresses
+  received, from the internet or from other networks. Traffic between two networks
+  counts for both, so the traffic of all networks can add up to more than the whole
+  network's.
+- Devices are matched by their IP addresses only. The VLAN ID is only shown for
+  reference: netmon doesn't record VLAN tags. A device with
+  addresses in two networks, such as an IPv4 address in one and an IPv6 address in
+  another, is in both.
+- Matching happens when traffic is read, not when it is recorded, so a new or changed
+  network applies to past traffic too.
+- IPv6 blocks your provider delegates can change; update the network when they do.
+
 ## Live view
 
 The Live page (`/live`) shows what each device is using right now: download and upload
@@ -337,18 +367,25 @@ rounded to whole hours.
 | Endpoint | Parameters |
 |----------|------------|
 | `GET /api/session` | |
-| `GET /api/stats` | `from`, `to` |
-| `GET /api/clients` | `from`, `to` |
-| `GET /api/apps` | `mac` or `ip`, `from`, `to` |
-| `GET /api/traffic-measurements` | `mac` or `ip`, `app`, `from`, `to` |
-| `GET /api/flows` | `mac` or `ip`, `from`, `to`, `q`, `sort`, `order`, `limit`, `offset` |
+| `GET /api/stats` | `network`, `from`, `to` |
+| `GET /api/clients` | `network`, `from`, `to` |
+| `GET /api/apps` | `mac`, `ip` or `network`, `from`, `to` |
+| `GET /api/traffic-measurements` | `mac`, `ip` or `network`, `app`, `from`, `to` |
+| `GET /api/flows` | `mac`, `ip` or `network`, `from`, `to`, `q`, `sort`, `order`, `limit`, `offset` |
 | `GET /api/clients/:mac-or-ip/flows` | as `/api/flows` |
-| `GET /api/flows/summary` | `mac` or `ip`, `from`, `to`, `top` |
+| `GET /api/flows/summary` | `mac`, `ip` or `network`, `from`, `to`, `top` |
 | `GET /api/live` | `since` |
 | `POST /api/hostnames` | body `{"ip_addresses": [...]}`, at most 256 |
 | `GET /api/devices` | |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
+| `GET /api/networks` | |
+| `POST /api/networks` | body `{"name": "...", "prefixes": ["192.168.20.0/24", ...], "vlan": 20, "color": "orange"}` |
+| `GET /api/networks/summary` | `from`, `to` |
+| `GET /api/networks/suggestions` | |
+| `GET /api/networks/:id` | |
+| `PUT /api/networks/:id` | body as for `POST` |
+| `DELETE /api/networks/:id` | |
 | `GET /api/notification-services` | |
 | `GET /api/notification-channels` | |
 | `POST /api/notification-channels` | body `{"name": "...", "url": "...", "enabled": true}` |
@@ -370,6 +407,10 @@ rounded to whole hours.
 
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
+- With `network` (a network's `ID`), traffic is that of flows with either side in the
+  network, counted from the network's side as for a client. `/api/clients` instead
+  lists the clients whose own address is in the network, and `/api/stats` counts only
+  those. An unknown network is answered with a 404.
 - `app` is an app name from `/api/apps`, or `Other`.
 - Flows: `q` matches part of an IP address, a port or a protocol; `sort` is
   `total` (default), `download`, `upload` or `packets`; `order` is `desc`
@@ -391,6 +432,22 @@ rounded to whole hours.
   `LastSeen`, and `Name`, `Hostname` and `Vendor` as for clients. Unlike
   `/api/clients` it has no time range and includes devices that only
   received connections, such as a NAS.
+- Clients and devices have the `NetworkID` of the network their IP address belongs to,
+  or null.
+- A network has an `ID`, `Name`, `VLAN` (null without one), `Color`, `Prefixes`,
+  `CreatedAt` and `UpdatedAt`. `prefixes` are 1 to 32 blocks in CIDR notation or single
+  addresses, with host bits cleared (`192.168.20.1/24` is `192.168.20.0/24`); `vlan` is
+  1 to 4094, or null; `color` is `blue`, `orange`, `aqua`, `yellow`, `magenta`,
+  `green`, `violet` or `red`. A new network without a color gets one no other network
+  has, and an update without one keeps it; otherwise an update replaces everything.
+  A name (in any case) or a block another network has already is answered with a 409.
+- `/api/networks/summary` answers `{"Networks": [{"NetworkID", "Devices", "Download",
+  "Upload", "Packets"}], "UnassignedDevices"}`, every network's traffic from its side and
+  its number of devices with traffic, and the number of devices with no address in any
+  network.
+- `/api/networks/suggestions` lists up to 10 blocks of addresses no network has, as
+  `[{"Prefix", "Devices"}]`: the `/24` (IPv4) or `/64` (IPv6) of each known device's last
+  address, most devices first.
 - `/api/notification-services` lists the services channels can use, the common ones
   first with an `ExampleURL`, each with its `DocsURL`.
 - Notification channels have an `ID`, `Name`, `Service` (the URL's scheme), `Enabled`,
@@ -462,6 +519,8 @@ answered with a 401.
 - [x] Live view of current bandwidth per device
 - [x] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
 - [x] Single sign-on with OpenID Connect, such as Pocket ID
+- [x] Networks (VLANs, subnets) to group devices by address, with a summary for each
+- [ ] Limit alert rules to a network, and name the network in alerts
 - [ ] Monthly usage per device, for ISP data caps
 - [ ] CSV export
 

@@ -49,6 +49,8 @@ export function normalizeMac(value: string): string {
 export interface DeviceAddress {
   ip: string
   hostname: string | null
+  /** The network the address belongs to, if any. */
+  networkId: number | null
   traffic: Traffic
 }
 
@@ -61,6 +63,8 @@ export interface Device {
   /** Manufacturer of the network interface, from its MAC address. */
   vendor: string | null
   addresses: DeviceAddress[]
+  /** IDs of the networks the device's addresses belong to, busiest address first. */
+  networks: number[]
   traffic: Traffic
   /** Bytes received by the device (download). */
   download: number
@@ -84,6 +88,7 @@ export function groupDevices(clients: Client[]): Device[] {
         hostname: null,
         vendor: client.Vendor,
         addresses: [],
+        networks: [],
         traffic: EMPTY_TRAFFIC,
         download: 0,
         upload: 0,
@@ -96,6 +101,7 @@ export function groupDevices(clients: Client[]): Device[] {
     device.addresses.push({
       ip: client.Endpoint.IPAddress,
       hostname,
+      networkId: client.NetworkID ?? null,
       traffic: client.Traffic,
     })
     device.traffic = addTraffic(device.traffic, client.Traffic)
@@ -113,6 +119,9 @@ export function groupDevices(clients: Client[]): Device[] {
       (a, b) =>
         b.traffic.InBytes + b.traffic.OutBytes - (a.traffic.InBytes + a.traffic.OutBytes)
     )
+    device.networks = [
+      ...new Set(device.addresses.flatMap((address) => (address.networkId === null ? [] : [address.networkId]))),
+    ]
   }
   return devices.sort((a, b) => b.total - a.total)
 }
