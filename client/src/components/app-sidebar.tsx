@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { LayoutDashboardIcon, MonitorSmartphoneIcon, RadarIcon, RadioIcon } from "lucide-react"
+import { BellIcon, LayoutDashboardIcon, MonitorSmartphoneIcon, RadarIcon, RadioIcon } from "lucide-react"
 import type * as React from "react"
 
 import {
@@ -82,6 +82,26 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   )}
                 </SidebarMenuItem>
               ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Settings</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/settings/notifications"}
+                  tooltip="Notifications"
+                >
+                  <Link to="/settings/notifications" onClick={closeOnMobile}>
+                    <BellIcon />
+                    <span>Notifications</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

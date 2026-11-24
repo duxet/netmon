@@ -131,3 +131,28 @@ type LiveDeviceDTO struct {
 	Download uint64
 	Upload   uint64
 }
+
+// NotificationServiceDTO is a service notification channels can use.
+type NotificationServiceDTO struct {
+	Scheme string
+	Name   string
+	// ExampleURL shows the service URL format, with placeholders in
+	// capitals. It is empty for the less common services.
+	ExampleURL string
+	// DocsURL explains where to find the values the URL needs.
+	DocsURL string
+}
+
+// NotificationChannelDTO is a notification channel. Its URL holds the
+// service's credentials, so only a masked form is returned.
+type NotificationChannelDTO struct {
+	ID   int64
+	Name string
+	// Service is the URL's scheme, e.g. "telegram".
+	Service string
+	// MaskedURL is the URL with its secrets replaced by "REDACTED".
+	MaskedURL string
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}

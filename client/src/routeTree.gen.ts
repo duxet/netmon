@@ -14,6 +14,7 @@ import { Route as ClientsRouteRouteImport } from './routes/clients/route'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as ClientsIndexRouteImport } from './routes/clients/index'
 import { Route as ClientsClientIdRouteImport } from './routes/clients/$clientId'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,18 +41,25 @@ const ClientsClientIdRoute = ClientsClientIdRouteImport.update({
   path: '/$clientId',
   getParentRoute: () => ClientsRouteRoute,
 } as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/settings/notifications',
+  path: '/settings/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteRouteWithChildren
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients/': typeof ClientsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients': typeof ClientsIndexRoute
 }
 export interface FileRoutesById {
@@ -60,21 +68,40 @@ export interface FileRoutesById {
   '/clients': typeof ClientsRouteRouteWithChildren
   '/live': typeof LiveRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/clients/': typeof ClientsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/clients' | '/live' | '/clients/$clientId' | '/clients/'
+  fullPaths:
+    | '/'
+    | '/clients'
+    | '/live'
+    | '/clients/$clientId'
+    | '/settings/notifications'
+    | '/clients/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/live' | '/clients/$clientId' | '/clients'
+  to:
+    | '/'
+    | '/live'
+    | '/clients/$clientId'
+    | '/settings/notifications'
+    | '/clients'
   id:
-    '__root__' | '/' | '/clients' | '/live' | '/clients/$clientId' | '/clients/'
+    | '__root__'
+    | '/'
+    | '/clients'
+    | '/live'
+    | '/clients/$clientId'
+    | '/settings/notifications'
+    | '/clients/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClientsRouteRoute: typeof ClientsRouteRouteWithChildren
   LiveRoute: typeof LiveRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -114,6 +141,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientsClientIdRouteImport
       parentRoute: typeof ClientsRouteRoute
     }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/settings/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -135,6 +169,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClientsRouteRoute: ClientsRouteRouteWithChildren,
   LiveRoute: LiveRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

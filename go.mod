@@ -1,6 +1,6 @@
 module github.com/duxet/netmon
 
-go 1.26.0
+go 1.27
 
 toolchain go1.27.4
 
@@ -21,6 +21,7 @@ require (
 	github.com/andybalholm/brotli v1.3.0 // indirect
 	github.com/apache/arrow-go/v18 v18.9.0 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.20001.0 // indirect
+	github.com/eclipse/paho.golang v0.23.0 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/goccy/go-json v0.12.0 // indirect
@@ -29,6 +30,7 @@ require (
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/klauspost/compress v1.20.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.2 // indirect
@@ -39,6 +41,7 @@ require (
 	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/socket v0.8.0 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
+	github.com/nicholas-fedor/shoutrrr v0.25.0 // indirect
 	github.com/oschwald/maxminddb-golang/v2 v2.9.1 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.34 // indirect
@@ -56,8 +59,16 @@ require (
 	go.duckdb.org/libduckdb/windows-amd64 v0.20001.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261124000051-d6646c509b6d // indirect
+	golang.org/x/mod v0.43.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
+	golang.org/x/oauth2 v0.38.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
+	golang.org/x/tools v0.53.0 // indirect
+	mellium.im/reader v0.1.0 // indirect
+	mellium.im/sasl v0.3.2 // indirect
+	mellium.im/xmlstream v0.15.4 // indirect
+	mellium.im/xmpp v0.23.0 // indirect
 )

@@ -109,12 +109,21 @@ export interface LiveSample {
 
 export class ApiError extends Error {
   readonly status: number
+  /** The API's own explanation, without the request it was about. */
+  readonly detail: string | undefined
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail?: string) {
     super(message)
     this.name = "ApiError"
     this.status = status
+    this.detail = detail
   }
+}
+
+/** What to tell people about a failed request: the API's reason if it gave one. */
+export function errorText(error: unknown): string {
+  if (error instanceof ApiError && error.detail) return error.detail
+  return error instanceof Error ? error.message : "The netmon API did not respond."
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -122,16 +131,22 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   if (!response.ok) {
     // The API answers errors with {"error": "..."}; proxies may not.
     const body: unknown = await response.json().catch(() => null)
-    const detail =
+    const reason =
       body && typeof body === "object" && "error" in body && typeof body.error === "string"
-        ? `: ${body.error}`
-        : ` ${response.statusText}`
+        ? body.error
+        : undefined
+    const detail = reason ? `: ${reason}` : ` ${response.statusText}`
     throw new ApiError(
       response.status,
-      `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status}${detail}`.trim()
+      `${init?.method ?? "GET"} ${decodeURIComponent(path)} failed with ${response.status}${detail}`.trim(),
+      reason
     )
   }
   return response
+}
+
+function jsonBody(method: string, body: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -241,4 +256,68 @@ export async function renameDevice(mac: string, name: string) {
 
 export async function resetDeviceName(mac: string) {
   await send(`/api/devices/${mac}/name`, { method: "DELETE" })
+}
+
+/** A service notification channels can use, from shoutrrr. */
+export interface NotificationService {
+  /** URL scheme, e.g. "telegram". */
+  Scheme: string
+  Name: string
+  /** The URL format, with placeholders in capitals. Empty for the less common services. */
+  ExampleURL: string
+  /** Explains where to find the values the URL needs. */
+  DocsURL: string
+}
+
+/** Where notifications go. */
+export interface NotificationChannel {
+  ID: number
+  Name: string
+  /** The URL's scheme, e.g. "telegram". */
+  Service: string
+  /**
+   * The service URL with its secrets replaced by "REDACTED". The URL holds the
+   * service's credentials, so the API never returns it whole.
+   */
+  MaskedURL: string
+  Enabled: boolean
+  CreatedAt: string
+  UpdatedAt: string
+}
+
+/** Changes to a channel. Fields left out (or an empty url) keep their value. */
+export interface NotificationChannelChanges {
+  name?: string
+  url?: string
+  enabled?: boolean
+}
+
+export function fetchNotificationServices() {
+  return requestList<NotificationService>("/api/notification-services")
+}
+
+export function fetchNotificationChannels() {
+  return requestList<NotificationChannel>("/api/notification-channels")
+}
+
+export function createNotificationChannel(channel: { name: string; url: string; enabled?: boolean }) {
+  return request<NotificationChannel>("/api/notification-channels", jsonBody("POST", channel))
+}
+
+export function updateNotificationChannel(id: number, changes: NotificationChannelChanges) {
+  return request<NotificationChannel>(`/api/notification-channels/${id}`, jsonBody("PUT", changes))
+}
+
+export async function deleteNotificationChannel(id: number) {
+  await send(`/api/notification-channels/${id}`, { method: "DELETE" })
+}
+
+/** Sends a test message through a saved channel. */
+export async function testNotificationChannel(id: number) {
+  await send(`/api/notification-channels/${id}/test`, { method: "POST" })
+}
+
+/** Sends a test message to a service URL that isn't saved yet. */
+export async function testNotificationURL(url: string, name?: string) {
+  await send("/api/notification-channels/test", jsonBody("POST", { url, name }))
 }

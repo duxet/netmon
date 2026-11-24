@@ -15,15 +15,21 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-const maxDeviceNameLength = 64
+const maxNameLength = 64
 
 // parseDeviceName trims a name and checks it is 1 to 64 printable characters.
 func parseDeviceName(name string) (string, error) {
+	return parseName(name, "name must not be empty; DELETE the name to remove it")
+}
+
+// parseName trims a name, of a device or a channel, and checks it is 1 to
+// 64 printable characters. emptyMessage explains an empty one.
+func parseName(name, emptyMessage string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", badRequest("name must not be empty; DELETE the name to remove it")
+		return "", badRequest(emptyMessage)
 	}
-	if utf8.RuneCountInString(name) > maxDeviceNameLength {
+	if utf8.RuneCountInString(name) > maxNameLength {
 		return "", badRequest("name must be at most 64 characters")
 	}
 	if strings.ContainsFunc(name, unicode.IsControl) {

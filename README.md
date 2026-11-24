@@ -147,6 +147,35 @@ How the rates are measured depends on the platform:
 - **macOS** counts packets as they are captured, all the time, so the history is already
   there when the page is opened.
 
+## Notifications
+
+netmon can send notifications through [shoutrrr](https://shoutrrr.nickfedor.com), which
+supports Telegram, ntfy, Discord, email (SMTP), Gotify, Pushover, Slack, Matrix, Home
+Assistant, plain JSON webhooks and more. Add channels under **Settings → Notifications**:
+a channel is a name and a shoutrrr service URL, such as
+`telegram://TOKEN@telegram?chats=CHAT_ID` or `ntfy://ntfy.sh/TOPIC`. The page shows the
+format of each service's URL and links to its documentation, which explains where to find
+the values. Send a test message to check that a channel works, before or after saving it.
+
+Alert rules that send to these channels are not there yet; see
+[docs/plans/notifications.md](docs/plans/notifications.md).
+
+Things to know:
+
+- A service URL holds the credentials needed to reach the service, such as a bot token
+  or an SMTP password. netmon stores it in `flows.db` as is, and never shows or logs it
+  again: the API returns it with its secrets replaced by `REDACTED`. To change a URL,
+  paste the whole new one.
+- Messages are plain text. Don't add `parsemode=HTML` or `Markdown` to a Telegram URL:
+  device names with characters such as `_` or `<` would break the formatting.
+- Webhook channels (`generic://HOST/PATH?template=json`, or `generic+https://...` in front
+  of any URL) get a JSON object with `title`, `message`, `level` and, for alerts, details
+  such as the device's address. Add headers as `@Header=value`, e.g.
+  `@Authorization=Bearer+TOKEN`.
+- The API has no authentication yet, so anyone who can reach netmon can see and change
+  the channels, and make netmon send requests to any URL. Only run it on a network you
+  trust.
+
 ## Configuration
 
 Hostnames are looked up with reverse DNS: local addresses on a server that
@@ -191,6 +220,14 @@ rounded to whole hours.
 | `GET /api/devices` | |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
+| `GET /api/notification-services` | |
+| `GET /api/notification-channels` | |
+| `POST /api/notification-channels` | body `{"name": "...", "url": "...", "enabled": true}` |
+| `GET /api/notification-channels/:id` | |
+| `PUT /api/notification-channels/:id` | body as for `POST`, every field optional |
+| `DELETE /api/notification-channels/:id` | |
+| `POST /api/notification-channels/:id/test` | |
+| `POST /api/notification-channels/test` | body `{"url": "...", "name": "..."}` |
 
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
@@ -215,6 +252,14 @@ rounded to whole hours.
   `LastSeen`, and `Name`, `Hostname` and `Vendor` as for clients. Unlike
   `/api/clients` it has no time range and includes devices that only
   received connections, such as a NAS.
+- `/api/notification-services` lists the services channels can use, the common ones
+  first with an `ExampleURL`, each with its `DocsURL`.
+- Notification channels have an `ID`, `Name`, `Service` (the URL's scheme), `Enabled`,
+  `CreatedAt` and `UpdatedAt`. Their URL is write-only: responses have `MaskedURL`, with
+  the secrets replaced by `REDACTED`. An update keeps the fields it leaves out, and an
+  empty `url` keeps the URL too. `enabled` defaults to true.
+- The test endpoints send a test message, to a saved channel or to a URL that isn't saved
+  yet, and answer 204. When the service fails, they answer 502 with its reason in `error`.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`.
 

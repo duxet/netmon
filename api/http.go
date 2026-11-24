@@ -308,6 +308,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	registerDeviceRoutes(app, db, hostnames)
+	registerNotificationRoutes(app, db)
 
 	meter := options.Live
 	if meter == nil {

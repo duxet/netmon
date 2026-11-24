@@ -6,6 +6,8 @@ import {
   fetchFlowsPage,
   fetchFlowSummary,
   fetchHostnames,
+  fetchNotificationChannels,
+  fetchNotificationServices,
   fetchStats,
   fetchTrafficMeasurements,
   type FlowsPageRequest,
@@ -89,5 +91,21 @@ export function useHostnames(ipAddresses: string[]) {
     staleTime: 15 * 60_000,
     refetchInterval: false,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function notificationChannelsQuery() {
+  return queryOptions({
+    queryKey: ["notification-channels"],
+    queryFn: fetchNotificationChannels,
+  })
+}
+
+/** The services shoutrrr supports; they only change with netmon itself. */
+export function notificationServicesQuery() {
+  return queryOptions({
+    queryKey: ["notification-services"],
+    queryFn: fetchNotificationServices,
+    staleTime: Infinity,
   })
 }
