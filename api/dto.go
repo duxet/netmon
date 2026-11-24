@@ -94,3 +94,23 @@ type FlowSummaryDTO struct {
 	Services  GroupsDTO
 	Countries GroupsDTO
 }
+
+// LiveSampleDTO is the traffic of the devices on the local network during one
+// interval, as measured by the live view.
+type LiveSampleDTO struct {
+	// Time is when the interval ended, to the millisecond.
+	Time time.Time
+	// Devices are the ones that had traffic; none in a quiet second.
+	Devices []LiveDeviceDTO
+}
+
+// LiveDeviceDTO is how much of the network a device used during a sample, from
+// its own side: Download is what it received.
+type LiveDeviceDTO struct {
+	MACAddress string
+	// IPAddress is an address the device used, or empty when that is not known.
+	IPAddress string
+	// Download and Upload are in bytes per second.
+	Download uint64
+	Upload   uint64
+}

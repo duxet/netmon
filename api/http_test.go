@@ -20,6 +20,13 @@ import (
 func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 	t.Helper()
 
+	// No GeoIP database and the system resolver: nothing here resolves names.
+	return newTestAppWith(t, Options{LocalDNS: "system", PublicDNS: "system"})
+}
+
+func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
+	t.Helper()
+
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +52,7 @@ func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 		"favicon.svg":     {Data: []byte("<svg/>")},
 	}
 
-	// No GeoIP database and the system resolver: nothing here resolves names.
-	return CreateHTTPApp(db, assets, Options{LocalDNS: "system", PublicDNS: "system"}), db
+	return CreateHTTPApp(db, assets, options), db
 }
 
 func do(t *testing.T, app *fiber.App, method, path, body string) (int, string) {
@@ -179,6 +185,7 @@ func TestWebUIRoutes(t *testing.T) {
 		// Client-side routes get the app shell...
 		{"/clients", fiber.StatusOK, "<title>netmon</title>"},
 		{"/clients/00:11:32:9b:c4:01", fiber.StatusOK, "<title>netmon</title>"},
+		{"/live", fiber.StatusOK, "<title>netmon</title>"},
 		// ...but missing files and API paths do not.
 		{"/assets/index-old.js", fiber.StatusNotFound, ""},
 		{"/api/nope", fiber.StatusNotFound, `"error"`},

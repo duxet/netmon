@@ -7,6 +7,7 @@ import (
 	"embed"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/collector"
+	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/storage"
 	"io/fs"
 	"log"
@@ -66,7 +67,11 @@ func main() {
 	}
 	compactionDone := compactPeriodically(ctx, db, time.Duration(retentionDays)*24*time.Hour)
 
-	coll, err := collector.CollectTraffic(db)
+	// The collector reports the traffic it sees to the meter as it happens, and
+	// the API serves what the meter measured to the live view.
+	meter := live.NewMeter()
+
+	coll, err := collector.CollectTraffic(db, meter)
 	if err != nil {
 		log.Println("Collector failed to start:", err)
 	}
@@ -80,6 +85,7 @@ func main() {
 		GeoIPDatabase: "GeoLite2-Country.mmdb",
 		LocalDNS:      envOr("NETMON_LOCAL_DNS", "192.168.1.1:54"),
 		PublicDNS:     envOr("NETMON_PUBLIC_DNS", "8.8.8.8:53"),
+		Live:          meter,
 	})
 
 	go func() {

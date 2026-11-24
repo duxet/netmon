@@ -11,6 +11,7 @@ import (
 
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
@@ -27,6 +28,9 @@ type Options struct {
 	// local and public addresses: "host", "host:port" or "system".
 	LocalDNS  string
 	PublicDNS string
+	// Live is the meter the collectors report the current bandwidth of
+	// devices to, for /api/live. Without one the live view stays empty.
+	Live *live.Meter
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -301,6 +305,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	registerDeviceRoutes(app, db)
+
+	meter := options.Live
+	if meter == nil {
+		meter = live.NewMeter()
+	}
+	registerLiveRoutes(app, meter)
 
 	type HostnamesBody struct {
 		IPAddresses []string `json:"ip_addresses"`

@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/netip"
 	"sync"
+
+	"github.com/duxet/netmon/live"
 )
 
 // This file is the platform independent half of the packet capture
@@ -130,6 +132,10 @@ type flowTable struct {
 	local    []netip.Prefix
 	maxFlows int
 	dropped  uint64
+
+	// meter, if set, is told about the traffic of the local devices as it
+	// happens, for the live view.
+	meter *live.Meter
 }
 
 func newFlowTable() *flowTable {
@@ -178,6 +184,25 @@ func (t *flowTable) Add(p packetInfo) {
 
 	t.learnMAC(from, p.src.mac)
 	t.learnMAC(to, p.dst.mac)
+
+	t.recordLive(from, to, p.length)
+}
+
+// recordLive tells the live view about a packet, for each of its ends that is a
+// device on the local network. Only those have a MAC address, which is what
+// devices are told apart by.
+func (t *flowTable) recordLive(from, to *flowSide, length uint64) {
+	if t.meter == nil {
+		return
+	}
+
+	if from.mac.valid {
+		t.meter.Record(live.MAC(from.mac.addr), from.ip, 0, length)
+	}
+
+	if to.mac.valid {
+		t.meter.Record(live.MAC(to.mac.addr), to.ip, length, 0)
+	}
 }
 
 // learnMAC remembers the MAC address of a host, but only if it is on the

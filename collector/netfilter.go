@@ -4,10 +4,12 @@ package collector
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/live"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
@@ -217,8 +219,11 @@ func dumpFlows(db *sql.DB) error {
 	return nil
 }
 
-func CollectTraffic(db *sql.DB) (*Collector, error) {
+// CollectTraffic records traffic to the database every minute, and, while the
+// meter is being watched, measures it every second for the live view.
+func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
 	shutdownChan := make(chan bool, 1)
+	sampler := newLiveSampler(meter, &netfilterSource{})
 
 	s, err := gocron.NewScheduler()
 	if err != nil {
@@ -265,11 +270,17 @@ func CollectTraffic(db *sql.DB) (*Collector, error) {
 			lock.Lock()
 			closedFlows[ev.Flow.ID] = *ev.Flow
 			lock.Unlock()
+
+			sampler.destroyed(*ev.Flow)
 		}
 	}()
 
+	ctx, stopSampling := context.WithCancel(context.Background())
+	go sampler.run(ctx)
+
 	go func() {
 		<-shutdownChan
+		stopSampling()
 		c.Close()
 	}()
 

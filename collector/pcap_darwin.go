@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/duxet/netmon/live"
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/pcap"
 )
@@ -51,8 +52,11 @@ type pcapCollector struct {
 	iface atomic.Value // string, the interface being captured on
 }
 
-func CollectTraffic(db *sql.DB) (*Collector, error) {
+// CollectTraffic records traffic to the database every minute, and tells the
+// meter about it as it happens for the live view.
+func CollectTraffic(db *sql.DB, meter *live.Meter) (*Collector, error) {
 	c := &pcapCollector{db: db, table: newFlowTable()}
+	c.table.meter = meter
 
 	// Open it before returning, so that problems such as missing permissions
 	// are reported to the caller.
@@ -65,6 +69,10 @@ func CollectTraffic(db *sql.DB) (*Collector, error) {
 	shutdownChan := make(chan bool, 1)
 	captureDone := make(chan struct{})
 	done := make(chan struct{})
+
+	// Packets are already being counted, so unlike with Netfilter there is
+	// nothing to save by measuring only while the live view is watched.
+	go meter.Run(ctx, live.Interval)
 
 	go func() {
 		defer close(captureDone)
