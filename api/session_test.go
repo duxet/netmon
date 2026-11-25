@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/auth"
-	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
@@ -32,7 +31,7 @@ func newSignInApp(t *testing.T) (*fiber.App, *sql.DB) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return Options{Hostnames: lookup.NewHostnames("system", "system"), Auth: authn}
+		return Options{Auth: authn}
 	})
 }
 

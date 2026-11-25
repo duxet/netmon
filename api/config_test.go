@@ -10,7 +10,6 @@ import (
 
 	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/config"
-	"github.com/duxet/netmon/lookup"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -32,7 +31,7 @@ func newConfigApp(t *testing.T, content string) (*fiber.App, string, *[]config.C
 
 	var applied []config.Config
 	editor := config.NewEditor(path, *cfg, func(c config.Config) { applied = append(applied, c) })
-	app, _ := newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system"), Config: editor})
+	app, _ := newTestAppWith(t, Options{Config: editor})
 	return app, path, &applied
 }
 

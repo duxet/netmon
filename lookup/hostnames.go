@@ -70,9 +70,20 @@ type Hostnames struct {
 // and publicDNS about public ones. Each is "host", "host:port", or "system"
 // (or "") for the operating system's resolver.
 func NewHostnames(localDNS, publicDNS string) *Hostnames {
+	return newHostnames(dnsLookup(localDNS), dnsLookup(publicDNS))
+}
+
+// NewHostnamesFunc returns a resolver that looks up local and public
+// addresses alike with lookup, which works as net.Resolver's LookupAddr does.
+// It lets tests answer without asking a DNS server.
+func NewHostnamesFunc(lookup func(ctx context.Context, addr string) ([]string, error)) *Hostnames {
+	return newHostnames(lookup, lookup)
+}
+
+func newHostnames(local, public lookupFunc) *Hostnames {
 	return &Hostnames{
-		local:       dnsLookup(localDNS),
-		public:      dnsLookup(publicDNS),
+		local:       local,
+		public:      public,
 		timeout:     lookupTimeout,
 		concurrency: lookupConcurrency,
 		now:         time.Now,

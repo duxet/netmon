@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/live"
-	"github.com/duxet/netmon/lookup"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -34,7 +33,7 @@ func newLiveTestApp(t *testing.T, seconds int) (*fiber.App, *live.Meter) {
 		meter.Tick(liveStart.Add(time.Duration(i) * time.Second))
 	}
 
-	app, _ := newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system"), Live: meter})
+	app, _ := newTestAppWith(t, Options{Live: meter})
 
 	return app, meter
 }
@@ -102,7 +101,7 @@ func TestLiveSampleTimesSurviveTheRoundTrip(t *testing.T) {
 	meter := live.NewMeter()
 	meter.Tick(liveStart)
 	meter.Tick(liveStart.Add(time.Second + 123_456_789*time.Nanosecond))
-	app, _ := newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system"), Live: meter})
+	app, _ := newTestAppWith(t, Options{Live: meter})
 
 	_, body := do(t, app, "GET", "/api/live", "")
 	if !strings.Contains(body, `"Time":"2026-11-24T10:00:01.123Z"`) {
@@ -131,7 +130,7 @@ func TestLiveEncodesNoSamplesAndQuietSecondsAsEmptyLists(t *testing.T) {
 	meter := live.NewMeter()
 	meter.Tick(liveStart)
 	meter.Tick(liveStart.Add(time.Second))
-	app, _ = newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system"), Live: meter})
+	app, _ = newTestAppWith(t, Options{Live: meter})
 
 	_, body := do(t, app, "GET", "/api/live", "")
 	if !strings.Contains(body, `"Devices":[]`) {
@@ -153,7 +152,7 @@ func TestLiveLeavesOutDevicesBelowAByte(t *testing.T) {
 	meter.Record(laptopMAC, netip.Addr{}, 1, 0) // over 10 seconds: 0.1 bytes per second
 	meter.Record(phoneMAC, netip.Addr{}, 0, 24) // 2.4 bytes per second
 	meter.Tick(liveStart.Add(10 * time.Second))
-	app, _ := newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system"), Live: meter})
+	app, _ := newTestAppWith(t, Options{Live: meter})
 
 	samples := getLive(t, app, "")
 	if len(samples) != 1 || len(samples[0].Devices) != 1 {

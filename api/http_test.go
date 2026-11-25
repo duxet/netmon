@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -21,8 +22,14 @@ import (
 func newTestApp(t *testing.T) (*fiber.App, *sql.DB) {
 	t.Helper()
 
-	// No GeoIP database and the system resolver: nothing here resolves names.
-	return newTestAppWith(t, Options{Hostnames: lookup.NewHostnames("system", "system")})
+	return newTestAppWith(t, Options{})
+}
+
+// noHostnames knows no names. Tests use it rather than the system resolver,
+// which may well name private addresses: GitHub's runners on AWS call
+// 192.168.1.10 ip-192-168-1-10.ec2.internal.
+func noHostnames() *lookup.Hostnames {
+	return lookup.NewHostnamesFunc(func(context.Context, string) ([]string, error) { return nil, nil })
 }
 
 func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
@@ -32,7 +39,8 @@ func newTestAppWith(t *testing.T, options Options) (*fiber.App, *sql.DB) {
 }
 
 // newTestAppFor is newTestAppWith for options that need the database, such as
-// the sign-in's, which keeps its sessions there.
+// the sign-in's, which keeps its sessions there. The app has no GeoIP
+// database, and unless the options say otherwise, no hostnames.
 func newTestAppFor(t *testing.T, options func(db *sql.DB) Options) (*fiber.App, *sql.DB) {
 	t.Helper()
 
@@ -61,7 +69,11 @@ func newTestAppFor(t *testing.T, options func(db *sql.DB) Options) (*fiber.App, 
 		"favicon.svg":     {Data: []byte("<svg/>")},
 	}
 
-	return CreateHTTPApp(db, assets, options(db)), db
+	opts := options(db)
+	if opts.Hostnames == nil {
+		opts.Hostnames = noHostnames()
+	}
+	return CreateHTTPApp(db, assets, opts), db
 }
 
 func do(t *testing.T, app *fiber.App, method, path, body string) (int, string) {
