@@ -26,7 +26,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRange } from "@/hooks/use-range"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { countryFlag, countryName, deviceLabel, deviceLabelsByIp, parseServiceKey, serviceLabel } from "@/lib/network"
+import { asnLabel, countryFlag, countryName, deviceLabel, deviceLabelsByIp, parseServiceKey, serviceLabel } from "@/lib/network"
 import { useNetworks } from "@/lib/networks"
 import { devicesQuery, flowSummaryQuery, networksQuery, trafficQuery, useHostnames } from "@/lib/queries"
 import { OTHER_KEY, toRanked } from "@/lib/ranked"
@@ -116,6 +116,10 @@ function NetworkPage({ id }: { id: number }) {
     return serviceLabel(protocol, port)
   })
   const countries = toRanked(summary.data?.Countries, (code) => `${countryFlag(code)} ${countryName(code)}`)
+  const asns = toRanked(summary.data?.ASNs, (number, group) => asnLabel(number, group.Label))
+  // The cards sit in two columns: the last one takes both when it would be alone.
+  const cardCount = 4 + (countries.length > 0 ? 1 : 0) + (asns.length > 0 ? 1 : 0)
+  const lastCardSpans = cardCount % 2 === 1
 
   const topDevices: RankedRow[] = (devices.data ?? []).slice(0, TOP_DEVICES).map((device) => ({
     key: device.mac,
@@ -291,12 +295,23 @@ function NetworkPage({ id }: { id: number }) {
 
             {countries.length > 0 && (
               <ChartCard
-                className="lg:col-span-2"
+                className={lastCardSpans && asns.length === 0 ? "lg:col-span-2" : undefined}
                 title="Countries"
                 description="Where remote hosts are located, from GeoIP"
                 table={<RankedTable rows={countries} labelHeader="Country" />}
               >
                 <RankedBarChart rows={countries} />
+              </ChartCard>
+            )}
+
+            {asns.length > 0 && (
+              <ChartCard
+                className={lastCardSpans ? "lg:col-span-2" : undefined}
+                title="Networks"
+                description="Which organizations' networks remote hosts are in, from GeoIP"
+                table={<RankedTable rows={asns} labelHeader="Network" />}
+              >
+                <RankedBarChart rows={asns} />
               </ChartCard>
             )}
           </div>

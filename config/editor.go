@@ -29,6 +29,7 @@ var infos = map[string]info{
 	"listen":               {locked: "netmon would have to start again on the new address, which could leave the web UI out of reach."},
 	"database":             {locked: "A new path would start netmon with an empty database."},
 	"geoip_country":        {},
+	"geoip_asn":            {},
 	"local_dns":            {live: true},
 	"public_dns":           {live: true},
 	"retention_days":       {live: true},

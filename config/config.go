@@ -58,6 +58,11 @@ type Config struct {
 	// file, or when it is empty, flows have no country.
 	GeoIPCountry string `koanf:"geoip_country"`
 
+	// GeoIPASN is the path of the GeoLite2-ASN database. Without the file, or
+	// when it is empty, remote hosts have no autonomous system and apps are
+	// recognized by their built-in prefixes alone.
+	GeoIPASN string `koanf:"geoip_asn"`
+
 	// LocalDNS and PublicDNS are the servers that reverse lookups of local and
 	// public addresses go to: "host", "host:port" or "system" for the
 	// operating system's resolver.
@@ -99,6 +104,7 @@ func Defaults() Config {
 		Listen:             ":2137",
 		Database:           "flows.db",
 		GeoIPCountry:       "GeoLite2-Country.mmdb",
+		GeoIPASN:           "GeoLite2-ASN.mmdb",
 		LocalDNS:           "192.168.1.1:54",
 		PublicDNS:          "8.8.8.8:53",
 		AlertRetentionDays: 30,

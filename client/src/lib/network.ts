@@ -318,6 +318,16 @@ export function countryName(code: string): string {
   }
 }
 
+/** "AS15169", the way autonomous systems are written. */
+export function asnNumber(number: number | string): string {
+  return `AS${number}`
+}
+
+/** "AS15169 · GOOGLE", or just the number when the organization isn't known. */
+export function asnLabel(number: number | string, organization?: string): string {
+  return organization ? `${asnNumber(number)} · ${organization}` : asnNumber(number)
+}
+
 export function countryFlag(code: string): string {
   if (!/^[a-z]{2}$/i.test(code)) return ""
   return String.fromCodePoint(

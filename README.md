@@ -130,7 +130,12 @@ The dashboard and client pages show how much traffic went to popular services
 (YouTube/Google, Telegram, X, Meta, Netflix, Apple, TikTok, Spotify, Twitch, Steam).
 Apps are recognized by the remote IP address, using a built-in list of networks
 each service operates. For better coverage, put `GeoLite2-ASN.mmdb` (from MaxMind)
-next to the binary: addresses will then also be matched by the service's ASN.
+next to the binary, or point `geoip_asn` at it: addresses will then also be matched
+by the service's ASN.
+
+The same database shows who runs each remote host: client and network pages list the
+autonomous system (`AS15169 GOOGLE`) next to a host's country and rank the traffic by
+network, which also names the organizations behind traffic that matches no known app.
 
 Services that share infrastructure can't be told apart by IP (YouTube and other
 Google services; Facebook, Instagram and WhatsApp), and traffic served from shared
@@ -147,7 +152,7 @@ away from a network, and later the blocks of devices that are still in none.
 Each device is then shown with its network's name and color: on the Clients page,
 which can be filtered by network or to the devices in none, on its own page and in the
 Live view. Every network has a page with its traffic over time, devices, destinations,
-services, apps and countries, the Networks page compares them, and the dashboard shows
+services, apps, countries and networks, the Networks page compares them, and the dashboard shows
 the traffic of each.
 
 - An address belongs to the network with the most specific block that holds it, as a
@@ -324,6 +329,7 @@ a typo doesn't go unnoticed.
 | `listen`               | `NETMON_LISTEN`               | `:2137`                  | Address of the API and web UI, as `host:port` or `:port`           |
 | `database`             | `NETMON_DATABASE`             | `flows.db`               | Path of the database file                                          |
 | `geoip_country`        | `NETMON_GEOIP_COUNTRY`        | `GeoLite2-Country.mmdb`  | Path of the GeoIP country database; empty in the file turns countries off |
+| `geoip_asn`            | `NETMON_GEOIP_ASN`            | `GeoLite2-ASN.mmdb`      | Path of the GeoIP ASN database; empty in the file turns networks off, and apps go by their built-in prefixes |
 | `local_dns`            | `NETMON_LOCAL_DNS`            | `192.168.1.1:54`         | DNS server for reverse lookups of local addresses                  |
 | `public_dns`           | `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`             | DNS server for reverse lookups of public addresses                 |
 | `retention_days`       | `NETMON_RETENTION_DAYS`       | `0` (keep all)           | Days to keep hourly flow data                                      |
@@ -349,7 +355,8 @@ knows your DHCP names, public addresses on a public resolver. Set either to
 `host`, `host:port` or `system` (the OS resolver). Lookups time out after 2
 seconds and are cached (names for an hour, failures for a minute). Countries
 need the GeoIP database at `geoip_country` (by default `GeoLite2-Country.mmdb`
-in the working directory) when netmon starts.
+in the working directory) when netmon starts, and networks (autonomous systems)
+the one at `geoip_asn` (`GeoLite2-ASN.mmdb`).
 
 Flows are recorded every minute. At startup and then every hour, the minutes
 of complete hours are rolled up into one row per flow and hour, so the
@@ -447,7 +454,9 @@ rounded to whole hours.
   (default) or `asc`; `limit` is at most 1000 (all flows without it). The
   number of matching flows is in the `X-Total-Count` header.
 - The summary has totals and the `top` (default 8) remote hosts, services
-  (`"protocol/port"`) and countries, plus the sum of the rest.
+  (`"protocol/port"`), countries and autonomous systems (`ASNs`, keyed by AS number
+  with the organization as `Label`), plus the sum of the rest. `/api/flows` has the
+  `ASN` (`Number` and `Organization`) of each endpoint next to its `Country`.
 - Device names are keyed by MAC address and returned by `/api/clients` as
   `Name`, next to the reverse-DNS `Hostname` and the `Vendor` of the MAC
   address (null when unknown or randomized).
@@ -570,7 +579,7 @@ the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 - [ ] Add frontend unit tests for flow direction and time-series code
 - [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`
 - [x] Make port, database path, the GeoIP country path and DNS servers configurable via a YAML file or environment variables
-- [ ] Make the path of `GeoLite2-ASN.mmdb` configurable too
+- [x] Make the path of `GeoLite2-ASN.mmdb` configurable too
 - [ ] Add collectors for other platforms (Windows, BSD)
 
 ## Development

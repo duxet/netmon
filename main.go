@@ -8,6 +8,7 @@ import (
 	"flag"
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/api"
+	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
@@ -89,6 +90,11 @@ func main() {
 
 	countries := lookup.OpenCountries(cfg.GeoIPCountry)
 	defer countries.Close()
+	// One ASN database serves both the app classifier and the autonomous
+	// systems the web UI shows.
+	asns := lookup.OpenASNs(cfg.GeoIPASN)
+	defer asns.Close()
+	classifier := apps.NewClassifierWithASNs(apps.Known, asns)
 	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
 
 	// Alert rules are evaluated after every collection round, which also
@@ -96,9 +102,10 @@ func main() {
 	// sent in the background.
 	dispatcher := notify.NewDispatcher(db, notify.DispatcherOptions{})
 	engine := alerting.NewEngine(db, dispatcher, alerting.Options{
-		Hostnames: hostnames,
-		Countries: countries,
-		PublicURL: cfg.BaseURL(),
+		Hostnames:  hostnames,
+		Countries:  countries,
+		Classifier: classifier,
+		PublicURL:  cfg.BaseURL(),
 	})
 	engineDone := make(chan struct{})
 	go func() {
@@ -161,7 +168,7 @@ func main() {
 	}
 
 	app := api.CreateHTTPApp(db, assets, api.Options{
-		Countries: countries, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
+		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
 	})
 
 	go func() {

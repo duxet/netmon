@@ -351,6 +351,14 @@ function ConfigurationForm({ config }: { config: Configuration }) {
             </>
           ),
         })}
+        {field("geoip_asn", {
+          description: (
+            <>
+              Path of <code>GeoLite2-ASN.mmdb</code> from MaxMind, for the networks of remote hosts and to
+              recognize apps; relative paths start in netmon's working directory.
+            </>
+          ),
+        })}
         {config.OS === "darwin" &&
           field("interface", {
             description: "The network interface to capture packets on, such as en0.",

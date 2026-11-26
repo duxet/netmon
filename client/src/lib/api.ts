@@ -7,6 +7,14 @@ export interface Endpoint {
   IPAddress: string
   /** ISO 3166-1 alpha-2 code from GeoIP. Only set by /api/flows. */
   Country?: string | null
+  /** Autonomous system from GeoIP. Only set by /api/flows, and only with a GeoLite2-ASN database. */
+  ASN?: AutonomousSystem | null
+}
+
+/** The network of an ISP, a cloud provider or another organization. */
+export interface AutonomousSystem {
+  Number: number
+  Organization: string
 }
 
 export interface Traffic {
@@ -67,8 +75,10 @@ export const OTHER_APP = "Other"
 
 /** Traffic of a group of flows, seen from the client a summary is for. */
 export interface Group {
-  /** An IP address, "protocol/port" (e.g. "6/443") or an ISO country code. */
+  /** An IP address, "protocol/port" (e.g. "6/443"), an ISO country code or an AS number (e.g. "15169"). */
   Key: string
+  /** More about the key where it needs it: the organization of an AS number. Empty otherwise. */
+  Label: string
   Download: number
   Upload: number
   Connections: number
@@ -90,6 +100,8 @@ export interface FlowSummary {
   TopPeers: Groups
   Services: Groups
   Countries: Groups
+  /** Remote hosts by autonomous system; empty without a GeoLite2-ASN database. */
+  ASNs: Groups
 }
 
 /** What one device used during a live sample, in bytes per second from its own side. */

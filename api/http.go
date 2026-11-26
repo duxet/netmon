@@ -29,6 +29,12 @@ type Options struct {
 	// Countries resolves addresses to countries. Without it, flows have no
 	// countries.
 	Countries *lookup.Countries
+	// ASNs resolves addresses to autonomous systems. Without it, flows have
+	// no autonomous systems.
+	ASNs *lookup.ASNs
+	// Classifier recognizes the apps remote hosts belong to. Without it, the
+	// default one is used.
+	Classifier *apps.Classifier
 	// Hostnames does reverse DNS lookups. Without it, the system resolver
 	// is used for all addresses.
 	Hostnames *lookup.Hostnames
@@ -52,7 +58,7 @@ const maxHostnamesPerRequest = 256
 // totalCountHeader carries the number of flows matching a paged request.
 const totalCountHeader = "X-Total-Count"
 
-func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries) []FlowDTO {
+func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.ASNs) []FlowDTO {
 	var dtos []FlowDTO
 
 	for _, flow := range flows {
@@ -62,11 +68,13 @@ func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries) []FlowDTO {
 				MACAddress: record.SourceMACAddress,
 				IPAddress:  record.SourceIPAddress,
 				Country:    countries.Country(record.SourceIPAddress),
+				ASN:        asnOf(asns, record.SourceIPAddress),
 			},
 			Destination: EndpointDTO{
 				MACAddress: record.DestinationMACAddress,
 				IPAddress:  record.DestinationIPAddress,
 				Country:    countries.Country(record.DestinationIPAddress),
+				ASN:        asnOf(asns, record.DestinationIPAddress),
 			},
 			IPProto: record.IPProto,
 			Port:    record.Port,
@@ -105,6 +113,11 @@ func spaFallback(assets fs.FS) fiber.Handler {
 // at its root.
 func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	countries := options.Countries
+	asns := options.ASNs
+	classifier := options.Classifier
+	if classifier == nil {
+		classifier = apps.Default()
+	}
 	hostnames := options.Hostnames
 	if hostnames == nil {
 		hostnames = lookup.NewHostnames("system", "system")
@@ -135,7 +148,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		flows, total := pageFlows(orientFlows(records, filter), page, hasSubject(filter))
 		c.Set(totalCountHeader, strconv.Itoa(total))
 
-		return c.JSON(toFlowDTOs(flows, countries))
+		return c.JSON(toFlowDTOs(flows, countries, asns))
 	}
 
 	app.Get("/api/flows", func(c fiber.Ctx) error {
@@ -169,7 +182,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		return c.JSON(summarizeFlows(orientFlows(records, filter), top, countries))
+		return c.JSON(summarizeFlows(orientFlows(records, filter), top, countries, asns))
 	})
 
 	app.Get("/api/stats", func(c fiber.Ctx) error {
@@ -205,7 +218,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		return c.JSON(aggregateAppTraffic(apps.Default(), records))
+		return c.JSON(aggregateAppTraffic(classifier, records))
 	})
 
 	// Traffic per hour. With mac or ip it is counted from that client's
@@ -228,7 +241,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				return err
 			}
 
-			return c.JSON(appTrafficByHour(apps.Default(), records, app))
+			return c.JSON(appTrafficByHour(classifier, records, app))
 		}
 
 		records, err := storage.GetTrafficMeasurements(db, filter)

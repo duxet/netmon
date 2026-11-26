@@ -11,6 +11,16 @@ type EndpointDTO struct {
 	MACAddress common.MACAddress
 	IPAddress  common.IPAddress
 	Country    *string
+	// ASN is the autonomous system that announces the address. Like Country,
+	// it is only set by /api/flows, and only with a GeoLite2-ASN database.
+	ASN *ASNDTO
+}
+
+// ASNDTO is an autonomous system: the network of an ISP, a cloud provider or
+// another organization.
+type ASNDTO struct {
+	Number       uint
+	Organization string
 }
 
 type TrafficDTO struct {
@@ -92,8 +102,12 @@ type AppTrafficDTO struct {
 // summary is for: Download is what it received.
 type GroupDTO struct {
 	// Key identifies the group: an IP address, "protocol/port" (e.g.
-	// "6/443") or an ISO country code. Empty for Rest.
-	Key         string
+	// "6/443"), an ISO country code or an AS number (e.g. "15169"). Empty
+	// for Rest.
+	Key string
+	// Label says more about the key when it needs it: the organization of an
+	// AS number. It is empty for the other groups.
+	Label       string
 	Download    uint64
 	Upload      uint64
 	Connections uint64
@@ -116,6 +130,9 @@ type FlowSummaryDTO struct {
 	TopPeers  GroupsDTO
 	Services  GroupsDTO
 	Countries GroupsDTO
+	// ASNs groups remote hosts by the autonomous system they are in. It is
+	// empty without a GeoLite2-ASN database.
+	ASNs GroupsDTO
 }
 
 // LiveSampleDTO is the traffic of the devices on the local network during one

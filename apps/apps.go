@@ -17,7 +17,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/oschwald/geoip2-golang/v2"
+	"github.com/duxet/netmon/lookup"
 )
 
 // Other is the name used for traffic that doesn't match any known app.
@@ -122,7 +122,7 @@ type prefixEntry struct {
 type Classifier struct {
 	prefixes []prefixEntry
 	asns     map[uint]string
-	asnDB    *geoip2.Reader
+	asnDB    *lookup.ASNs
 
 	mu    sync.RWMutex
 	cache map[netip.Addr]string
@@ -132,8 +132,16 @@ type Classifier struct {
 // may point to a GeoLite2-ASN database; if it can't be opened, only the
 // built-in prefixes are used.
 func NewClassifier(apps []App, asnDBPath string) *Classifier {
+	return NewClassifierWithASNs(apps, lookup.OpenASNs(asnDBPath))
+}
+
+// NewClassifierWithASNs is NewClassifier with an ASN database that is already
+// open, so that it can be shared. The caller keeps ownership of it. Without a
+// database (nil, or one that isn't loaded), only the built-in prefixes are used.
+func NewClassifierWithASNs(apps []App, asnDB *lookup.ASNs) *Classifier {
 	c := &Classifier{
 		asns:  map[uint]string{},
+		asnDB: asnDB,
 		cache: map[netip.Addr]string{},
 	}
 
@@ -148,15 +156,6 @@ func NewClassifier(apps []App, asnDBPath string) *Classifier {
 				continue
 			}
 			c.prefixes = append(c.prefixes, prefixEntry{prefix.Masked(), app.Name})
-		}
-	}
-
-	if asnDBPath != "" {
-		db, err := geoip2.Open(asnDBPath)
-		if err != nil {
-			log.Printf("ASN database %s not available, using built-in prefixes only: %v", asnDBPath, err)
-		} else {
-			c.asnDB = db
 		}
 	}
 
@@ -208,11 +207,9 @@ func (c *Classifier) classify(addr netip.Addr) string {
 		}
 	}
 
-	if c.asnDB != nil {
-		if asn, err := c.asnDB.ASN(addr); err == nil {
-			if app, ok := c.asns[asn.AutonomousSystemNumber]; ok {
-				return app
-			}
+	if number, _, ok := c.asnDB.Lookup(addr); ok {
+		if app, ok := c.asns[number]; ok {
+			return app
 		}
 	}
 

@@ -341,7 +341,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

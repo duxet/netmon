@@ -36,9 +36,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useRange } from "@/hooks/use-range"
-import type { FlowSort } from "@/lib/api"
+import type { AutonomousSystem, FlowSort } from "@/lib/api"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import {
+  asnLabel,
+  asnNumber,
   countryFlag,
   countryName,
   deviceLabelsByIp,
@@ -96,6 +98,21 @@ function Country({ code }: { code: string | null | undefined }) {
   )
 }
 
+function Asn({ asn }: { asn: AutonomousSystem | null | undefined }) {
+  if (!asn) return null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="max-w-48 truncate text-xs text-muted-foreground" tabIndex={0}>
+          {asnNumber(asn.Number)}
+          {asn.Organization && ` ${asn.Organization}`}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{asnLabel(asn.Number, asn.Organization)}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 const column = createColumns<SubjectFlow>()
 
 // Column ids of the sortable columns are the API's sort keys.
@@ -146,6 +163,7 @@ function useFlowColumns(hostnames: Map<string, string | null>, subjectTotal: num
                     </span>
                   )}
                   <Country code={peer.Country} />
+                  <Asn asn={peer.ASN} />
                 </div>
               </div>
             )
@@ -276,11 +294,15 @@ function ClientDetail() {
     return serviceLabel(protocol, port)
   })
   const countries = toRanked(summary.data?.Countries, (code) => `${countryFlag(code)} ${countryName(code)}`)
+  const asns = toRanked(summary.data?.ASNs, (number, group) => asnLabel(number, group.Label))
 
   const subjectTotal = (summary.data?.Download ?? 0) + (summary.data?.Upload ?? 0)
   const columns = useFlowColumns(hostnames, subjectTotal)
 
   const isLocal = subject.kind === "mac" || device !== undefined
+  // The cards sit in two columns: the last one takes both when it would be alone.
+  const cardCount = 2 + (isLocal ? 1 : 0) + (countries.length > 0 ? 1 : 0) + (asns.length > 0 ? 1 : 0)
+  const lastCardSpans = cardCount % 2 === 1
   const title =
     device?.name ??
     device?.hostname ??
@@ -431,12 +453,22 @@ function ClientDetail() {
             {isLocal && <AppTrafficCard client={client} scope={title} />}
             {countries.length > 0 && (
               <ChartCard
-                className={isLocal ? undefined : "lg:col-span-2"}
+                className={lastCardSpans && asns.length === 0 ? "lg:col-span-2" : undefined}
                 title="Countries"
                 description="Where remote hosts are located, from GeoIP"
                 table={<RankedTable rows={countries} labelHeader="Country" />}
               >
                 <RankedBarChart rows={countries} />
+              </ChartCard>
+            )}
+            {asns.length > 0 && (
+              <ChartCard
+                className={lastCardSpans ? "lg:col-span-2" : undefined}
+                title="Networks"
+                description="Which organizations' networks remote hosts are in, from GeoIP"
+                table={<RankedTable rows={asns} labelHeader="Network" />}
+              >
+                <RankedBarChart rows={asns} />
               </ChartCard>
             )}
           </div>

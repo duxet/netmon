@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/duxet/netmon/common"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -242,5 +243,43 @@ func TestTrafficMeasurementsPerClientAndApp(t *testing.T) {
 	get(t, app, "/api/traffic-measurements?app=Other&mac="+testLaptopMAC, &other)
 	if len(other) != 2 || other[0].InBytes != 5000 || other[1].InBytes != 90 {
 		t.Errorf("laptop's unrecognized traffic = %+v, want GitHub then DNS", other)
+	}
+}
+
+func TestLabelASNsNamesGroupsAfterTheirOrganization(t *testing.T) {
+	groups := GroupsDTO{Items: []GroupDTO{{Key: "15169"}, {Key: "13335"}, {Key: "64500"}}}
+	labelASNs(&groups, map[string]*ASNDTO{
+		"8.8.8.8":  {Number: 15169, Organization: "GOOGLE"},
+		"8.8.4.4":  {Number: 15169, Organization: "GOOGLE"},
+		"1.1.1.1":  {Number: 13335, Organization: "CLOUDFLARENET"},
+		"10.0.0.1": nil,
+	})
+
+	got := []string{groups.Items[0].Label, groups.Items[1].Label, groups.Items[2].Label}
+	want := []string{"GOOGLE", "CLOUDFLARENET", ""}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("labels = %q, want %q", got, want)
+			break
+		}
+	}
+}
+
+func TestSummaryHasNoASNsWithoutADatabase(t *testing.T) {
+	addr, err := common.ParseIPAddress("8.8.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flows := []orientedFlow{{peer: *addr, download: 10, upload: 5}}
+
+	summary := summarizeFlows(flows, 5, nil, nil)
+	if len(summary.ASNs.Items) != 0 || summary.ASNs.Rest.Connections != 0 {
+		t.Errorf("ASNs = %+v, want none without a database", summary.ASNs)
+	}
+	if summary.Peers != 1 {
+		t.Errorf("peers = %d, want 1", summary.Peers)
+	}
+	if asn := asnOf(nil, *addr); asn != nil {
+		t.Errorf("asnOf = %+v, want nil without a database", asn)
 	}
 }
