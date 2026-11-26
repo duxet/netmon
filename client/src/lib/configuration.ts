@@ -13,6 +13,10 @@ export const SETTING_LABELS: Record<string, string> = {
   oidc_issuer: "Provider (issuer)",
   oidc_client_id: "Client ID",
   oidc_client_secret: "Client secret",
+  unifi_url: "Controller URL",
+  unifi_api_key: "API key",
+  unifi_site: "Site",
+  unifi_fingerprint: "Certificate fingerprint",
   interface: "Capture interface",
 }
 

@@ -34,7 +34,7 @@ import {
   settingLabel,
   type Drafts,
 } from "@/lib/configuration"
-import { configQuery } from "@/lib/queries"
+import { configQuery, unifiStatusQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/settings/configuration")({
   staticData: { breadcrumb: "Configuration" },
@@ -198,12 +198,39 @@ function FileOnlyCard({ settings }: { settings: ConfigSetting[] }) {
           <p className="text-xs text-muted-foreground">{reason("database")}</p>
         </div>
         <div className="flex flex-col">
+          <h3 className="text-sm font-medium">UniFi</h3>
+          <div className="divide-y">{rows(["unifi_url", "unifi_api_key", "unifi_site", "unifi_fingerprint"])}</div>
+          <UniFiStatusLine />
+          <p className="text-xs text-muted-foreground">
+            Names, connection type and access point or switch of clients, from the UniFi Network Application's
+            Integration API. Make an API key under Settings, Control Plane, Integrations. {reason("unifi_url")}
+          </p>
+        </div>
+        <div className="flex flex-col">
           <h3 className="text-sm font-medium">Single sign-on</h3>
           <div className="divide-y">{rows(["oidc_issuer", "oidc_client_id", "oidc_client_secret"])}</div>
           <p className="text-xs text-muted-foreground">{reason("oidc_issuer")}</p>
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/** Whether reading clients from UniFi works. */
+function UniFiStatusLine() {
+  const status = useQuery(unifiStatusQuery())
+  const data = status.data
+  if (!data?.Enabled) return null
+  if (data.LastError) {
+    return <p className="py-1 text-sm break-words text-destructive">Can't read clients: {data.LastError}</p>
+  }
+  if (!data.LastSync) return <p className="py-1 text-sm text-muted-foreground">Reading clients…</p>
+  return (
+    <p className="flex items-center gap-1.5 py-1 text-sm text-muted-foreground">
+      <CheckIcon className="size-4 shrink-0 text-chart-3" />
+      {data.Connected === 1 ? "1 client" : `${data.Connected} clients`} connected to {data.Site || "the site"}, read{" "}
+      {new Date(data.LastSync).toLocaleTimeString()}.
+    </p>
   )
 }
 

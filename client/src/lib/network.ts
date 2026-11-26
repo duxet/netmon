@@ -1,4 +1,4 @@
-import type { Client, Endpoint, Flow, Traffic } from "@/lib/api"
+import type { Client, Endpoint, Flow, Traffic, UniFiClient } from "@/lib/api"
 
 export const EMPTY_TRAFFIC: Traffic = {
   InBytes: 0,
@@ -58,8 +58,13 @@ export interface Device {
   mac: string
   /** The name the user gave the device. */
   name: string | null
-  /** First reverse-DNS name found across the device's addresses. */
+  /**
+   * The name UniFi has for the device, when it has one, else the first
+   * reverse-DNS name found across the device's addresses.
+   */
   hostname: string | null
+  /** What UniFi knows about the device, when it is configured and knows it. */
+  unifi: UniFiClient | null
   /** Manufacturer of the network interface, from its MAC address. */
   vendor: string | null
   addresses: DeviceAddress[]
@@ -85,7 +90,8 @@ export function groupDevices(clients: Client[]): Device[] {
       device = {
         mac,
         name: client.Name,
-        hostname: null,
+        hostname: client.UniFi?.Name || null,
+        unifi: client.UniFi ?? null,
         vendor: client.Vendor,
         addresses: [],
         networks: [],
@@ -124,6 +130,19 @@ export function groupDevices(clients: Client[]): Device[] {
     ]
   }
   return devices.sort((a, b) => b.total - a.total)
+}
+
+/** How UniFi says a device is connected: "Wi-Fi · Living room AP", "Wired", "VPN". */
+export function unifiConnection(unifi: UniFiClient): string {
+  const kind =
+    unifi.Connection === "WIRELESS"
+      ? "Wi-Fi"
+      : unifi.Connection === "WIRED"
+        ? "Wired"
+        : unifi.Connection === "VPN"
+          ? "VPN"
+          : unifi.Connection.toLowerCase()
+  return unifi.Uplink ? `${kind} · ${unifi.Uplink}` : kind
 }
 
 /** The user's name for a device, else its hostname, IP or MAC address. */

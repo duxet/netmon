@@ -11,6 +11,8 @@ import {
   NetworkIcon,
   SearchIcon,
   ServerIcon,
+  ShieldIcon,
+  WifiIcon,
 } from "lucide-react"
 import * as React from "react"
 
@@ -36,7 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useRange } from "@/hooks/use-range"
-import type { FlowSort } from "@/lib/api"
+import type { FlowSort, UniFiClient } from "@/lib/api"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import {
   countryFlag,
@@ -49,6 +51,7 @@ import {
   serviceLabel,
   serviceName,
   toSubjectFlows,
+  unifiConnection,
   type Subject,
   type SubjectFlow,
 } from "@/lib/network"
@@ -70,6 +73,22 @@ const PAGE_SIZE = 15
 
 function clientFilterOf(subject: Subject): ClientFilter {
   return subject.kind === "mac" ? { mac: subject.mac } : { ip: subject.ip }
+}
+
+/** How UniFi says the device is connected, and since when. */
+function UniFiBadge({ unifi }: { unifi: UniFiClient }) {
+  const Icon = unifi.Connection === "WIRELESS" ? WifiIcon : unifi.Connection === "VPN" ? ShieldIcon : CableIcon
+  const since = unifi.ConnectedAt ? new Date(unifi.ConnectedAt).toLocaleString() : null
+  const title = unifi.Connected
+    ? `Connected${since ? ` since ${since}` : ""}, according to UniFi`
+    : `Not connected; UniFi last saw it ${new Date(unifi.LastSeen).toLocaleString()}`
+  return (
+    <Badge variant="outline" className={unifi.Connected ? "font-normal" : "font-normal text-muted-foreground"} title={title}>
+      <Icon data-icon="inline-start" />
+      {unifiConnection(unifi)}
+      {!unifi.Connected && " (offline)"}
+    </Badge>
+  )
 }
 
 export const Route = createFileRoute("/clients/$clientId")({
@@ -309,10 +328,15 @@ function ClientDetail() {
             </Badge>
             {device && <DeviceNetworks ids={device.networks} />}
             {device?.name && device.hostname && (
-              <Badge variant="outline" className="font-normal" title="Hostname from reverse DNS">
+              <Badge
+                variant="outline"
+                className="font-normal"
+                title={device.unifi?.Name ? "Name in UniFi" : "Hostname from reverse DNS"}
+              >
                 {device.hostname}
               </Badge>
             )}
+            {device?.unifi && <UniFiBadge unifi={device.unifi} />}
             {device && (
               <Badge variant="secondary" className="font-mono font-normal" asChild>
                 <Link to="/clients/$clientId" params={{ clientId: device.mac }}>

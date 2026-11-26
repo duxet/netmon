@@ -11,6 +11,7 @@ import (
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/unifi"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
 )
@@ -47,7 +48,7 @@ func parseDeviceMAC(c fiber.Ctx) (*common.MACAddress, error) {
 }
 
 // registerDeviceRoutes adds the endpoints for listing and naming devices.
-func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames) {
+func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames, source *unifi.Source) {
 	type nameBody struct {
 		Name string `json:"name"`
 	}
@@ -93,6 +94,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 				Hostname:   hostname,
 				Vendor:     vendor,
 				NetworkID:  networkIDOf(matcher, record.IPAddress),
+				UniFi:      unifiClientOf(source, record.MACAddress),
 				FirstSeen:  record.FirstSeen,
 				LastSeen:   record.LastSeen,
 			})

@@ -27,7 +27,7 @@ import { useRange } from "@/hooks/use-range"
 import { formatBytes, formatCompact, formatNumber } from "@/lib/format"
 import type { Network } from "@/lib/api"
 import type { Device } from "@/lib/network"
-import { deviceLabel, isRandomizedMac } from "@/lib/network"
+import { deviceLabel, isRandomizedMac, unifiConnection } from "@/lib/network"
 import { NO_NETWORK, useNetworks } from "@/lib/networks"
 import { devicesQuery } from "@/lib/queries"
 import { createColumns } from "@/lib/table"
@@ -111,6 +111,7 @@ function useColumns(totalTraffic: number, networks: Map<number, Network>) {
                 <span className="truncate text-xs text-muted-foreground">
                   {device.name && device.hostname && `${device.hostname} · `}
                   <span className="font-mono">{device.mac}</span>
+                  {device.unifi && ` · ${unifiConnection(device.unifi)}`}
                   {(device.vendor || isRandomizedMac(device.mac)) && (
                     <>
                       {" · "}
@@ -191,6 +192,7 @@ function matches(device: Device, query: string, networks: Map<number, Network>) 
     (device.name?.toLowerCase().includes(needle) ?? false) ||
     (device.vendor?.toLowerCase().includes(needle) ?? false) ||
     (device.hostname?.toLowerCase().includes(needle) ?? false) ||
+    (device.unifi?.Uplink.toLowerCase().includes(needle) ?? false) ||
     device.addresses.some(
       (address) =>
         address.ip.includes(needle) || (address.hostname?.toLowerCase().includes(needle) ?? false)

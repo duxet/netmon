@@ -303,6 +303,42 @@ the secret out: netmon then relies on PKCE alone, which it uses in any case.
 - Setting `oidc_client_id` or `oidc_client_secret` without `oidc_issuer` is an error, so
   that a setting that has no effect can't leave netmon open without anyone noticing.
 
+## UniFi
+
+netmon can show what a UniFi Network Application knows about your devices: the name
+they have in UniFi (the alias you gave them, or the hostname from DHCP), whether they are
+wired, on Wi-Fi or on VPN, and the access point or switch they are connected to. It reads
+this through UniFi's official Integration API, which needs UniFi Network 9 or later.
+
+In UniFi Network, make an API key under **Settings → Control Plane → Integrations**, then
+point netmon at the console (or the self-hosted Network Application):
+
+```yaml
+unifi_url: https://192.168.1.1
+unifi_fingerprint: "AB:CD:EF:…"
+```
+
+Keep the key in the environment (`NETMON_UNIFI_API_KEY`), or in a file only netmon can read.
+
+- **`unifi_fingerprint`** is needed because UniFi consoles have a self-signed
+  certificate. netmon then trusts that certificate, and no other, for the controller. Get
+  it with
+  `openssl s_client -connect 192.168.1.1:443 </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256`,
+  or from the browser's certificate viewer. Leave it out for a certificate that is valid
+  for this machine, such as one from Let's Encrypt. netmon has no way to turn certificate
+  checks off: whoever could answer in the controller's place would get the API key.
+- **`unifi_site`** is the site's name, as in the URLs of the UniFi web UI, `default` unless
+  you have several sites.
+- netmon reads the clients every minute. In the web UI, devices are called by their name
+  in UniFi unless you named them in netmon, which comes first, and before their reverse-DNS
+  name. The client page and the clients list show how they are connected.
+- UniFi only reports connected clients. netmon keeps what it learnt about the ones that
+  left, marked offline, until it restarts.
+- If the controller can't be reached, netmon logs it once, keeps trying, and shows the
+  error on the configuration page.
+- The UniFi settings can only be changed in the file, so that nobody can send the API key
+  to another address from the web UI.
+
 ## Configuration
 
 netmon is configured with a YAML file, environment variables, or both. A
@@ -332,6 +368,10 @@ a typo doesn't go unnoticed.
 | `oidc_issuer`          | `NETMON_OIDC_ISSUER`          | none                     | Issuer URL of an OpenID Connect provider; turns [single sign-on](#single-sign-on) on |
 | `oidc_client_id`       | `NETMON_OIDC_CLIENT_ID`       | none                     | Client ID at the provider, required with `oidc_issuer`             |
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
+| `unifi_url`            | `NETMON_UNIFI_URL`            | none                     | Address of a UniFi console or Network Application; turns [UniFi](#unifi) on |
+| `unifi_api_key`        | `NETMON_UNIFI_API_KEY`        | none                     | Integration API key, required with `unifi_url`                     |
+| `unifi_site`           | `NETMON_UNIFI_SITE`           | `default`                | UniFi site to read clients from                                    |
+| `unifi_fingerprint`    | `NETMON_UNIFI_FINGERPRINT`    | none                     | SHA-256 fingerprint of the controller's certificate, to trust a self-signed one |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 
 For example, in `netmon.yaml`:
@@ -407,6 +447,7 @@ rounded to whole hours.
 | `GET /api/devices` | |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
+| `GET /api/unifi` | |
 | `GET /api/networks` | |
 | `POST /api/networks` | body `{"name": "...", "prefixes": ["192.168.20.0/24", ...], "vlan": 20, "color": "orange"}` |
 | `GET /api/networks/summary` | `from`, `to` |
@@ -464,6 +505,10 @@ rounded to whole hours.
   received connections, such as a NAS.
 - Clients and devices have the `NetworkID` of the network their IP address belongs to,
   or null.
+- With [UniFi](#unifi) on, clients and devices UniFi knows have `UniFi`: `{"Name",
+  "Connection", "Uplink", "Connected", "ConnectedAt", "LastSeen"}`, where `Connection` is
+  `WIRED`, `WIRELESS` or `VPN`; it is null for the others. `/api/unifi` tells how reading
+  from UniFi goes: `{"Enabled", "Site", "LastSync", "LastError", "Connected"}`.
 - A network has an `ID`, `Name`, `VLAN` (null without one), `Color`, `Prefixes`,
   `CreatedAt` and `UpdatedAt`. `prefixes` are 1 to 32 blocks in CIDR notation or single
   addresses, with host bits cleared (`192.168.20.1/24` is `192.168.20.0/24`); `vlan` is

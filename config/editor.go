@@ -24,6 +24,9 @@ type info struct {
 const ssoLocked = "Single sign-on decides who can use netmon, so it is only set in the file, " +
 	"where nobody can turn it off or point it at another provider from the web UI."
 
+const unifiLocked = "netmon sends the API key to this controller, so the UniFi settings are only set in the file, " +
+	"where nobody can send the key elsewhere from the web UI."
+
 // infos has an entry for every setting.
 var infos = map[string]info{
 	"listen":               {locked: "netmon would have to start again on the new address, which could leave the web UI out of reach."},
@@ -37,6 +40,10 @@ var infos = map[string]info{
 	"oidc_issuer":          {locked: ssoLocked},
 	"oidc_client_id":       {locked: ssoLocked},
 	"oidc_client_secret":   {locked: ssoLocked, secret: true},
+	"unifi_url":            {locked: unifiLocked},
+	"unifi_api_key":        {locked: unifiLocked, secret: true},
+	"unifi_site":           {locked: unifiLocked},
+	"unifi_fingerprint":    {locked: unifiLocked},
 	"interface":            {},
 }
 
