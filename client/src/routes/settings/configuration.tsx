@@ -18,20 +18,24 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { ApiError, errorText, updateConfig, type ConfigSetting, type Configuration } from "@/lib/api"
 import {
+  BOOLEAN_SETTINGS,
   changesOf,
   formatDays,
+  isOn,
   isWholeNumber,
   NUMBER_SETTINGS,
   OPENWRT_SETTINGS,
   retentionCuts,
   savedText,
   settingLabel,
+  switchedText,
   type Drafts,
 } from "@/lib/configuration"
 import { configQuery } from "@/lib/queries"
@@ -62,8 +66,78 @@ function SourceBadge({ setting }: { setting: ConfigSetting }) {
 
 function display(setting: ConfigSetting): string {
   if (setting.Secret) return setting.Set ? "Set" : "Not set"
+  if (typeof setting.Value === "boolean") return setting.Value ? "On" : "Off"
   const value = setting.Value === null ? "" : String(setting.Value)
   return value === "" ? "Not set" : value
+}
+
+/** Where a setting is set instead, if not here, and what netmon runs with until a restart. */
+function SettingNotes({ setting, edited }: { setting: ConfigSetting; edited: boolean }) {
+  return (
+    <>
+      {setting.Env && (
+        <FieldDescription>
+          Set by the environment variable <code>{setting.Env}</code>, which overrides the file. Change it
+          where netmon is started
+          {OPENWRT_SETTINGS.has(setting.Key) && (
+            <>
+              {" "}
+              (on OpenWrt, in <code>/etc/config/netmon</code>)
+            </>
+          )}
+          .
+        </FieldDescription>
+      )}
+      {setting.Locked && !setting.Env && <FieldDescription>{setting.Locked}</FieldDescription>}
+      {setting.Restart && !edited && (
+        <FieldDescription className="text-foreground">
+          Saved; netmon runs with{" "}
+          <span className="font-mono">{setting.Running === "" ? "none" : display({ ...setting, Value: setting.Running })}</span>{" "}
+          until it restarts.
+        </FieldDescription>
+      )}
+    </>
+  )
+}
+
+/** A setting that is on or off, as a switch. */
+function SwitchField({
+  setting,
+  description,
+  draft,
+  onChange,
+  error,
+}: Omit<FieldProps, "placeholder" | "unit">) {
+  const id = React.useId()
+  const editable = !setting.Env && !setting.Locked
+  const text = draft ?? savedText(setting)
+  const edited = draft !== undefined && draft.trim() !== savedText(setting).trim()
+  const on = editable ? isOn(setting, text) : setting.Value === true
+
+  return (
+    <Field orientation="horizontal" data-invalid={error ? true : undefined}>
+      <Switch
+        id={id}
+        checked={on}
+        disabled={!editable}
+        onCheckedChange={(checked) => onChange(setting.Key, switchedText(setting, checked))}
+        aria-invalid={error ? true : undefined}
+      />
+      <FieldContent>
+        <div className="flex flex-wrap items-center gap-2">
+          <FieldLabel htmlFor={id}>{settingLabel(setting.Key)}</FieldLabel>
+          <code className="text-xs text-muted-foreground">{setting.Key}</code>
+          <span className="ml-auto flex items-center gap-1">
+            {edited && <Badge variant="outline">Unsaved</Badge>}
+            <SourceBadge setting={setting} />
+          </span>
+        </div>
+        <FieldDescription>{description}</FieldDescription>
+        <SettingNotes setting={setting} edited={edited} />
+        {error && <FieldError>{error}</FieldError>}
+      </FieldContent>
+    </Field>
+  )
 }
 
 interface FieldProps {
@@ -136,27 +210,7 @@ function SettingField({ setting, description, draft, onChange, placeholder, unit
         )}
       </div>
       <FieldDescription>{description}</FieldDescription>
-      {setting.Env && (
-        <FieldDescription>
-          Set by the environment variable <code>{setting.Env}</code>, which overrides the file. Change it
-          where netmon is started
-          {OPENWRT_SETTINGS.has(setting.Key) && (
-            <>
-              {" "}
-              (on OpenWrt, in <code>/etc/config/netmon</code>)
-            </>
-          )}
-          .
-        </FieldDescription>
-      )}
-      {setting.Locked && !setting.Env && <FieldDescription>{setting.Locked}</FieldDescription>}
-      {setting.Restart && !edited && (
-        <FieldDescription className="text-foreground">
-          Saved; netmon runs with{" "}
-          <span className="font-mono">{setting.Running === "" ? "none" : String(setting.Running)}</span> until it
-          restarts.
-        </FieldDescription>
-      )}
+      <SettingNotes setting={setting} edited={edited} />
       {invalid && <FieldError>{invalid}</FieldError>}
     </Field>
   )
@@ -266,6 +320,17 @@ function ConfigurationForm({ config }: { config: Configuration }) {
   const field = (key: string, props: Omit<FieldProps, "setting" | "draft" | "onChange" | "error">) => {
     const setting = byKey(key)
     if (!setting) return null
+    if (BOOLEAN_SETTINGS.has(key)) {
+      return (
+        <SwitchField
+          setting={setting}
+          draft={drafts[key]}
+          onChange={edit}
+          error={fieldError === key ? errorText(save.error) : undefined}
+          description={props.description}
+        />
+      )
+    }
     return (
       <SettingField
         setting={setting}
@@ -314,6 +379,23 @@ function ConfigurationForm({ config }: { config: Configuration }) {
           description: "Asked about local addresses. Your router usually knows the names it gave out over DHCP.",
         })}
         {field("public_dns", { description: "Asked about internet addresses." })}
+      </Section>
+
+      <Section
+        title="Recording"
+        description="Which traffic netmon records and shows. Changes apply to new traffic; what was recorded stays."
+      >
+        {field("ignore_local_traffic", {
+          description: (
+            <>
+              Leave out traffic between two local addresses, such as backups to a NAS or casting to a TV, and
+              record only traffic to and from the internet. Local addresses are the private ranges (
+              <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>,{" "}
+              <code>fc00::/7</code>), loopback, link-local, multicast and broadcast, and the blocks of your
+              networks.
+            </>
+          ),
+        })}
       </Section>
 
       <Section

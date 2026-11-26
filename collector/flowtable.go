@@ -136,6 +136,10 @@ type flowTable struct {
 	// meter, if set, is told about the traffic of the local devices as it
 	// happens, for the live view.
 	meter *live.Meter
+
+	// ignore, if set, tells which packets to leave out, by their source and
+	// destination.
+	ignore func(src, dst netip.Addr) bool
 }
 
 func newFlowTable() *flowTable {
@@ -156,6 +160,10 @@ func (t *flowTable) SetLocalPrefixes(prefixes []netip.Prefix) {
 
 // Add accounts for one packet.
 func (t *flowTable) Add(p packetInfo) {
+	if t.ignore != nil && t.ignore(p.src.ip, p.dst.ip) {
+		return
+	}
+
 	key := newFlowKey(p.src.endpoint, p.dst.endpoint, p.proto)
 
 	t.mu.Lock()

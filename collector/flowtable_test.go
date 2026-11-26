@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+
+	"github.com/duxet/netmon/live"
 )
 
 var (
@@ -324,3 +326,34 @@ func TestFlowTableLimit(t *testing.T) {
 }
 
 func (m macAddr) hw() net.HardwareAddr { return m.addr[:] }
+
+// ignoreLAN ignores the traffic between two addresses of the LAN.
+func ignoreLAN(src, dst netip.Addr) bool {
+	return lan.Contains(src) && lan.Contains(dst)
+}
+
+func TestIgnoredPacketsAreLeftOut(t *testing.T) {
+	table, meter := newLiveTable()
+	table.ignore = ignoreLAN
+
+	table.Add(withHint(pkt(host, 50000, peer, 445, 1000), hintSrcIsClient))
+	table.Add(pkt(peer, 445, host, 50000, 4000))
+	table.Add(withHint(pkt(host, 50001, server, 443, 300), hintSrcIsClient))
+	table.Add(pkt(server, 443, host, 50001, 700))
+
+	rows := flushRows(t, table)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want only the one to the server", rows)
+	}
+	if row := findRow(t, rows, host, server, 443); row.in.bytes != 700 || row.out.bytes != 300 {
+		t.Errorf("row = %+v, want 300 out and 700 in", row)
+	}
+
+	devices := endInterval(t, meter, 1)
+	if _, ok := devices[live.MAC(peerMAC.addr)]; ok || len(devices) != 1 {
+		t.Errorf("live devices = %+v, want only the host's traffic to the server", devices)
+	}
+	if got := devices[live.MAC(hostMAC.addr)]; got.Download != 700 || got.Upload != 300 {
+		t.Errorf("host = %+v, want 700 down and 300 up", got)
+	}
+}

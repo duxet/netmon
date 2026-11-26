@@ -26,7 +26,7 @@ type ConfigDTO struct {
 	Settings         []ConfigSettingDTO
 }
 
-// ConfigSettingDTO is one setting. Values are strings or numbers.
+// ConfigSettingDTO is one setting. Values are strings, numbers or booleans.
 type ConfigSettingDTO struct {
 	// Key is the setting's key in the YAML file.
 	Key string
@@ -85,7 +85,7 @@ func registerConfigRoutes(app *fiber.App, editor *config.Editor) {
 		return c.JSON(toConfigDTO(state))
 	})
 
-	// Saves settings to the file: a string or a number sets one, null takes
+	// Saves settings to the file: a string, a number or a boolean sets one, null takes
 	// it out of the file, back to its default, and settings left out stay.
 	app.Put("/api/config", func(c fiber.Ctx) error {
 		var changes map[string]any

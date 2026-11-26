@@ -37,6 +37,10 @@ type liveSampler struct {
 	source   liveSource
 	interval time.Duration
 
+	// ignore, if set, tells which connections to leave out, by the addresses
+	// of their originator and responder.
+	ignore func(src, dst netip.Addr) bool
+
 	mu sync.Mutex
 
 	// sampling is false while nobody is watching. The counters of the
@@ -167,6 +171,10 @@ func (s *liveSampler) record(flow conntrack.Flow, old conntrack.Flow, seen bool)
 	}
 
 	src, dst := flow.TupleOrig.IP.SourceAddress, flow.TupleOrig.IP.DestinationAddress
+	if s.ignore != nil && s.ignore(src, dst) {
+		return
+	}
+
 	srcMAC, srcLocal := s.macs[src.Unmap()]
 	dstMAC, dstLocal := s.macs[dst.Unmap()]
 

@@ -39,6 +39,7 @@ var infos = map[string]info{
 	"oidc_client_id":       {locked: ssoLocked},
 	"oidc_client_secret":   {locked: ssoLocked, secret: true},
 	"interface":            {},
+	"ignore_local_traffic": {live: true},
 }
 
 // InvalidError is a change the editor refuses, such as a value of the wrong
@@ -138,9 +139,9 @@ func (e *Editor) State() (State, error) {
 	return e.state(data, exists)
 }
 
-// Update changes settings in the file: each to its value, a string or a
-// number as the setting is, or with nil back to its default, by taking it
-// out of the file. The whole configuration is checked as netmon would check
+// Update changes settings in the file: each to its value, a string, a
+// number or a bool as the setting is, or with nil back to its default, by
+// taking it out of the file. The whole configuration is checked as netmon would check
 // it when starting with it, and nothing is written unless it passes. The
 // settings that apply right away then do.
 func (e *Editor) Update(changes map[string]any) (State, error) {
@@ -296,7 +297,8 @@ func setField(cfg *Config, key string, value any) {
 }
 
 // coerce checks that a value suits a setting, and returns it as the setting's
-// type. Numbers may come as float64, as from JSON, if they are whole.
+// type. Numbers may come as float64, as from JSON, if they are whole; yes or
+// no settings as true or false.
 func coerce(key string, value any) (any, error) {
 	switch fieldOf(key).Type.Kind() {
 	case reflect.Int:
@@ -309,6 +311,11 @@ func coerce(key string, value any) (any, error) {
 			}
 		}
 		return nil, invalid(key, "%s must be a whole number", key)
+	case reflect.Bool:
+		if v, ok := value.(bool); ok {
+			return v, nil
+		}
+		return nil, invalid(key, "%s must be true or false", key)
 	case reflect.String:
 		if v, ok := value.(string); ok {
 			return strings.TrimSpace(v), nil

@@ -14,6 +14,7 @@ import (
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
+	"github.com/duxet/netmon/networks"
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
 	"io/fs"
@@ -113,6 +114,21 @@ func main() {
 		engine.Run(ctx)
 	}()
 
+	// Traffic between local addresses is left out when so configured. The
+	// blocks of the networks set up in the web UI count as local too, and are
+	// read again every round, so that changes to them apply within a minute.
+	var localTraffic networks.LocalTraffic
+	localTraffic.SetIgnored(cfg.IgnoreLocalTraffic)
+	readNetworks := func() {
+		matcher, err := storage.NetworkMatcher(db)
+		if err != nil {
+			log.Println("Failed to read networks:", err)
+			return
+		}
+		localTraffic.SetMatcher(matcher)
+	}
+	readNetworks()
+
 	// The configuration page saves settings to the YAML file, and the ones
 	// that can apply right away do.
 	var compactNow func()
@@ -120,6 +136,7 @@ func main() {
 	editor := config.NewEditor(*configFile, *cfg, func(next config.Config) {
 		hostnames.SetServers(next.LocalDNS, next.PublicDNS)
 		engine.SetPublicURL(next.BaseURL())
+		localTraffic.SetIgnored(next.IgnoreLocalTraffic)
 		if next.Retention() != applied.Retention() || next.AlertRetention() != applied.AlertRetention() {
 			compactNow()
 		}
@@ -132,7 +149,14 @@ func main() {
 	// the API serves what the meter measured to the live view.
 	meter := live.NewMeter()
 
-	coll, err := collector.CollectTraffic(db, meter, collector.Options{OnFlush: engine.Trigger, Interface: cfg.Interface})
+	coll, err := collector.CollectTraffic(db, meter, collector.Options{
+		OnFlush: func(at time.Time) {
+			readNetworks()
+			engine.Trigger(at)
+		},
+		Interface: cfg.Interface,
+		Ignore:    localTraffic.Ignored,
+	})
 	if err != nil {
 		log.Println("Collector failed to start:", err)
 	}

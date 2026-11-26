@@ -98,12 +98,13 @@ func flowDelta(flow conntrack.Flow, previous conntrack.Flow, seen bool) (inBytes
 
 // buildSnapshots sums the traffic of closed and still open connections since
 // the last dump into one snapshot per flow. Flows without new traffic are
-// left out.
+// left out, as are those ignore, if set, says to ignore.
 func buildSnapshots(
 	closed map[uint32]conntrack.Flow,
 	current []conntrack.Flow,
 	previous map[uint32]conntrack.Flow,
 	macOf func(netip.Addr) *common.MACAddress,
+	ignore func(src, dst netip.Addr) bool,
 ) map[FlowSnapshotKey]*FlowSnapshot {
 	allFlows := make(map[uint32]conntrack.Flow, len(closed)+len(current))
 	for id, flow := range closed {
@@ -127,6 +128,9 @@ func buildSnapshots(
 			dstIP: flow.TupleOrig.IP.DestinationAddress,
 			proto: flow.TupleOrig.Proto.Protocol,
 			port:  flow.TupleOrig.Proto.DestinationPort,
+		}
+		if ignore != nil && ignore(key.srcIP, key.dstIP) {
+			continue
 		}
 
 		snapshot, ok := snapshots[key]
@@ -184,7 +188,7 @@ func insertSnapshots(db *sql.DB, snapshots map[FlowSnapshotKey]*FlowSnapshot) er
 	return tx.Commit()
 }
 
-func dumpFlows(db *sql.DB) error {
+func dumpFlows(db *sql.DB, ignore func(src, dst netip.Addr) bool) error {
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -202,7 +206,7 @@ func dumpFlows(db *sql.DB) error {
 	snapshots := buildSnapshots(closedFlows, currentFlows, continuedFlows, func(addr netip.Addr) *common.MACAddress {
 		mac, _ := queryMacAddress(addr)
 		return mac
-	})
+	}, ignore)
 
 	if err := insertSnapshots(db, snapshots); err != nil {
 		// Keep the closed flows and the previous baseline: the next dump
@@ -225,6 +229,7 @@ func dumpFlows(db *sql.DB) error {
 func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, error) {
 	shutdownChan := make(chan bool, 1)
 	sampler := newLiveSampler(meter, &netfilterSource{})
+	sampler.ignore = opts.ignored
 
 	s, err := gocron.NewScheduler()
 	if err != nil {
@@ -234,7 +239,7 @@ func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, er
 	_, _ = s.NewJob(
 		gocron.CronJob("*/1 * * * *", false),
 		gocron.NewTask(func() {
-			if err := dumpFlows(db); err != nil {
+			if err := dumpFlows(db, opts.ignored); err != nil {
 				log.Println("Failed to process flows:", err)
 				return
 			}

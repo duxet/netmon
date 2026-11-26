@@ -120,6 +120,30 @@ func TestSamplerFirstSampleOnlyRecordsCounters(t *testing.T) {
 	}
 }
 
+func TestSamplerLeavesOutIgnoredConnections(t *testing.T) {
+	s, meter, source := newSampler()
+	s.ignore = func(src, dst netip.Addr) bool { return src.IsPrivate() && dst.IsPrivate() }
+
+	source.set(
+		conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 0, 0),
+		conn(2, "192.168.1.23", phoneIP.String(), 50001, 8009, 0, 0),
+	)
+	mustSample(t, s, t0)
+	source.set(
+		conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 100),
+		conn(2, "192.168.1.23", phoneIP.String(), 50001, 8009, 50000, 5000),
+	)
+	mustSample(t, s, t0.Add(time.Second))
+
+	devices := latest(t, meter)
+	if _, ok := devices[phoneMAC]; ok {
+		t.Errorf("phone = %+v, want its traffic with the laptop left out", devices[phoneMAC])
+	}
+	if got := devices[laptopMAC]; got.Download != 1000 || got.Upload != 100 {
+		t.Errorf("laptop = %+v, want only its traffic to the internet, 1000 down and 100 up", got)
+	}
+}
+
 func TestSamplerRatesAreOverTheTimeBetweenSamples(t *testing.T) {
 	s, meter, source := newSampler()
 

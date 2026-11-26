@@ -66,6 +66,7 @@ local_dns: system
 retention_days: 90
 public_url: http://router.lan:8080/
 interface: en5
+ignore_local_traffic: false
 `)
 
 	cfg := mustLoad(t, path)
@@ -78,6 +79,7 @@ interface: en5
 	want.RetentionDays = 90
 	want.PublicURL = "http://router.lan:8080/"
 	want.Interface = "en5"
+	want.IgnoreLocalTraffic = false
 	want.File = path
 	if *cfg != want {
 		t.Errorf("got %+v, want %+v", *cfg, want)
@@ -114,6 +116,23 @@ retention_days: 90
 	}
 	if cfg.AlertRetentionDays != 0 {
 		t.Errorf("AlertRetentionDays = %d, want 0 from the environment, not the default", cfg.AlertRetentionDays)
+	}
+}
+
+func TestLoadYesOrNoFromEnv(t *testing.T) {
+	dir := isolate(t)
+	path := writeFile(t, filepath.Join(dir, "custom.yaml"), "ignore_local_traffic: true\n")
+
+	for value, want := range map[string]bool{"false": false, "0": false, "true": true, "1": true} {
+		t.Setenv("NETMON_IGNORE_LOCAL_TRAFFIC", value)
+		if cfg := mustLoad(t, path); cfg.IgnoreLocalTraffic != want {
+			t.Errorf("NETMON_IGNORE_LOCAL_TRAFFIC=%s: IgnoreLocalTraffic = %v, want %v", value, cfg.IgnoreLocalTraffic, want)
+		}
+	}
+
+	t.Setenv("NETMON_IGNORE_LOCAL_TRAFFIC", "maybe")
+	if _, err := Load(path); err == nil {
+		t.Error("NETMON_IGNORE_LOCAL_TRAFFIC=maybe: want an error")
 	}
 }
 
@@ -341,7 +360,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

@@ -1,6 +1,9 @@
 package collector
 
-import "time"
+import (
+	"net/netip"
+	"time"
+)
 
 // Options configures a collector.
 type Options struct {
@@ -16,6 +19,17 @@ type Options struct {
 	// collectors that capture them (macOS). Empty is the interface the
 	// default route goes through.
 	Interface string
+
+	// Ignore, if set, tells which traffic not to record or show in the live
+	// view, by the addresses of its ends: the client's and the server's, or
+	// for a packet its source and destination. It is asked often, so it has
+	// to be quick, and it may change its mind at any time.
+	Ignore func(src, dst netip.Addr) bool
+}
+
+// ignored reports whether the traffic between src and dst is to be left out.
+func (o Options) ignored(src, dst netip.Addr) bool {
+	return o.Ignore != nil && o.Ignore(src, dst)
 }
 
 // flushed reports a completed flush to OnFlush.
