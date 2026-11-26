@@ -53,6 +53,7 @@ type pcapCollector struct {
 func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, error) {
 	c := &pcapCollector{db: db, opts: opts, table: newFlowTable()}
 	c.table.meter = meter
+	c.table.ignore = opts.ignored
 
 	// Open it before returning, so that problems such as missing permissions
 	// are reported to the caller.

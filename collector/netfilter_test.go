@@ -70,7 +70,7 @@ func TestBuildSnapshotsGroupsAndSkipsIdleFlows(t *testing.T) {
 		4: conn(4, "192.168.1.23", "1.1.1.1", 50020, 53, 90, 70),
 	}
 
-	snapshots := buildSnapshots(closed, current, previous, macOf)
+	snapshots := buildSnapshots(closed, current, previous, macOf, nil)
 
 	if len(snapshots) != 2 {
 		t.Fatalf("got %d snapshots, want 2 (HTTPS and DNS; the idle connection is skipped): %+v", len(snapshots), snapshots)
@@ -103,7 +103,7 @@ func TestRepeatedDumpsCountTrafficOnce(t *testing.T) {
 	for _, in := range []uint64{100, 250, 400} {
 		current := []conntrack.Flow{conn(7, "192.168.1.23", "23.246.18.164", 50100, 443, in, 0)}
 
-		for _, snapshot := range buildSnapshots(nil, current, previous, noMAC) {
+		for _, snapshot := range buildSnapshots(nil, current, previous, noMAC, nil) {
 			stored += snapshot.inBytes
 		}
 
@@ -116,6 +116,27 @@ func TestRepeatedDumpsCountTrafficOnce(t *testing.T) {
 
 	if stored != 400 {
 		t.Errorf("stored %d bytes over three dumps, want the connection's 400", stored)
+	}
+}
+
+func TestBuildSnapshotsLeavesOutIgnoredFlows(t *testing.T) {
+	current := []conntrack.Flow{
+		conn(1, "192.168.1.23", "192.168.1.5", 50000, 445, 9000, 900),
+		conn(2, "192.168.1.23", "140.82.121.4", 50001, 443, 3000, 300),
+	}
+	ignore := func(src, dst netip.Addr) bool {
+		return src.IsPrivate() && dst.IsPrivate()
+	}
+
+	snapshots := buildSnapshots(nil, current, map[uint32]conntrack.Flow{}, noMAC, ignore)
+
+	if len(snapshots) != 1 {
+		t.Fatalf("got %d snapshots, want only the one to the internet: %+v", len(snapshots), snapshots)
+	}
+	for key := range snapshots {
+		if key.dstIP != netip.MustParseAddr("140.82.121.4") {
+			t.Errorf("snapshot of %s -> %s, want the one to the internet", key.srcIP, key.dstIP)
+		}
 	}
 }
 

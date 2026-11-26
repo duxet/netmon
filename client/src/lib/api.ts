@@ -656,7 +656,7 @@ export function fetchNetworkSuggestions() {
   return requestList<NetworkSuggestion>("/api/networks/suggestions")
 }
 
-export type SettingValue = string | number
+export type SettingValue = string | number | boolean
 
 /** One of netmon's settings, as /api/config describes it. */
 export interface ConfigSetting {

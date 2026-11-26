@@ -88,6 +88,13 @@ type Config struct {
 	// packets, so ignores it.
 	Interface string `koanf:"interface"`
 
+	// IgnoreLocalTraffic leaves out traffic between two local addresses, such
+	// as a laptop's backups to a NAS, so that only traffic to and from the
+	// internet is recorded. Local addresses are those in the private ranges,
+	// along with loopback, link-local, multicast and broadcast ones, and those
+	// in the blocks of the networks set up in the web UI.
+	IgnoreLocalTraffic bool `koanf:"ignore_local_traffic"`
+
 	// File is the YAML file the configuration was read from, empty when there
 	// was none.
 	File string `koanf:"-"`
@@ -102,6 +109,7 @@ func Defaults() Config {
 		LocalDNS:           "192.168.1.1:54",
 		PublicDNS:          "8.8.8.8:53",
 		AlertRetentionDays: 30,
+		IgnoreLocalTraffic: true,
 	}
 }
 

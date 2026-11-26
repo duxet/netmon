@@ -333,6 +333,7 @@ a typo doesn't go unnoticed.
 | `oidc_client_id`       | `NETMON_OIDC_CLIENT_ID`       | none                     | Client ID at the provider, required with `oidc_issuer`             |
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
+| `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
 
 For example, in `netmon.yaml`:
 
@@ -361,6 +362,19 @@ their notifications are deleted after `NETMON_ALERT_RETENTION_DAYS` (0 keeps the
 alerts still firing are kept. `NETMON_PUBLIC_URL` is where notifications link to,
 e.g. `http://router.lan:2137`.
 
+### Local traffic
+
+By default netmon only records traffic to and from the internet, and leaves out
+traffic between two local addresses, such as backups to a NAS, casting to a TV or
+DNS queries to the router. Local addresses are those in the private ranges
+(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and `fc00::/7`), loopback,
+link-local, multicast, broadcast and unspecified ones, and those in the blocks of
+the [networks](#networks) you set up, which is how public IPv6 prefixes of your
+network count as local too. Set `ignore_local_traffic: false` (or
+`NETMON_IGNORE_LOCAL_TRAFFIC=false`) to record all traffic. The setting applies to
+the live view as well, and changes to it, or to the networks, apply to new traffic
+within a minute; traffic recorded before stays.
+
 ### Changing settings in the web UI
 
 **Settings → Configuration** shows every setting, where its value comes from (the
@@ -371,7 +385,8 @@ touched, so comments, blank lines and the rest of the file stay as they are; a s
 taken back to its default is taken out of the file. A change is checked as netmon would
 check the file when starting, and nothing is saved when it fails.
 
-- The DNS servers, the retention of flows and alerts and the public URL apply right away.
+- The DNS servers, the retention of flows and alerts, the public URL and ignoring local
+  traffic apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
   database and the capture interface apply when netmon starts again, which the page
   reminds you of.
@@ -527,7 +542,7 @@ now), `Running` (what it runs with), `Default`, `File` and `InFile`, `Env` (the 
 that sets it, if one does), `Live` (applies without a restart), `Locked` (why it can only
 be changed in the file), `Secret` and `Set` (secrets have no values), and `Restart`
 (netmon runs with something else until it starts again). `PUT /api/config` changes the
-settings in its body, a string or a number as the setting is, or `null` to take one out of
+settings in its body, a string, a number or `true` or `false` as the setting is, or `null` to take one out of
 the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 `{"error", "setting"}` for a change it refuses, which saves nothing.
 

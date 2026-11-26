@@ -246,6 +246,7 @@ func TestEditorRefusesChanges(t *testing.T) {
 		{map[string]any{"retention_days": "90"}, "retention_days", "must be a whole number"},
 		{map[string]any{"retention_days": 1.5}, "retention_days", "must be a whole number"},
 		{map[string]any{"local_dns": 53.0}, "local_dns", "must be text"},
+		{map[string]any{"ignore_local_traffic": "no"}, "ignore_local_traffic", "must be true or false"},
 		// Values netmon wouldn't start with are refused as a start would refuse them.
 		{map[string]any{"retention_days": -1.0}, "retention_days", "retention_days must be"},
 		{map[string]any{"local_dns": "http://1.1.1.1"}, "local_dns", "local_dns must be host, host:port or system"},
@@ -264,6 +265,38 @@ func TestEditorRefusesChanges(t *testing.T) {
 	}
 	if len(*applied) != 0 {
 		t.Errorf("applied %+v after refused changes", *applied)
+	}
+}
+
+func TestEditorUpdatesYesOrNoSettings(t *testing.T) {
+	editor, path, applied := newEditor(t, "# netmon\n")
+	if !editor.Running().IgnoreLocalTraffic {
+		t.Fatal("local traffic is not ignored by default")
+	}
+
+	state, err := editor.Update(map[string]any{"ignore_local_traffic": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "# netmon\nignore_local_traffic: false\n" {
+		t.Errorf("file = %q, want the setting turned off", data)
+	}
+	if editor.Running().IgnoreLocalTraffic || len(*applied) != 1 || (*applied)[0].IgnoreLocalTraffic {
+		t.Errorf("applied %+v, want local traffic recorded right away", *applied)
+	}
+	if s := setting(t, state, "ignore_local_traffic"); s.Value != false || s.Default != true || s.File != false || s.Restart {
+		t.Errorf("ignore_local_traffic = %+v, want it off in the file and applied", s)
+	}
+
+	// Back to the default takes it out of the file.
+	if _, err := editor.Update(map[string]any{"ignore_local_traffic": nil}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "# netmon\n" {
+		t.Errorf("file = %q, want the setting taken out", data)
+	}
+	if !editor.Running().IgnoreLocalTraffic {
+		t.Error("local traffic is not ignored after going back to the default")
 	}
 }
 

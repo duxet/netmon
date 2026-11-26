@@ -14,10 +14,14 @@ export const SETTING_LABELS: Record<string, string> = {
   oidc_client_id: "Client ID",
   oidc_client_secret: "Client secret",
   interface: "Capture interface",
+  ignore_local_traffic: "Ignore local traffic",
 }
 
 /** Settings that are numbers of days. */
 export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days"])
+
+/** Settings that are on or off. */
+export const BOOLEAN_SETTINGS = new Set(["ignore_local_traffic"])
 
 /** The settings the OpenWrt package's service always sets from /etc/config/netmon. */
 export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days"])
@@ -32,6 +36,22 @@ export type Drafts = Record<string, string>
 /** What the field shows before it is edited: the file's value, or nothing for the default. */
 export function savedText(setting: ConfigSetting): string {
   return setting.InFile && setting.File !== null ? String(setting.File) : ""
+}
+
+/**
+ * Whether an on-or-off setting is on with the given text in its field: the
+ * text's value, or the default for an empty field.
+ */
+export function isOn(setting: ConfigSetting, text: string): boolean {
+  return text.trim() === "" ? setting.Default === true : text.trim() === "true"
+}
+
+/**
+ * The text to put in an on-or-off setting's field when it is switched: none,
+ * which is no change, when that is what the file already makes it.
+ */
+export function switchedText(setting: ConfigSetting, on: boolean): string {
+  return isOn(setting, savedText(setting)) === on ? savedText(setting) : String(on)
 }
 
 export function isWholeNumber(text: string): boolean {
@@ -50,7 +70,9 @@ export function changesOf(settings: ConfigSetting[], drafts: Drafts): Record<str
     const text = draft.trim()
     if (text === savedText(setting).trim()) continue
     if (text === "") changes[setting.Key] = null
-    else changes[setting.Key] = NUMBER_SETTINGS.has(setting.Key) ? Number(text) : text
+    else if (NUMBER_SETTINGS.has(setting.Key)) changes[setting.Key] = Number(text)
+    else if (BOOLEAN_SETTINGS.has(setting.Key)) changes[setting.Key] = text === "true"
+    else changes[setting.Key] = text
   }
   return changes
 }
