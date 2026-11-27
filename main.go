@@ -162,7 +162,8 @@ func main() {
 		hostnames.SetServers(next.LocalDNS, next.PublicDNS)
 		engine.SetPublicURL(next.BaseURL())
 		localTraffic.SetIgnored(next.IgnoreLocalTraffic)
-		if next.Retention() != applied.Retention() || next.AlertRetention() != applied.AlertRetention() {
+		if next.Retention() != applied.Retention() || next.AlertRetention() != applied.AlertRetention() ||
+			next.HourlyRetention() != applied.HourlyRetention() {
 			compactNow()
 		}
 		if next.MemoryLimit != applied.MemoryLimit || next.Threads != applied.Threads {
@@ -272,11 +273,12 @@ func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.
 		cfg := current()
 		retention, alertRetention := cfg.Retention(), cfg.AlertRetention()
 		now := time.Now()
-		result, err := storage.Compact(db, now, retention)
+		result, err := storage.Compact(db, now, retention, cfg.HourlyRetention())
 		if err != nil {
 			slog.Error("Failed to compact flows", "err", err)
 		} else if result != (storage.CompactResult{}) {
-			slog.Info("Compacted flows", "rows", result.Removed, "hourly_rows", result.RolledUp, "expired", result.Expired)
+			slog.Info("Compacted flows", "rows", result.Removed, "hourly_rows", result.RolledUp,
+				"hourly_rows_removed", result.RemovedHourly, "daily_rows", result.RolledUpDaily, "expired", result.Expired)
 		}
 
 		expired, err := storage.ExpireAlerts(db, now, alertRetention)

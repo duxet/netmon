@@ -469,6 +469,11 @@ function ConfigurationForm({ config }: { config: Configuration }) {
           unit: "days",
           placeholder: `Default: ${byKey("retention_days")?.Default ?? 0}`,
         })}
+        {field("hourly_days", {
+          description:
+            "How long traffic is kept per hour. Older hours are summed up per day (UTC), which keeps the database small: charts of long ranges show days anyway. 0 keeps every hour.",
+          unit: "days",
+        })}
         {field("alert_retention_days", {
           description: "Alerts that are over, and the notifications sent about them. Firing alerts stay.",
           unit: "days",

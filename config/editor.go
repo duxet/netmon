@@ -34,6 +34,7 @@ var infos = map[string]info{
 	"public_dns":           {live: true},
 	"retention_days":       {live: true},
 	"alert_retention_days": {live: true},
+	"hourly_days":          {live: true},
 	"public_url":           {live: true},
 	"oidc_issuer":          {locked: ssoLocked},
 	"oidc_client_id":       {locked: ssoLocked},

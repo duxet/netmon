@@ -244,7 +244,7 @@ func TestHourBucketsIgnoreServerTimeZone(t *testing.T) {
 	want := seedAt.Truncate(time.Hour)
 	for _, compacted := range []bool{false, true} {
 		if compacted {
-			if _, err := Compact(db, seedAt.Add(3*time.Hour), 0); err != nil {
+			if _, err := Compact(db, seedAt.Add(3*time.Hour), 0, 0); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -321,7 +321,7 @@ func TestCompactKeepsResults(t *testing.T) {
 
 	before := take(t, db)
 	// Sum totals don't depend on row order within equal keys; compare sorted results.
-	result, err := Compact(db, now, 0)
+	result, err := Compact(db, now, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestCompactKeepsResults(t *testing.T) {
 	}
 
 	// Compacting again changes nothing.
-	if again, err := Compact(db, now, 0); err != nil || again != (CompactResult{}) {
+	if again, err := Compact(db, now, 0, 0); err != nil || again != (CompactResult{}) {
 		t.Errorf("second compaction = %+v, %v; want no changes", again, err)
 	}
 	if !reflect.DeepEqual(take(t, db).Stats, before.Stats) {
@@ -365,7 +365,7 @@ func TestCompactKeepsLastHourPerMinute(t *testing.T) {
 	)
 	now := at(11, 25)
 
-	result, err := Compact(db, now, 0)
+	result, err := Compact(db, now, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,14 +388,14 @@ func TestCompactRetention(t *testing.T) {
 	seed(t, db)
 	now := seedAt.Add(10 * 24 * time.Hour)
 
-	if _, err := Compact(db, now, 0); err != nil {
+	if _, err := Compact(db, now, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(t, db, "flows_hourly"); n != 3 {
 		t.Fatalf("%d hourly rows, want 3", n)
 	}
 
-	result, err := Compact(db, now, 7*24*time.Hour)
+	result, err := Compact(db, now, 7*24*time.Hour, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,5 +428,61 @@ func TestQueriesReturnErrors(t *testing.T) {
 	}
 	if _, err := GetEndpointPairTrafficByHour(db, FlowsFilter{}); err == nil {
 		t.Error("GetEndpointPairTrafficByHour: want an error")
+	}
+}
+
+func TestCompactRollsUpDays(t *testing.T) {
+	db := openTestDB(t)
+	seed(t, db)
+	insert(t, db, row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("142.250.186.78"), 6, 443, 300, 30, seedAt.Add(14 * time.Hour)})
+	before, err := GetStats(db, FlowsFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Days only roll up once all of them is more than hourly ago: the 23rd
+	// ended 6 days ago, which isn't enough.
+	week := 7 * 24 * time.Hour
+	result, err := Compact(db, time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC), 0, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RolledUpDaily != 0 || count(t, db, "flows_hourly") != 4 {
+		t.Fatalf("result = %+v with %d hourly rows, want the 4 hourly rows kept", result, count(t, db, "flows_hourly"))
+	}
+
+	// Ten days on, the 23rd and 24th are over a week ago.
+	result, err = Compact(db, seedAt.Add(10*24*time.Hour), 0, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemovedHourly != 4 || result.RolledUpDaily != 3 || count(t, db, "flows_hourly") != 0 || count(t, db, "flows_daily") != 3 {
+		t.Fatalf("result = %+v, want the 4 hourly rows rolled up into 3 daily ones: 2 on the 23rd, 1 on the 24th", result)
+	}
+
+	after, err := GetStats(db, FlowsFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *after.TotalBytes != *before.TotalBytes || after.TotalClients != before.TotalClients {
+		t.Errorf("stats = %+v after rolling up, want %+v as before", after, before)
+	}
+
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements) != 2 || measurements[0].Hours != 24 || !measurements[0].Date.Equal(time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC)) ||
+		measurements[0].InBytes != 1520 || measurements[1].InBytes != 300 {
+		t.Errorf("measurements = %+v, want the 23rd (1520 in) and the 24th (300 in), a day each", measurements)
+	}
+
+	// Retention deletes days too.
+	result, err = Compact(db, seedAt.Add(10*24*time.Hour), 24*time.Hour, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Expired != 3 || count(t, db, "flows_daily") != 0 {
+		t.Errorf("result = %+v, want the 3 daily rows expired", result)
 	}
 }

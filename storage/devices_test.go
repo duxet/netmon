@@ -213,7 +213,7 @@ func TestDevicesMigrationSeedsHistory(t *testing.T) {
 
 	seed(t, db)
 	// Roll the seeded hours up, then add a per-minute row.
-	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0); err != nil {
+	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	current := seedAt.Add(3 * time.Hour)
@@ -273,7 +273,7 @@ func TestDeviceTraffic(t *testing.T) {
 	}
 
 	// Rolled up, the first round counts as of the start of its hour.
-	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0); err != nil {
+	if _, err := Compact(db, seedAt.Add(3*time.Hour), 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if rolled := traffic(seedAt.Truncate(time.Hour)); rolled[laptopMAC+" 142.250.186.78"] != [2]uint64{1500, 150} {

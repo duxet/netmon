@@ -82,6 +82,8 @@ interface Point {
   time: number
   download: number
   upload: number
+  /** How long the point covers: 1, or 24 for a day whose hours were rolled up. */
+  hours: number
 }
 
 function floorHour(time: number): number {
@@ -109,6 +111,12 @@ function sumTotals(points: Point[]): Totals {
   return { download, upload, total: download + upload }
 }
 
+/** Milliseconds from the first hourly point to the end of the window. */
+function hourlyCoverage(hourly: Point[], now: number, end: number): number {
+  if (hourly.length === 0) return HOUR
+  return Math.max(HOUR, Math.min(now, end) - hourly[0].time)
+}
+
 export function buildTrafficSeries(
   measurements: TrafficMeasurement[],
   rangeKey: RangeKey,
@@ -116,7 +124,7 @@ export function buildTrafficSeries(
 ): TrafficSeries {
   // "In" is the reply direction of connections opened from the LAN: download.
   const points: Point[] = measurements
-    .map((m) => ({ time: Date.parse(m.Date), download: m.InBytes, upload: m.OutBytes }))
+    .map((m) => ({ time: Date.parse(m.Date), download: m.InBytes, upload: m.OutBytes, hours: m.Hours ?? 1 }))
     .filter((point) => Number.isFinite(point.time))
     .sort((a, b) => a.time - b.time)
 
@@ -169,8 +177,11 @@ export function buildTrafficSeries(
     previous = sumTotals(points.filter((p) => p.time >= start - span && p.time < start))
   }
 
+  // Days whose hours were rolled up say nothing about their hours.
+  const hourly = inRange.filter((point) => point.hours <= 1)
+
   let peak: TrafficSeries["peak"] = null
-  for (const point of inRange) {
+  for (const point of hourly) {
     const total = point.download + point.upload
     if (total > 0 && (!peak || total > peak.total)) peak = { time: point.time, total }
   }
@@ -180,10 +191,11 @@ export function buildTrafficSeries(
   const days = Math.max(1, coveredSeconds / (DAY / 1000))
 
   const hourSums = new Array<number>(24).fill(0)
-  for (const point of inRange) {
+  for (const point of hourly) {
     hourSums[new Date(point.time).getHours()] += point.download + point.upload
   }
-  const hourOfDay = hourSums.map((sum, hour) => ({ hour, average: sum / days }))
+  const hourlyDays = hourly.length === inRange.length ? days : Math.max(1, hourlyCoverage(hourly, now, end) / DAY)
+  const hourOfDay = hourSums.map((sum, hour) => ({ hour, average: sum / hourlyDays }))
 
   const totals = sumTotals(inRange)
   return {

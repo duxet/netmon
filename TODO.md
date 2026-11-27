@@ -20,7 +20,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   DuckDB takes its defaults, about 80% of RAM and every core, which is a lot on a
   router. Add `memory_limit` and `threads` settings, with low defaults in the
   OpenWrt package.
-- [ ] Roll old hours up into days. With the default `retention_days: 0`,
+- [x] Roll old hours up into days. With the default `retention_days: 0`,
   `flows_hourly` grows forever. Rolling hours older than some days up into one row
   per flow and day would keep the database small, and make "Monthly usage per
   device" cheap.

@@ -10,6 +10,7 @@ export const SETTING_LABELS: Record<string, string> = {
   public_dns: "Public DNS server",
   retention_days: "Traffic history",
   alert_retention_days: "Resolved alerts",
+  hourly_days: "Hourly detail",
   public_url: "Public URL",
   oidc_issuer: "Provider (issuer)",
   oidc_client_id: "Client ID",
@@ -22,7 +23,7 @@ export const SETTING_LABELS: Record<string, string> = {
 }
 
 /** Settings that are whole numbers. */
-export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days", "threads"])
+export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days", "hourly_days", "threads"])
 
 /** Settings that are how many days to keep something for, with 0 keeping it forever. */
 const RETENTION_SETTINGS = ["retention_days", "alert_retention_days"]

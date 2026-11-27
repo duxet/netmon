@@ -58,12 +58,14 @@ func appTrafficByHour(classifier *apps.Classifier, records []storage.EndpointPai
 		if n := len(result); n > 0 && result[n-1].Date.Equal(record.Hour) {
 			result[n-1].InBytes += traffic.InBytes
 			result[n-1].OutBytes += traffic.OutBytes
+			result[n-1].Hours = max(result[n-1].Hours, record.Hours)
 			continue
 		}
 		result = append(result, TrafficMeasurementDTO{
 			InBytes:  traffic.InBytes,
 			OutBytes: traffic.OutBytes,
 			Date:     record.Hour,
+			Hours:    max(record.Hours, 1),
 		})
 	}
 

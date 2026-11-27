@@ -98,6 +98,9 @@ type TrafficMeasurementDTO struct {
 	InBytes  uint64
 	OutBytes uint64
 	Date     time.Time
+	// Hours is how long the measurement covers from Date: 1, or 24 for days
+	// whose hours were rolled up.
+	Hours int
 }
 
 type HostnameDTO struct {

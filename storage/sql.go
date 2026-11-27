@@ -130,6 +130,10 @@ func collect[T any](rows *sql.Rows, queryErr error, scan func(*sql.Rows, *T) err
 // its UTC offset.
 const hourBucket = "time_bucket(INTERVAL '1 hour', created_at)"
 
+// dayBucket groups TIMESTAMPTZ values by UTC day, whatever the session's
+// time zone.
+const dayBucket = "time_bucket(INTERVAL '1 day', created_at)"
+
 // GetFlows returns traffic per flow (endpoints, protocol and port), most
 // traffic first.
 func GetFlows(db *sql.DB, filter FlowsFilter) ([]FlowRecord, error) {
@@ -246,6 +250,7 @@ func GetTrafficMeasurements(db *sql.DB, filter FlowsFilter) ([]TrafficMeasuremen
 		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN in_bytes ELSE out_bytes END)::INT64", args...)).
 		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN out_bytes ELSE in_bytes END)::INT64", args...)).
 		Column(hourBucket + " AS bucket").
+		Column("max(hours)").
 		From("all_flows").
 		GroupBy("bucket").
 		OrderBy("bucket ASC"))
@@ -256,6 +261,7 @@ func GetTrafficMeasurements(db *sql.DB, filter FlowsFilter) ([]TrafficMeasuremen
 			&measurement.InBytes,
 			&measurement.OutBytes,
 			&measurement.Date,
+			&measurement.Hours,
 		)
 	})
 	if err != nil {
@@ -299,13 +305,14 @@ func GetEndpointPairTrafficByHour(db *sql.DB, filter FlowsFilter) ([]EndpointPai
 	query := filter.apply(sq.
 		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
 		Column(hourBucket+" AS bucket").
+		Column("max(hours)").
 		From("all_flows").
 		GroupBy("src_ip", "dst_ip", "bucket").
 		OrderBy("bucket ASC"))
 
 	rows, err := query.RunWith(db).Query()
 	records, err := collect(rows, err, func(rows *sql.Rows, record *EndpointPairTrafficRecord) error {
-		return scanEndpointPair(rows, record, &record.Hour)
+		return scanEndpointPair(rows, record, &record.Hour, &record.Hours)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query hourly endpoint pair traffic: %w", err)

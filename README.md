@@ -391,6 +391,7 @@ a typo doesn't go unnoticed.
 | `public_dns`           | `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`             | DNS server for reverse lookups of public addresses                 |
 | `retention_days`       | `NETMON_RETENTION_DAYS`       | `0` (keep all)           | Days to keep hourly flow data                                      |
 | `alert_retention_days` | `NETMON_ALERT_RETENTION_DAYS` | `30`                     | Days to keep resolved alerts, `0` keeps them                       |
+| `hourly_days`          | `NETMON_HOURLY_DAYS`          | `90`                     | Days to keep traffic per hour; older hours are kept per day, `0` keeps every hour |
 | `public_url`           | `NETMON_PUBLIC_URL`           | `http://<hostname>:2137` | Where notifications link to; the port is the one of `listen`. Required with `oidc_issuer` |
 | `oidc_issuer`          | `NETMON_OIDC_ISSUER`          | none                     | Issuer URL of an OpenID Connect provider; turns [single sign-on](#single-sign-on) on |
 | `oidc_client_id`       | `NETMON_OIDC_CLIENT_ID`       | none                     | Client ID at the provider, required with `oidc_issuer`             |
@@ -423,8 +424,11 @@ Flows are recorded every minute. At startup and then every hour, the minutes
 of complete hours are rolled up into one row per flow and hour, so the
 database grows with the number of flows rather than with uptime. The
 previous hour is kept per minute along with the current one, so the last 60
-minutes can always be read at full detail. With `NETMON_RETENTION_DAYS` set,
-hourly data older than that many days is deleted. Resolved alerts and the record of
+minutes can always be read at full detail. Hours of UTC days that ended more than
+`hourly_days` ago (90 by default) are rolled up once more, into one row per flow and
+day: charts of long ranges show days anyway, but the busiest hour and the traffic by
+hour of the day only count the days still kept per hour. With `NETMON_RETENTION_DAYS`
+set, data older than that many days is deleted. Resolved alerts and the record of
 their notifications are deleted after `NETMON_ALERT_RETENTION_DAYS` (0 keeps them);
 alerts still firing are kept. `NETMON_PUBLIC_URL` is where notifications link to,
 e.g. `http://router.lan:2137`.
@@ -456,7 +460,7 @@ touched, so comments, blank lines and the rest of the file stay as they are; a s
 taken back to its default is taken out of the file. A change is checked as netmon would
 check the file when starting, and nothing is saved when it fails.
 
-- The DNS servers, the retention of flows and alerts, the public URL, ignoring local
+- The DNS servers, the retention of flows and alerts, how long hours are kept, the public URL, ignoring local
   traffic, the log level and the database's memory limit and threads apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
   database and the capture interface apply when netmon starts again, which the page
@@ -475,8 +479,8 @@ check the file when starting, and nothing is saved when it fails.
 
 The web UI is built on a JSON API at `/api`. Times are RFC 3339 timestamps
 (e.g. `2026-11-24T08:00:00Z`); `from` is inclusive and `to` exclusive. Data
-from before the previous hour is stored per hour, so ranges are effectively
-rounded to whole hours.
+from before the previous hour is stored per hour, and from before `hourly_days` per UTC
+day, so ranges are effectively rounded to whole hours, or days for old data.
 
 | Endpoint | Parameters |
 |----------|------------|
@@ -526,6 +530,9 @@ rounded to whole hours.
 | `GET /api/config` | |
 | `PUT /api/config` | body `{"local_dns": "192.168.1.1:53", "retention_days": 90, "public_url": null}` |
 
+- `/api/traffic-measurements` returns `[{"InBytes", "OutBytes", "Date", "Hours"}]`, oldest
+  first, where `Hours` is how long a measurement covers from `Date`: 1 for an hour, or 24
+  for a day older than `hourly_days`, whose hours were rolled up.
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
 - With `network` (a network's `ID`), traffic is that of flows with either side in the

@@ -75,6 +75,10 @@ type Config struct {
 	RetentionDays      int `koanf:"retention_days"`
 	AlertRetentionDays int `koanf:"alert_retention_days"`
 
+	// HourlyDays is how long traffic is kept per hour: older hours are summed
+	// up per day. 0 keeps every hour.
+	HourlyDays int `koanf:"hourly_days"`
+
 	// PublicURL is where people reach the web UI, which notifications link
 	// to. By default it is the machine's hostname on the Listen port, see
 	// [Config.BaseURL].
@@ -128,6 +132,7 @@ func Defaults() Config {
 		LocalDNS:           "192.168.1.1:54",
 		PublicDNS:          "8.8.8.8:53",
 		AlertRetentionDays: 30,
+		HourlyDays:         90,
 		IgnoreLocalTraffic: true,
 		LogLevel:           "info",
 	}
@@ -136,6 +141,12 @@ func Defaults() Config {
 // Retention is how long hourly flow data is kept, or 0 for forever.
 func (c Config) Retention() time.Duration {
 	return time.Duration(c.RetentionDays) * 24 * time.Hour
+}
+
+// HourlyRetention is how long traffic is kept per hour before it is summed up
+// per day, or 0 for forever.
+func (c Config) HourlyRetention() time.Duration {
+	return time.Duration(c.HourlyDays) * 24 * time.Hour
 }
 
 // AlertRetention is how long resolved alerts are kept, or 0 for forever.
@@ -281,6 +292,9 @@ func (c Config) validate() error {
 	}
 	if c.RetentionDays < 0 {
 		return keyErrorf("retention_days", "retention_days must be a number of days, with 0 keeping everything: %d", c.RetentionDays)
+	}
+	if c.HourlyDays < 0 {
+		return keyErrorf("hourly_days", "hourly_days must be a number of days, with 0 keeping every hour: %d", c.HourlyDays)
 	}
 	if c.AlertRetentionDays < 0 {
 		return keyErrorf("alert_retention_days", "alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)

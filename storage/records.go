@@ -40,6 +40,9 @@ type TrafficMeasurementRecord struct {
 	InBytes  uint64
 	OutBytes uint64
 	Date     time.Time
+	// Hours is how long the measurement covers from Date: 1, or 24 for days
+	// that were rolled up.
+	Hours int
 }
 
 type EndpointPairTrafficRecord struct {
@@ -49,8 +52,10 @@ type EndpointPairTrafficRecord struct {
 	InPackets            uint64
 	OutBytes             uint64
 	OutPackets           uint64
-	// Hour is the start of the hour, for GetEndpointPairTrafficByHour.
-	Hour time.Time
+	// Hour is the start of the hour, for GetEndpointPairTrafficByHour, and
+	// Hours how long it covers: 1, or 24 for days that were rolled up.
+	Hour  time.Time
+	Hours int
 }
 
 // DeviceRecord is a device seen in flows, identified by its MAC address.
@@ -72,8 +77,13 @@ type CompactResult struct {
 	RolledUp int64
 	// Removed is the number of per-minute rows they replaced.
 	Removed int64
-	// Expired is the number of hourly rows deleted for being past retention.
+	// Expired is the number of hourly and daily rows deleted for being past
+	// retention.
 	Expired int64
+	// RolledUpDaily is the number of daily rows written, and RemovedHourly
+	// the number of hourly rows they replaced.
+	RolledUpDaily int64
+	RemovedHourly int64
 }
 
 // DeviceTrafficRecord is what a device exchanged with one remote address,

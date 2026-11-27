@@ -86,6 +86,8 @@ export interface TrafficMeasurement {
   OutBytes: number
   /** Start of an hourly bucket. */
   Date: string
+  /** How long it covers from Date: 1, or 24 for a day whose hours were rolled up. */
+  Hours: number
 }
 
 export interface HostnameEntry {

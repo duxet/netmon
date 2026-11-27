@@ -294,6 +294,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				InBytes:  record.InBytes,
 				OutBytes: record.OutBytes,
 				Date:     record.Date,
+				Hours:    record.Hours,
 			})
 		}
 
