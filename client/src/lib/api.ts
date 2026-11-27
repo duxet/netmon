@@ -800,6 +800,34 @@ export interface ImportResult {
   Warnings: string[]
 }
 
+/** A read-only API token, without the token itself. */
+export interface ApiToken {
+  ID: number
+  Name: string
+  /** The token's start, to tell it apart. */
+  Prefix: string
+  CreatedBy: string
+  CreatedAt: string
+  LastUsedAt: string | null
+}
+
+/** A token that was just made, with the token, which isn't shown again. */
+export interface NewApiToken extends ApiToken {
+  Token: string
+}
+
+export function fetchTokens() {
+  return requestList<ApiToken>("/api/tokens")
+}
+
+export function createToken(name: string) {
+  return request<NewApiToken>("/api/tokens", jsonBody("POST", { name }))
+}
+
+export async function deleteToken(id: number) {
+  await send(`/api/tokens/${id}`, { method: "DELETE" })
+}
+
 /** Imports settings exported from /api/settings-export, as the file's text. */
 export function importSettings(text: string) {
   return request<ImportResult>("/api/settings-import", {

@@ -53,7 +53,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   channel endpoints, which can make netmon send requests to any URL. Restricting
   CORS doesn't stop that. Check the `Host` header against `public_url` and a list of
   allowed hosts, and require `application/json` or a custom header on changes.
-- [ ] Add API tokens, read-only and revocable, so that Home Assistant, scripts and
+- [x] Add API tokens, read-only and revocable, so that Home Assistant, scripts and
   Grafana can use the API while single sign-on is on.
 
 ## Features

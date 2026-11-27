@@ -68,7 +68,7 @@ type Options struct {
 	HTTPClient *http.Client
 }
 
-// User is a person who is signed in.
+// User is a person who is signed in, or an API token.
 type User struct {
 	// Subject is the provider's stable identifier of the person.
 	Subject string
@@ -76,6 +76,9 @@ type User struct {
 	// the provider told. Either may be empty.
 	Name  string
 	Email string
+	// TokenID is the API token the request came with, and Name its name; 0
+	// for a person with a session.
+	TokenID int64
 }
 
 // Authenticator signs people in and checks their sessions.
@@ -201,9 +204,25 @@ func UserFrom(c fiber.Ctx) *User {
 	return fiber.Locals[*User](c, userKey{})
 }
 
-// require lets requests with a session through, and sends everyone else to
-// sign in.
+// require lets requests with a session or an API token through, and sends
+// everyone else to sign in.
 func (a *Authenticator) require(c fiber.Ctx) error {
+	if token, ok := bearerToken(c); ok {
+		user, err := a.tokenUser(token)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "invalid API token")
+		}
+		if !tokenMayRead(c) {
+			return fiber.NewError(fiber.StatusForbidden,
+				"API tokens can only read traffic: they can't change anything, download backups or read credentials")
+		}
+		c.Locals(userKey{}, user)
+		return c.Next()
+	}
+
 	user, err := a.currentUser(c)
 	if err != nil {
 		// Not knowing who it is has to mean no, not yes.

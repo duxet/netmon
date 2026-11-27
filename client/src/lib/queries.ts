@@ -19,6 +19,7 @@ import {
   fetchNotificationServices,
   fetchSession,
   fetchStatus,
+  fetchTokens,
   fetchStats,
   fetchTrafficMeasurements,
   type AlertsRequest,
@@ -42,6 +43,14 @@ export interface ClientFilter {
 // Query keys hold the range ("7d"), not a timestamp: the window's start is
 // worked out when the data is fetched, so every refresh moves it forward
 // without creating a new cache entry each minute.
+
+/** The read-only API tokens. */
+export function tokensQuery() {
+  return queryOptions({
+    queryKey: ["tokens"],
+    queryFn: fetchTokens,
+  })
+}
 
 /** How netmon is doing. */
 export function statusQuery() {

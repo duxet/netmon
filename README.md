@@ -254,11 +254,13 @@ with 0 when it is healthy and 1 when it isn't; the Docker image uses it as its
 Counters start at 0 when netmon starts. The traffic of devices is what netmon records,
 so it leaves out [local traffic](#local-traffic) unless that is recorded too, and goes
 up once a minute. `name` is the name you gave the device, or empty. With single sign-on
-on, `/metrics` needs a session like the API.
+on, `/metrics` needs an [API token](#single-sign-on) like the API.
 
 ```yaml
 scrape_configs:
   - job_name: netmon
+    authorization:
+      credentials_file: /etc/prometheus/netmon-token # only with single sign-on
     static_configs:
       - targets: ["router.lan:2137"]
 ```
@@ -377,8 +379,12 @@ the secret out: netmon then relies on PKCE alone, which it uses in any case.
 - The provider is only contacted when someone signs in. If it can't be reached when
   netmon starts, netmon starts anyway (the flows are recorded all the same), logs it, and
   tries again when someone signs in. People who already have a session carry on.
-- There are no API tokens: scripts can't sign in, so `/api` can't be used with `curl`
-  while single sign-on is on.
+- Scripts, Prometheus and Home Assistant can't sign in, so they use API tokens instead,
+  made under **Settings → Configuration → API tokens**: send one as
+  `Authorization: Bearer netmon_…`. Tokens are read-only: they can read the traffic and
+  settings, but not change anything, download backups or export the channels' credentials.
+  A token is only shown when it is made, as netmon keeps its SHA-256 alone, and it works
+  until it is revoked.
 - Setting `oidc_client_id` or `oidc_client_secret` without `oidc_issuer` is an error, so
   that a setting that has no effect can't leave netmon open without anyone noticing.
 
@@ -563,6 +569,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `GET /api/backup` | |
 | `GET /api/settings-export` | `secrets` (`true` to include the channels' URLs) |
 | `POST /api/settings-import` | body as `/api/settings-export` returns it |
+| `GET /api/tokens` | |
+| `POST /api/tokens` | body `{"name": "Grafana"}` |
+| `DELETE /api/tokens/:id` | |
 | `GET /api/config` | |
 | `PUT /api/config` | body `{"local_dns": "192.168.1.1:53", "retention_days": 90, "public_url": null}` |
 
@@ -660,8 +669,8 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   `resolved_at`, `url`, the labels, and `payload_version` (`1`). All values are strings.
 
 Invalid parameters are answered with a 400 and `{"error": "..."}`. With
-[single sign-on](#single-sign-on) on, every request needs the session cookie, or is
-answered with a 401.
+[single sign-on](#single-sign-on) on, every request needs the session cookie or an API
+token, or is answered with a 401; changes with a token are answered with a 403.
 
 `/api/config` answers `{"File", "Exists", "OS", "DefaultPublicURL", "Settings"}`, where
 each setting has its `Key` (as in the YAML file), `Value` (what netmon would start with
@@ -687,6 +696,10 @@ name their `channels` instead of their IDs, and devices are `{"mac", "name", "ic
 Channel URLs are redacted unless `secrets=true`. `/api/settings-import` takes the same,
 and answers how many of each it `Created` and `Updated`, with `Warnings` about what it left
 out; it answers 400, changing nothing, when an entry is invalid, naming it (`networks[1]`).
+
+API tokens have an `ID`, `Name`, `Prefix` (the start of the token, to tell them apart),
+`CreatedBy`, `CreatedAt` and `LastUsedAt` (null before the first use; noted at most once a
+minute). `POST /api/tokens` answers with the `Token` too, which isn't shown again.
 
 `/api/session` tells whether netmon asks people to sign in and who the request is from:
 `{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and
