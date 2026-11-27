@@ -51,7 +51,7 @@ func TestFlushedFlowsAreReadableByTheApplication(t *testing.T) {
 	ft.Add(withHint(pkt(remote, 44444, host, 22, 60), hintSrcIsClient))
 	ft.Add(withHint(pkt(host, 22, remote, 44444, 60), hintDstIsClient))
 
-	if err := ft.flushTo(db); err != nil {
+	if _, err := ft.flushTo(db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -137,7 +137,7 @@ func TestFlushedFlowsAreReadableByTheApplication(t *testing.T) {
 func TestFlushingNothingWritesNothing(t *testing.T) {
 	db := newTestDB(t)
 
-	if err := newTestTable().flushTo(db); err != nil {
+	if _, err := newTestTable().flushTo(db); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestIPv6FlowsAreStored(t *testing.T) {
 	src, dst := netip.MustParseAddr("2001:db8::10"), netip.MustParseAddr("2001:db8:1::53")
 	ft.Add(pkt(src, 40000, dst, 53, 80))
 
-	if err := ft.flushTo(db); err != nil {
+	if _, err := ft.flushTo(db); err != nil {
 		t.Fatal(err)
 	}
 

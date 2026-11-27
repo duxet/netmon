@@ -98,15 +98,18 @@ func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, er
 		}
 	}()
 
+	opts.Health.Started()
 	return &Collector{shutdownChan: shutdownChan, done: done}, nil
 }
 
 func (c *pcapCollector) flush() {
-	if err := c.table.flushTo(c.db); err != nil {
+	rows, err := c.table.flushTo(c.db)
+	if err != nil {
 		slog.Error("Failed to store flows", "err", err)
+		c.opts.Health.roundFailed(err)
 		return
 	}
-	c.opts.flushed(time.Now())
+	c.opts.flushed(time.Now(), rows)
 }
 
 func (c *pcapCollector) interfaceName() string {
@@ -191,10 +194,12 @@ func (c *pcapCollector) captureLoop(ctx context.Context, handle *pcap.Handle) {
 		}
 
 		slog.Error("Capture stopped", "interface", c.interfaceName(), "err", err)
+		c.opts.Health.warn("capture", fmt.Sprintf("Capturing on %s stopped, so traffic isn't recorded until it can start again: %v", c.interfaceName(), err))
 
 		if handle = c.reopen(ctx); handle == nil {
 			return
 		}
+		c.opts.Health.warn("capture", "")
 	}
 }
 

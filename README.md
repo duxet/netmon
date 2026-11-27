@@ -78,6 +78,12 @@ sudo ./netmon
 Connections to a port the router forwards to a device on your network count as that
 device's traffic, though they were sent to the router's address.
 
+The web UI says so at the top of every page when netmon isn't recording traffic: when
+the collector couldn't start (without root, say), recording fails or seems stuck, or
+connection tracking doesn't count traffic because accounting is off. If writing to the
+database keeps failing, netmon keeps the traffic of up to 65,536 closed connections for
+when it works again, and leaves out the rest.
+
 ## Running on OpenWrt
 
 Packages for 64-bit targets (`x86_64` and `aarch64`) are attached to each
@@ -575,8 +581,12 @@ settings in its body, a string, a number or `true` or `false` as the setting is,
 the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 `{"error", "setting"}` for a change it refuses, which saves nothing.
 
-`/api/status` tells how netmon is doing: `{"Version": "1.2.3"}`, with `dev` and the
-commit for builds that aren't releases.
+`/api/status` tells how netmon is doing: `{"Version": "1.2.3", "Collector": {...}}`, with
+`dev` and the commit as the `Version` of builds that aren't releases. `Collector` has
+`Running` (whether the collector started), `Error` (why it didn't, or why the last round
+of recording failed, or null), `LastRecorded` (when traffic was last written, or null),
+`Stale` (whether that was more than 3 minutes ago) and `Warnings`, problems that keep
+traffic from being recorded in full, such as accounting being off.
 
 `/api/session` tells whether netmon asks people to sign in and who the request is from:
 `{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and

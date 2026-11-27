@@ -13,6 +13,7 @@ import (
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
+	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
@@ -51,6 +52,9 @@ type Options struct {
 	// Config saves settings to the YAML file. Without it, /api/config
 	// isn't served.
 	Config *config.Editor
+	// Collector tells how recording traffic goes. Without it, /api/status
+	// has no collector.
+	Collector *collector.Health
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -355,7 +359,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	registerSessionRoutes(app, options.Auth != nil)
-	registerStatusRoutes(app)
+	registerStatusRoutes(app, options.Collector)
 	registerDeviceRoutes(app, db, hostnames)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {

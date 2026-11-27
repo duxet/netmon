@@ -316,15 +316,15 @@ func (t *flowTable) Flush() (rows []flowRow, dropped uint64) {
 }
 
 // flushTo writes the traffic collected since the previous flush to the
-// database.
-func (t *flowTable) flushTo(db *sql.DB) error {
+// database, and returns how many flows it wrote.
+func (t *flowTable) flushTo(db *sql.DB) (int, error) {
 	rows, dropped := t.Flush()
 
 	if dropped > 0 {
 		slog.Warn("Flow table is full, ignored the packets of new flows", "packets", dropped)
 	}
 
-	return insertFlows(db, rows)
+	return len(rows), insertFlows(db, rows)
 }
 
 func insertFlows(db *sql.DB, rows []flowRow) error {

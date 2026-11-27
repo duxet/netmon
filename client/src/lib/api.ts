@@ -162,6 +162,20 @@ export interface Session {
 export interface Status {
   /** The release, such as 1.2.3, or "dev" with the commit it was built from. */
   Version: string
+  /** How recording traffic goes; null when the API doesn't know. */
+  Collector: CollectorStatus | null
+}
+
+export interface CollectorStatus {
+  /** Whether the collector started. */
+  Running: boolean
+  /** Why it didn't start, or why the last round of recording failed. */
+  Error: string | null
+  /** When traffic was last recorded, and whether that was so long ago that recording seems stuck. */
+  LastRecorded: string | null
+  Stale: boolean
+  /** Problems that keep traffic from being recorded in full. */
+  Warnings: string[]
 }
 
 export class ApiError extends Error {

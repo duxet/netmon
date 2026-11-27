@@ -3,6 +3,7 @@ import { createRootRouteWithContext, Link, Outlet, retainSearchParams } from "@t
 import * as React from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { CollectorStatus } from "@/components/collector-status"
 import { SiteHeader } from "@/components/site-header"
 import { Button } from "@/components/ui/button"
 import {
@@ -50,6 +51,7 @@ function RootLayout() {
       <SidebarInset>
         <SiteHeader />
         <main className="@container/main flex flex-1 flex-col">
+          <CollectorStatus />
           <Outlet />
         </main>
       </SidebarInset>

@@ -4,7 +4,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 
 ## Collector
 
-- [ ] Bound what the Linux collector keeps while recording fails. The connections
+- [x] Bound what the Linux collector keeps while recording fails. The connections
   closed since the last round stay in memory until a round is written, so a
   database that keeps failing makes them grow without limit.
 - [ ] Try the Linux collector on a busy router: watch the log for "Lost Netfilter
@@ -27,7 +27,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 
 ## Operations
 
-- [ ] Show the collector's health in the web UI. When the collector can't start
+- [x] Show the collector's health in the web UI. When the collector can't start
   (no `CAP_NET_ADMIN`, say) or `nf_conntrack_acct` is 0, netmon only logs it and
   shows an empty UI. Show a banner with the reason and the time of the last round
   that was recorded.

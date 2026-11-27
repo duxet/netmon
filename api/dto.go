@@ -298,6 +298,24 @@ type StatusDTO struct {
 	// Version is the release, such as 1.2.3, or "dev" for other builds,
 	// with the commit they were built from when known.
 	Version string
+	// Collector tells how recording traffic goes.
+	Collector *CollectorStatusDTO
+}
+
+// CollectorStatusDTO tells how recording traffic goes.
+type CollectorStatusDTO struct {
+	// Running is whether the collector started.
+	Running bool
+	// Error is why it didn't start, or why the last round of recording
+	// failed; null when it succeeded.
+	Error *string
+	// LastRecorded is when traffic was last written, null before the first
+	// round, and Stale whether that was so long ago that recording seems
+	// stuck.
+	LastRecorded *time.Time
+	Stale        bool
+	// Warnings are problems that keep traffic from being recorded in full.
+	Warnings []string
 }
 
 // UserDTO is a person signed in through single sign-on. Name and Email are

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -283,12 +284,13 @@ func newTestCollector(db *sql.DB) (*netfilterCollector, *fakeKernel) {
 	kernel := &fakeKernel{macs: localHosts}
 	n.dump, n.neighbors = kernel.dump, kernel.neighbors
 	n.listen = func() (*destroyListener, error) { return nil, errors.New("no conntrack in tests") }
+	n.accounting = func() (bool, error) { return true, nil }
 	return n, kernel
 }
 
 func mustRecord(t *testing.T, n *netfilterCollector) {
 	t.Helper()
-	if err := n.record(); err != nil {
+	if _, err := n.record(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -371,7 +373,7 @@ func TestRecordKeepsTrafficItCouldNotWrite(t *testing.T) {
 	n.destroyed(conn(2, laptopIP.String(), "1.1.1.1", 50001, 53, 90, 70))
 
 	kernel.err = errors.New("dump failed")
-	if err := n.record(); err == nil {
+	if _, err := n.record(); err == nil {
 		t.Fatal("recording with a failing dump succeeded")
 	}
 	kernel.err = nil
@@ -382,7 +384,7 @@ func TestRecordKeepsTrafficItCouldNotWrite(t *testing.T) {
 	}
 	_ = broken.Close()
 	n.db = broken
-	if err := n.record(); err == nil {
+	if _, err := n.record(); err == nil {
 		t.Fatal("recording to a closed database succeeded")
 	}
 	n.db = db
@@ -550,5 +552,70 @@ func TestShutdownRecordsTheLastRound(t *testing.T) {
 	case <-flushed:
 	default:
 		t.Error("OnFlush wasn't called for the last round")
+	}
+}
+
+func TestRecordBoundsTheClosedConnectionsItKeeps(t *testing.T) {
+	db := newTestDB(t)
+	n, _ := newTestCollector(db)
+	n.opts.Health = NewHealth()
+
+	for id := range uint32(maxClosedConnections + 5) {
+		n.destroyed(conn(id, laptopIP.String(), "1.1.1.1", uint16(id), 53, 90, 70))
+	}
+	// A connection it has already is no more of them.
+	n.destroyed(conn(0, laptopIP.String(), "1.1.1.1", 0, 53, 100, 80))
+	if len(n.closed) != maxClosedConnections || n.dropped != 5 {
+		t.Fatalf("kept %d closed connections and dropped %d, want %d and 5", len(n.closed), n.dropped, maxClosedConnections)
+	}
+
+	mustRecord(t, n)
+	if got := n.opts.Health.Status().DroppedConnections; got != 5 {
+		t.Errorf("health counts %d dropped connections, want 5", got)
+	}
+	if n.dropped != 0 {
+		t.Errorf("%d dropped connections left after reporting them, want none", n.dropped)
+	}
+}
+
+func TestRoundReportsToHealth(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+	n.opts.Health = NewHealth()
+
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100))
+	n.round()
+	if s := n.opts.Health.Status(); s.Rounds != 1 || s.Rows != 1 || s.LastRecorded.IsZero() || s.Error != "" {
+		t.Errorf("after a round: %+v", s)
+	}
+
+	kernel.err = errors.New("dump failed")
+	n.round()
+	if s := n.opts.Health.Status(); s.FailedRounds != 1 || s.Error != "dump failed" {
+		t.Errorf("after a failed round: %+v", s)
+	}
+}
+
+func TestRoundWarnsWhenConntrackDoesNotCount(t *testing.T) {
+	n, _ := newTestCollector(newTestDB(t))
+	n.opts.Health = NewHealth()
+
+	n.accounting = func() (bool, error) { return false, nil }
+	n.round()
+	if w := n.opts.Health.Status().Warnings; len(w) != 1 || !strings.Contains(w[0], "nf_conntrack_acct=1") {
+		t.Errorf("warnings with accounting off = %q, want how to turn it on", w)
+	}
+
+	n.accounting = func() (bool, error) { return true, nil }
+	n.round()
+	if w := n.opts.Health.Status().Warnings; len(w) != 0 {
+		t.Errorf("warnings with accounting on = %q, want none", w)
+	}
+
+	// Without the setting, as in some containers, it can't tell.
+	n.accounting = func() (bool, error) { return false, errors.New("no such file") }
+	n.round()
+	if w := n.opts.Health.Status().Warnings; len(w) != 0 {
+		t.Errorf("warnings without the setting = %q, want none", w)
 	}
 }

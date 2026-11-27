@@ -163,7 +163,9 @@ func main() {
 	// the API serves what the meter measured to the live view.
 	meter := live.NewMeter()
 
+	health := collector.NewHealth()
 	coll, err := collector.CollectTraffic(db, meter, collector.Options{
+		Health: health,
 		OnFlush: func(at time.Time) {
 			readNetworks()
 			engine.Trigger(at)
@@ -173,6 +175,7 @@ func main() {
 	})
 	if err != nil {
 		slog.Error("Collector failed to start", "err", err)
+		health.Failed(err)
 	}
 
 	assets, err := fs.Sub(clientAssets, "client/dist")
@@ -206,7 +209,7 @@ func main() {
 	}
 
 	app := api.CreateHTTPApp(db, assets, api.Options{
-		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
+		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor, Collector: health,
 	})
 
 	go func() {

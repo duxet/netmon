@@ -5,6 +5,7 @@ package collector
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/live"
@@ -15,6 +16,8 @@ import (
 	"maps"
 	"net"
 	"net/netip"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +59,14 @@ const (
 	// listenFailureReport is how often failures to receive events are
 	// reported at most: they tend to come in bursts.
 	listenFailureReport = time.Minute
+
+	// maxClosedConnections bounds the closed connections kept for the next
+	// round, which grow while rounds keep failing, such as when the database
+	// can't be written. Connections closing past it are left out.
+	maxClosedConnections = 1 << 16
+
+	// accountingSysctl tells whether conntrack counts bytes and packets.
+	accountingSysctl = "/proc/sys/net/netfilter/nf_conntrack_acct"
 )
 
 // macLookup returns a function that finds the MAC address of a host of the
@@ -352,11 +363,15 @@ type netfilterCollector struct {
 	neighbors func() (map[netip.Addr]live.MAC, error)
 	// listen starts listening for the connections conntrack destroys.
 	listen func() (*destroyListener, error)
+	// accounting tells whether conntrack counts traffic.
+	accounting func() (bool, error)
 
 	// mu guards closed, the connections destroyed since the last round,
-	// which the listener adds to.
-	mu     sync.Mutex
-	closed map[uint32]conntrack.Flow
+	// which the listener adds to, and dropped, how many were left out of it
+	// since the last round as there were too many.
+	mu      sync.Mutex
+	closed  map[uint32]conntrack.Flow
+	dropped int
 
 	// roundMu makes rounds take turns, and guards baseline.
 	roundMu  sync.Mutex
@@ -368,14 +383,25 @@ func newNetfilterCollector(db *sql.DB, meter *live.Meter, opts Options) *netfilt
 	sampler.ignore = opts.ignored
 
 	return &netfilterCollector{
-		db:        db,
-		opts:      opts,
-		sampler:   sampler,
-		dump:      dumpConnections,
-		neighbors: readNeighbors,
-		listen:    listenDestroyed,
-		closed:    map[uint32]conntrack.Flow{},
+		db:         db,
+		opts:       opts,
+		sampler:    sampler,
+		dump:       dumpConnections,
+		neighbors:  readNeighbors,
+		listen:     listenDestroyed,
+		accounting: readAccounting,
+		closed:     map[uint32]conntrack.Flow{},
 	}
+}
+
+// readAccounting tells whether conntrack counts the bytes and packets of
+// connections, which the kernel only does with accounting on.
+func readAccounting() (bool, error) {
+	data, err := os.ReadFile(accountingSysctl)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(data)) != "0", nil
 }
 
 // dumpConnections returns the connections conntrack tracks.
@@ -392,20 +418,31 @@ func dumpConnections() ([]conntrack.Flow, error) {
 // destroyed keeps a connection conntrack destroyed for the next round.
 func (n *netfilterCollector) destroyed(flow conntrack.Flow) {
 	n.mu.Lock()
-	n.closed[flow.ID] = flow
+	n.keep(flow)
 	n.mu.Unlock()
 
 	n.sampler.destroyed(flow)
 }
 
-// takeClosed returns the connections destroyed since it was last called.
-func (n *netfilterCollector) takeClosed() map[uint32]conntrack.Flow {
+// keep adds a closed connection to those of the next round, unless there are
+// too many. The caller holds n.mu.
+func (n *netfilterCollector) keep(flow conntrack.Flow) {
+	if _, ok := n.closed[flow.ID]; !ok && len(n.closed) >= maxClosedConnections {
+		n.dropped++
+		return
+	}
+	n.closed[flow.ID] = flow
+}
+
+// takeClosed returns the connections destroyed since it was last called, and
+// how many were left out as there were too many.
+func (n *netfilterCollector) takeClosed() (map[uint32]conntrack.Flow, int) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	closed := n.closed
-	n.closed = map[uint32]conntrack.Flow{}
-	return closed
+	closed, dropped := n.closed, n.dropped
+	n.closed, n.dropped = map[uint32]conntrack.Flow{}, 0
+	return closed, dropped
 }
 
 // putBack hands connections takeClosed returned back for the next round,
@@ -417,33 +454,38 @@ func (n *netfilterCollector) putBack(closed map[uint32]conntrack.Flow) {
 
 	for id, flow := range closed {
 		if _, ok := n.closed[id]; !ok {
-			n.closed[id] = flow
+			n.keep(flow)
 		}
 	}
 }
 
-// record writes the traffic since the last round to the database. When that
-// fails, the next round records it.
-func (n *netfilterCollector) record() error {
+// record writes the traffic since the last round to the database, and
+// returns how many flows it wrote. When that fails, the next round records
+// it.
+func (n *netfilterCollector) record() (int, error) {
 	n.roundMu.Lock()
 	defer n.roundMu.Unlock()
 
 	// The destroyed connections are taken before the dump, so that the
 	// connections the dump misses are either among them or will have their
 	// event in a later round, which the baseline is kept for.
-	closed := n.takeClosed()
+	closed, dropped := n.takeClosed()
+	if dropped > 0 {
+		slog.Warn("Too many connections closed while recording failed, left out the traffic of some", "connections", dropped)
+		n.opts.Health.droppedConnections(dropped)
+	}
 
 	current, err := n.dump()
 	if err != nil {
 		n.putBack(closed)
-		return err
+		return 0, err
 	}
 
 	// One look at the neighbor table finds the MAC addresses of every flow.
 	macs, err := n.neighbors()
 	if err != nil {
 		n.putBack(closed)
-		return fmt.Errorf("read neighbor table: %w", err)
+		return 0, fmt.Errorf("read neighbor table: %w", err)
 	}
 
 	snapshots := buildSnapshots(closed, current, n.baseline.flows(), macLookup(macs), n.opts.ignored)
@@ -452,21 +494,37 @@ func (n *netfilterCollector) record() error {
 		// Keep the previous baseline too: the next round then records this
 		// one's traffic as well, without counting any twice.
 		n.putBack(closed)
-		return err
+		return 0, err
 	}
 
 	n.baseline = n.baseline.next(current, closed)
 
-	return nil
+	return len(snapshots), nil
 }
 
 // round records the traffic since the last round, and reports it.
 func (n *netfilterCollector) round() {
-	if err := n.record(); err != nil {
+	n.checkAccounting()
+
+	rows, err := n.record()
+	if err != nil {
 		slog.Error("Failed to process flows", "err", err)
+		n.opts.Health.roundFailed(err)
 		return
 	}
-	n.opts.flushed(time.Now())
+	n.opts.flushed(time.Now(), rows)
+}
+
+// checkAccounting warns when conntrack doesn't count traffic, so that none is
+// recorded. Where the setting can't be read, it says nothing.
+func (n *netfilterCollector) checkAccounting() {
+	on, err := n.accounting()
+	if err == nil && !on {
+		n.opts.Health.warn("accounting", "Connection tracking doesn't count traffic, so netmon records none: "+
+			"turn accounting on with sysctl -w net.netfilter.nf_conntrack_acct=1")
+		return
+	}
+	n.opts.Health.warn("accounting", "")
 }
 
 // listenUntilDone passes the connections conntrack destroys to n.destroyed,
@@ -484,6 +542,7 @@ func (n *netfilterCollector) listenUntilDone(ctx context.Context, l *destroyList
 		}
 
 		failures++
+		n.opts.Health.eventsOverflowed()
 		if now := time.Now(); now.Sub(lastReport) >= listenFailureReport {
 			slog.Warn("Lost Netfilter events about connections closing, so some of their traffic isn't recorded; listening again", "failures", failures, "err", err)
 			lastReport, failures = now, 0
@@ -533,6 +592,9 @@ func (n *netfilterCollector) start(l *destroyListener) (*Collector, error) {
 	sampleCtx, stopSampling := context.WithCancel(context.Background())
 	go n.sampler.run(sampleCtx)
 
+	// Rather than only at the first round, say right away when no traffic
+	// will be counted.
+	n.checkAccounting()
 	s.Start()
 
 	shutdownChan := make(chan bool, 1)
@@ -562,8 +624,16 @@ func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, er
 	// Listening first tells whether netmon can use conntrack at all.
 	l, err := n.listen()
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			err = fmt.Errorf("reading connection tracking needs root or CAP_NET_ADMIN: %w", err)
+		}
 		return nil, err
 	}
 
-	return n.start(l)
+	c, err := n.start(l)
+	if err != nil {
+		return nil, err
+	}
+	opts.Health.Started()
+	return c, nil
 }

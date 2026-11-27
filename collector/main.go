@@ -25,6 +25,9 @@ type Options struct {
 	// for a packet its source and destination. It is asked often, so it has
 	// to be quick, and it may change its mind at any time.
 	Ignore func(src, dst netip.Addr) bool
+
+	// Health, if set, is told how recording goes.
+	Health *Health
 }
 
 // ignored reports whether the traffic between src and dst is to be left out.
@@ -32,8 +35,9 @@ func (o Options) ignored(src, dst netip.Addr) bool {
 	return o.Ignore != nil && o.Ignore(src, dst)
 }
 
-// flushed reports a completed flush to OnFlush.
-func (o Options) flushed(at time.Time) {
+// flushed reports a completed flush of rows flows to Health and OnFlush.
+func (o Options) flushed(at time.Time, rows int) {
+	o.Health.recorded(at, rows)
 	if o.OnFlush != nil {
 		o.OnFlush(at)
 	}
