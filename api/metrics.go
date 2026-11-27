@@ -118,19 +118,8 @@ func registerMetricsRoutes(app *fiber.App, db *sql.DB, m metrics) {
 			if err != nil {
 				return err
 			}
-			devices := m.totals.Devices()
 			// Merged MAC addresses count as their device.
-			for device, merged := range aliases {
-				for _, alias := range merged {
-					if total, ok := devices[alias]; ok {
-						sum := devices[device]
-						sum.Received += total.Received
-						sum.Sent += total.Sent
-						devices[device] = sum
-						delete(devices, alias)
-					}
-				}
-			}
+			devices := collector.MergeAliases(m.totals.Devices(), aliases)
 			macs := slices.Sorted(func(yield func(string) bool) {
 				for mac := range devices {
 					if !yield(mac) {

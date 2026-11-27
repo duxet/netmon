@@ -62,3 +62,20 @@ func (t *Totals) add(mac string, received, sent uint64) {
 	total.Sent += sent
 	t.devices[mac] = total
 }
+
+// MergeAliases counts the traffic of MAC addresses merged into a device, by
+// the device's MAC address, as the device's.
+func MergeAliases(devices map[string]DeviceTotal, aliases map[string][]string) map[string]DeviceTotal {
+	for device, merged := range aliases {
+		for _, alias := range merged {
+			if total, ok := devices[alias]; ok {
+				sum := devices[device]
+				sum.Received += total.Received
+				sum.Sent += total.Sent
+				devices[device] = sum
+				delete(devices, alias)
+			}
+		}
+	}
+	return devices
+}

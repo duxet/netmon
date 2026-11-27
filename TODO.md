@@ -72,7 +72,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [x] Manage devices: forget a device (there is no `DELETE /api/devices/:mac`), and
   merge several MAC addresses into one device, for phones that use a random one per
   network.
-- [ ] Publish devices to Home Assistant over MQTT: whether each is online, for
+- [x] Publish devices to Home Assistant over MQTT: whether each is online, for
   presence detection, and its current download and upload.
 - [x] Add time ranges: the last hour (its data is kept per minute), a custom range,
   and zooming into a chart by dragging across it. Only the last 24 hours, 7 days and

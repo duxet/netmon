@@ -8,6 +8,7 @@ require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/duckdb/duckdb-go/v2 v2.20001.0
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-co-op/gocron/v2 v2.23.2
 	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/gopacket/gopacket v1.8.0
@@ -15,6 +16,7 @@ require (
 	github.com/knadh/koanf/providers/env/v2 v2.0.2
 	github.com/knadh/koanf/v2 v2.4.1
 	github.com/maxmind/mmdbwriter v1.2.0
+	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/nicholas-fedor/shoutrrr v0.25.0
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	github.com/rubenv/sql-migrate v1.8.1
@@ -58,6 +60,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.34 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/rs/xid v1.4.0 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.80.0 // indirect
@@ -78,6 +81,7 @@ require (
 	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.53.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mellium.im/reader v0.1.0 // indirect
 	mellium.im/sasl v0.3.2 // indirect
 	mellium.im/xmlstream v0.15.4 // indirect

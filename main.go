@@ -15,6 +15,7 @@ import (
 	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
+	"github.com/duxet/netmon/homeassistant"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/logging"
 	"github.com/duxet/netmon/lookup"
@@ -202,12 +203,25 @@ func main() {
 
 	health := collector.NewHealth()
 	totals := collector.NewTotals()
+	// With a broker, devices are published to Home Assistant after every
+	// round.
+	var publisher *homeassistant.Publisher
+	if cfg.MQTTBroker != "" {
+		publisher = homeassistant.Connect(homeassistant.Config{
+			Broker: cfg.MQTTBroker, Username: cfg.MQTTUsername, Password: cfg.MQTTPassword,
+			Topic: cfg.MQTTTopic, DiscoveryPrefix: cfg.MQTTDiscoveryPrefix, AllDevices: cfg.MQTTAllDevices,
+		}, db, totals)
+	}
+
 	coll, err := collector.CollectTraffic(db, meter, collector.Options{
 		Health: health,
 		Totals: totals,
 		OnFlush: func(at time.Time) {
 			readNetworks()
 			engine.Trigger(at)
+			if publisher != nil {
+				go publisher.Publish(at)
+			}
 		},
 		Interface: cfg.Interface,
 		Ignore:    localTraffic.Ignored,
@@ -266,6 +280,9 @@ func main() {
 		// Let a running evaluation finish, then send what it raised.
 		<-engineDone
 		dispatcher.Close(notifyShutdownTimeout)
+		if publisher != nil {
+			publisher.Close()
+		}
 
 		_ = app.ShutdownWithContext(context.Background())
 	}()

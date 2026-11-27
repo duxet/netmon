@@ -360,7 +360,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level memory_limit threads allowed_hosts"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level memory_limit threads mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}
@@ -416,5 +416,22 @@ func TestAllowedHosts(t *testing.T) {
 		if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "allowed_hosts") {
 			t.Errorf("allowed_hosts %q: %v, want an error about allowed_hosts", bad, err)
 		}
+	}
+}
+
+func TestMQTT(t *testing.T) {
+	t.Setenv("NETMON_MQTT_BROKER", "tcp://homeassistant.lan:1883")
+	if cfg, err := parse("", nil, false); err != nil || cfg.MQTTTopic != "netmon" || cfg.MQTTDiscoveryPrefix != "homeassistant" {
+		t.Errorf("mqtt: %v, %+v", err, cfg)
+	}
+	for key, bad := range map[string]string{
+		"NETMON_MQTT_BROKER": "homeassistant.lan:1883",
+		"NETMON_MQTT_TOPIC":  "netmon/#",
+	} {
+		t.Setenv(key, bad)
+		if _, err := parse("", nil, false); err == nil {
+			t.Errorf("%s=%s is valid, want an error", key, bad)
+		}
+		t.Setenv(key, map[string]string{"NETMON_MQTT_BROKER": "tcp://homeassistant.lan:1883", "NETMON_MQTT_TOPIC": "netmon"}[key])
 	}
 }

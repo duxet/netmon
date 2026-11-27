@@ -233,6 +233,33 @@ it is invalid. The channels' URLs, which hold their credentials, are only export
 you ask for them; without them, importing changes the channels with the same names but
 can't add new ones.
 
+## Home Assistant
+
+netmon can publish devices to [Home Assistant](https://www.home-assistant.io) over MQTT,
+such as the Mosquitto add-on's broker. Set the broker in `mqtt_broker`, with
+`mqtt_username` and `mqtt_password` if it asks for them:
+
+```yaml
+mqtt_broker: tcp://homeassistant.lan:1883
+mqtt_username: netmon
+```
+
+and keep the password in `NETMON_MQTT_PASSWORD`. Home Assistant then finds every device
+you gave a name or an icon, or with `mqtt_all_devices: true` every device seen in the
+last day, through MQTT discovery, each with:
+
+- a device tracker, `home` while it had traffic in the last 10 minutes, for presence
+  detection, such as to tell who is home by their phone;
+- its download and upload, in bytes per second over the last minute.
+
+A netmon device has the download and upload of the whole network. Everything is
+published once a minute, after the traffic is recorded, to `netmon/device/<mac>/state`
+(the MAC address without colons) and `netmon/network/state` as JSON, retained; the topic
+is `mqtt_topic`, and Home Assistant's discovery prefix `mqtt_discovery_prefix`
+(`homeassistant`). `netmon/status` says `online`, and `offline` once netmon stops or the
+broker loses it, which makes the entities unavailable. A device that is renamed is
+updated; one that loses its name and icon, or is forgotten, is taken out of Home Assistant.
+
 ## Monitoring netmon
 
 `GET /healthz` answers `200` with `{"Status": "ok"}` while netmon can read its database
@@ -451,6 +478,12 @@ a typo doesn't go unnoticed.
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
+| `mqtt_broker`          | `NETMON_MQTT_BROKER`          | none                     | MQTT broker to publish devices to [Home Assistant](#home-assistant) on |
+| `mqtt_username`        | `NETMON_MQTT_USERNAME`        | none                     | User name at the broker                                            |
+| `mqtt_password`        | `NETMON_MQTT_PASSWORD`        | none                     | Password at the broker; only in the file or the environment        |
+| `mqtt_topic`           | `NETMON_MQTT_TOPIC`           | `netmon`                 | Topic netmon publishes under                                       |
+| `mqtt_discovery_prefix` | `NETMON_MQTT_DISCOVERY_PREFIX` | `homeassistant`        | Home Assistant's MQTT discovery prefix                             |
+| `mqtt_all_devices`     | `NETMON_MQTT_ALL_DEVICES`     | `false`                  | Publish every device seen in the last day, not only named ones     |
 | `allowed_hosts`        | `NETMON_ALLOWED_HOSTS`        | none                     | More [names netmon answers to](#addresses-netmon-answers-to), separated by commas, or `*` |
 | `log_level`            | `NETMON_LOG_LEVEL`            | `info`                   | The least severe messages logged: `debug`, `info`, `warn` or `error` |
 | `memory_limit`         | `NETMON_MEMORY_LIMIT`         | 80% of the memory        | Memory the database may use: `256MB`, `1GiB`, or a share such as `50%` |

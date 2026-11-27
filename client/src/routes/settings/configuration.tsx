@@ -309,6 +309,11 @@ function FileOnlyCard({ settings }: { settings: ConfigSetting[] }) {
           <div className="divide-y">{rows(["oidc_issuer", "oidc_client_id", "oidc_client_secret"])}</div>
           <p className="text-xs text-muted-foreground">{reason("oidc_issuer")}</p>
         </div>
+        <div className="flex flex-col">
+          <h3 className="text-sm font-medium">Home Assistant</h3>
+          <div className="divide-y">{rows(["mqtt_password"])}</div>
+          <p className="text-xs text-muted-foreground">{reason("mqtt_password")}</p>
+        </div>
       </CardContent>
     </Card>
   )
@@ -527,6 +532,35 @@ function ConfigurationForm({ config }: { config: Configuration }) {
       <Section title="Logging" description="What netmon writes to its log, on standard error.">
         {field("log_level", {
           description: "The least severe messages that are logged. Debug also logs every request to the API and web UI.",
+        })}
+      </Section>
+
+      <Section
+        title="Home Assistant"
+        badge={<Badge variant="outline">Applies after a restart</Badge>}
+        description={
+          <>
+            netmon publishes devices to Home Assistant over MQTT: whether each is home, for presence detection, and its
+            download and upload, set up by MQTT discovery. The password is only set in the file, or in{" "}
+            <code>NETMON_MQTT_PASSWORD</code>.
+          </>
+        }
+      >
+        {field("mqtt_broker", {
+          description: (
+            <>
+              Such as <code>tcp://homeassistant.lan:1883</code>, or <code>ssl://</code> for TLS. Empty publishes
+              nothing.
+            </>
+          ),
+          placeholder: "None",
+        })}
+        {field("mqtt_username", { description: "To log in to the broker, if it asks.", placeholder: "None" })}
+        {field("mqtt_topic", { description: "Where netmon publishes, as in netmon/device/<mac>/state." })}
+        {field("mqtt_discovery_prefix", { description: "Where Home Assistant looks for devices to set up." })}
+        {field("mqtt_all_devices", {
+          description:
+            "Publish every device seen in the last day. Otherwise only the devices you gave a name or an icon are, so that phones' changing addresses don't fill Home Assistant.",
         })}
       </Section>
 

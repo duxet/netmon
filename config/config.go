@@ -117,6 +117,20 @@ type Config struct {
 	// using every core.
 	Threads int `koanf:"threads"`
 
+	// MQTTBroker turns on publishing devices to Home Assistant over MQTT:
+	// the broker, such as tcp://homeassistant.lan:1883 or ssl://broker:8883.
+	// MQTTUsername and MQTTPassword log in to it.
+	MQTTBroker   string `koanf:"mqtt_broker"`
+	MQTTUsername string `koanf:"mqtt_username"`
+	MQTTPassword string `koanf:"mqtt_password"`
+	// MQTTTopic is where netmon publishes, and MQTTDiscoveryPrefix where
+	// Home Assistant looks for devices to set up.
+	MQTTTopic           string `koanf:"mqtt_topic"`
+	MQTTDiscoveryPrefix string `koanf:"mqtt_discovery_prefix"`
+	// MQTTAllDevices publishes every device seen in the last day, instead
+	// of only the ones given a name or an icon.
+	MQTTAllDevices bool `koanf:"mqtt_all_devices"`
+
 	// AllowedHosts are more names, separated by commas, that netmon answers
 	// to besides addresses, names on the local network and the public URL's,
 	// such as netmon.example.com; "*" allows any.
@@ -130,16 +144,18 @@ type Config struct {
 // Defaults returns the configuration without a file or environment variables.
 func Defaults() Config {
 	return Config{
-		Listen:             ":2137",
-		Database:           "flows.db",
-		GeoIPCountry:       "GeoLite2-Country.mmdb",
-		GeoIPASN:           "GeoLite2-ASN.mmdb",
-		LocalDNS:           "192.168.1.1:54",
-		PublicDNS:          "8.8.8.8:53",
-		AlertRetentionDays: 30,
-		HourlyDays:         90,
-		IgnoreLocalTraffic: true,
-		LogLevel:           "info",
+		Listen:              ":2137",
+		Database:            "flows.db",
+		GeoIPCountry:        "GeoLite2-Country.mmdb",
+		GeoIPASN:            "GeoLite2-ASN.mmdb",
+		LocalDNS:            "192.168.1.1:54",
+		PublicDNS:           "8.8.8.8:53",
+		AlertRetentionDays:  30,
+		HourlyDays:          90,
+		IgnoreLocalTraffic:  true,
+		LogLevel:            "info",
+		MQTTTopic:           "netmon",
+		MQTTDiscoveryPrefix: "homeassistant",
 	}
 }
 
@@ -318,6 +334,17 @@ func (c Config) validate() error {
 	}
 	if c.Threads < 0 {
 		return keyErrorf("threads", "threads must be a number of threads, with 0 using every core: %d", c.Threads)
+	}
+	if c.MQTTBroker != "" {
+		broker, err := url.Parse(c.MQTTBroker)
+		if err != nil || broker.Host == "" || !slices.Contains([]string{"tcp", "ssl", "tls", "mqtt", "mqtts", "ws", "wss"}, broker.Scheme) {
+			return keyErrorf("mqtt_broker", "mqtt_broker must be an address such as tcp://homeassistant.lan:1883 or ssl://broker:8883: %q", c.MQTTBroker)
+		}
+	}
+	for key, topic := range map[string]string{"mqtt_topic": c.MQTTTopic, "mqtt_discovery_prefix": c.MQTTDiscoveryPrefix} {
+		if topic == "" || strings.ContainsAny(topic, "+#") || strings.HasPrefix(topic, "/") || strings.HasSuffix(topic, "/") {
+			return keyErrorf(key, "%s must be a topic such as netmon, without + or #, or a / at either end: %q", key, topic)
+		}
 	}
 	for _, host := range c.AllowedHostList() {
 		if host != "*" && !hostnamePattern.MatchString(host) {
