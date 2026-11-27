@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
@@ -49,6 +50,9 @@ type Options struct {
 	// ASNs tells new_destination rules about networks which networks
 	// traffic goes to; without it, those rules find nothing.
 	ASNs ASNLookup
+	// Blocklists tells blocklist rules which addresses are on the lists, and
+	// is kept up to date for them; without it, those rules find nothing.
+	Blocklists *blocklists.Blocklists
 	// Classifier recognizes apps for rules limited to one; default
 	// apps.Default().
 	Classifier *apps.Classifier
@@ -105,6 +109,9 @@ type Engine struct {
 	// to, by rule ID.
 	baselinesMu sync.Mutex
 	baselines   map[int64]*baseline
+
+	// refreshing is set while the blocklists are being downloaded.
+	refreshing atomic.Bool
 }
 
 // NewEngine returns an engine; Run starts evaluating.
@@ -164,6 +171,7 @@ func (e *Engine) Evaluate(ctx context.Context) {
 	if len(rules) == 0 {
 		return
 	}
+	e.refreshBlocklists(rules, now)
 
 	devices, err := e.devices()
 	if err != nil {
@@ -245,6 +253,34 @@ func (e *Engine) evaluateRule(ctx context.Context, rule storage.RuleRecord, devi
 	default:
 		return nil, fmt.Errorf("unknown rule type %q", rule.Type)
 	}
+}
+
+// refreshBlocklists downloads the lists the blocklist rules check, when they
+// are due, in the background: a download can take a while.
+func (e *Engine) refreshBlocklists(rules []storage.RuleRecord, now time.Time) {
+	if e.opts.Blocklists == nil {
+		return
+	}
+	var ids []string
+	for _, r := range rules {
+		if r.Type != Blocklist {
+			continue
+		}
+		if p, err := parseParams[BlocklistParams](r.Params); err == nil {
+			ids = append(ids, p.lists()...)
+		}
+	}
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if len(ids) == 0 || !e.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer e.refreshing.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		e.opts.Blocklists.Refresh(ctx, ids, now)
+	}()
 }
 
 // hold marks the notifications of a rule that is snoozed, or in its quiet

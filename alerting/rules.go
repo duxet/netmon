@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/notify"
 )
 
@@ -39,17 +40,20 @@ const (
 	// NewDestination fires when a device exchanges traffic with a country,
 	// or an autonomous system, it hasn't before.
 	NewDestination = "new_destination"
+	// Blocklist fires when a device exchanges traffic with an address on a
+	// public blocklist, such as a botnet's command and control server.
+	Blocklist = "blocklist"
 )
 
 // Types lists the rule types.
-var Types = []string{NewDevice, TrafficThreshold, DeviceInactive, DestinationPort, DestinationCountry, DeviceOnline, NewDestination}
+var Types = []string{NewDevice, TrafficThreshold, DeviceInactive, DestinationPort, DestinationCountry, DeviceOnline, NewDestination, Blocklist}
 
 // IsEvent reports whether rules of a type are about events, whose alerts
 // are over as soon as they are raised, rather than conditions that hold for
 // a while.
 func IsEvent(ruleType string) bool {
 	return ruleType == NewDevice || ruleType == DestinationPort || ruleType == DestinationCountry ||
-		ruleType == DeviceOnline || ruleType == NewDestination
+		ruleType == DeviceOnline || ruleType == NewDestination || ruleType == Blocklist
 }
 
 // EventCooldown is how long an event rule stays quiet about a subject (a
@@ -181,6 +185,27 @@ type DestinationParams struct {
 	MACs []string `json:"macs,omitempty"`
 }
 
+// BlocklistParams are the settings of a blocklist rule.
+type BlocklistParams struct {
+	// Lists are the IDs of the lists to check, from blocklists.Lists; empty
+	// is all of them.
+	Lists []string `json:"lists,omitempty"`
+	// MACs limits the rule to these devices; empty is every device.
+	MACs []string `json:"macs,omitempty"`
+}
+
+// lists returns the lists a rule checks.
+func (p BlocklistParams) lists() []string {
+	if len(p.Lists) > 0 {
+		return p.Lists
+	}
+	ids := make([]string, 0, len(blocklists.Lists))
+	for _, l := range blocklists.Lists {
+		ids = append(ids, l.ID)
+	}
+	return ids
+}
+
 // ResolveFraction is how far under its threshold a device's traffic has to
 // fall to resolve an alert, so that traffic hovering around the threshold
 // doesn't fire and resolve it every minute.
@@ -270,6 +295,25 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if p.InactiveSeconds < MinInactiveSeconds || p.InactiveSeconds > MaxInactiveSeconds {
 			return "", invalid("inactive_s must be between %d and %d seconds", MinInactiveSeconds, MaxInactiveSeconds)
 		}
+		macs, err := normalizeMACs(p.MACs)
+		if err != nil {
+			return "", err
+		}
+		p.MACs = macs
+		params = p
+
+	case Blocklist:
+		var p BlocklistParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		for _, id := range p.Lists {
+			if !blocklists.IsList(id) {
+				return "", invalid("unknown blocklist %q", id)
+			}
+		}
+		slices.Sort(p.Lists)
+		p.Lists = slices.Compact(p.Lists)
 		macs, err := normalizeMACs(p.MACs)
 		if err != nil {
 			return "", err

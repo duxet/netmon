@@ -81,6 +81,12 @@ func (e *Engine) observe(ctx context.Context, rule storage.RuleRecord, devices m
 			return nil, err
 		}
 		return e.observeDestinations(ctx, rule, p, devices, now, since)
+	case Blocklist:
+		p, err := parseParams[BlocklistParams](rule.Params)
+		if err != nil {
+			return nil, err
+		}
+		return e.observeBlocklists(ctx, rule, p, devices, since)
 	default:
 		return nil, fmt.Errorf("unknown rule type %q", rule.Type)
 	}

@@ -213,6 +213,22 @@ type AlertRuleOptionsDTO struct {
 	// networks need.
 	GeoIP bool
 	ASNs  bool
+	// Blocklists are the lists blocklist rules can check.
+	Blocklists []BlocklistDTO
+}
+
+// BlocklistDTO is a public list of malicious addresses.
+type BlocklistDTO struct {
+	ID    string
+	Name  string
+	URL   string
+	About string
+	// Entries is how many addresses and blocks it has, 0 before it was
+	// downloaded; UpdatedAt when it last was, and Error why the last try
+	// failed.
+	Entries   int
+	UpdatedAt *time.Time
+	Error     *string
 }
 
 // AlertRulePreviewDTO is what a rule would find now.

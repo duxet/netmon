@@ -16,6 +16,7 @@ import (
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
@@ -174,12 +175,35 @@ func toAlertDTO(a storage.AlertRecord, deliveries []storage.DeliveryRecord) Aler
 	return dto
 }
 
+// blocklistDTOs says how every blocklist is doing.
+func blocklistDTOs(lists *blocklists.Blocklists) []BlocklistDTO {
+	var statuses []blocklists.Status
+	if lists != nil {
+		statuses = lists.Statuses()
+	} else {
+		for _, l := range blocklists.Lists {
+			statuses = append(statuses, blocklists.Status{List: l})
+		}
+	}
+	dtos := make([]BlocklistDTO, 0, len(statuses))
+	for _, s := range statuses {
+		dto := BlocklistDTO{ID: s.ID, Name: s.Name, URL: s.URL, About: s.About, Entries: s.Entries, Error: nonEmpty(s.Error)}
+		if !s.UpdatedAt.IsZero() {
+			at := s.UpdatedAt
+			dto.UpdatedAt = &at
+		}
+		dtos = append(dtos, dto)
+	}
+	return dtos
+}
+
 // previewRuleName stands in for the name of a rule previewed before it has
 // one, in the messages it would send.
 const previewRuleName = "New rule"
 
 // registerAlertRoutes adds the endpoints for alert rules and alerts.
-func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, countries *lookup.Countries, asns *lookup.ASNs) {
+func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, countries *lookup.Countries, asns *lookup.ASNs,
+	lists *blocklists.Blocklists) {
 	// What the rule form offers.
 	app.Get("/api/alert-rule-options", func(c fiber.Ctx) error {
 		names := make([]string, 0, len(apps.Known)+1)
@@ -196,6 +220,7 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 			MinRepeatSeconds: alerting.MinRepeatSeconds,
 			GeoIP:            countries.Available(),
 			ASNs:             asns.Available(),
+			Blocklists:       blocklistDTOs(lists),
 		})
 	})
 

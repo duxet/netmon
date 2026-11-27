@@ -498,6 +498,7 @@ export type AlertRuleType =
   | "destination_country"
   | "device_online"
   | "new_destination"
+  | "blocklist"
 export type Severity = "info" | "warning" | "critical"
 export type TrafficDirection = "download" | "upload" | "total"
 
@@ -552,7 +553,14 @@ export interface DestinationParams {
   macs?: string[]
 }
 
+export interface BlocklistParams {
+  /** The lists to check; absent or empty for all of them. */
+  lists?: string[]
+  macs?: string[]
+}
+
 export type AlertRuleParams =
+  | BlocklistParams
   | NewDeviceParams
   | TrafficParams
   | InactiveParams
@@ -566,7 +574,9 @@ export interface AlertRule {
   ID: number
   Name: string
   Type: AlertRuleType
-  Params: Partial<NewDeviceParams & TrafficParams & InactiveParams & PortParams & CountryParams & DestinationParams>
+  Params: Partial<
+    NewDeviceParams & TrafficParams & InactiveParams & PortParams & CountryParams & DestinationParams & BlocklistParams
+  >
   Severity: Severity
   /** How often a firing alert is sent again, or null to send it once. */
   RepeatIntervalSeconds: number | null
@@ -609,6 +619,21 @@ export interface AlertRuleOptions {
   GeoIP: boolean
   /** Whether the ASN database is loaded, which rules about networks need. */
   ASNs: boolean
+  /** The lists blocklist rules can check. */
+  Blocklists: Blocklist[]
+}
+
+/** A public list of malicious addresses. */
+export interface Blocklist {
+  ID: string
+  Name: string
+  URL: string
+  About: string
+  /** How many addresses and blocks it has; 0 before it was downloaded. */
+  Entries: number
+  UpdatedAt: string | null
+  /** Why the last download failed. */
+  Error: string | null
 }
 
 /** Something a previewed rule finds. */

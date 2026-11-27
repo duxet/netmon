@@ -64,7 +64,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   packets are captured (macOS). Flows would then show `netflix.com`, and apps would
   be recognized far more often. This is about remote hosts, unlike the README's
   item about local hostnames.
-- [ ] Add an alert rule for traffic with addresses on public blocklists, such as
+- [x] Add an alert rule for traffic with addresses on public blocklists, such as
   abuse.ch's Feodo Tracker or Spamhaus DROP, refreshed daily.
 - [x] Make alerts easier to live with: acknowledge or snooze a firing alert, quiet
   hours, and rules for a device that comes back online and for a device's first

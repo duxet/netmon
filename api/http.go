@@ -13,6 +13,7 @@ import (
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/config"
@@ -66,6 +67,9 @@ type Options struct {
 	// Hosts says which addresses netmon answers to. Without it, only those
 	// on the local network are.
 	Hosts func() HostRules
+	// Blocklists are the lists blocklist rules check, whose state the rule
+	// form shows.
+	Blocklists *blocklists.Blocklists
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -424,7 +428,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	if alerts == nil {
 		alerts = alerting.NewEngine(db, nil, alerting.Options{Hostnames: hostnames, Countries: countries, ASNs: asns})
 	}
-	registerAlertRoutes(app, db, alerts, countries, asns)
+	registerAlertRoutes(app, db, alerts, countries, asns, options.Blocklists)
 
 	meter := options.Live
 	if meter == nil {

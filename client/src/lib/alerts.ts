@@ -20,6 +20,7 @@ export const RULE_TYPES: { value: AlertRuleType; label: string }[] = [
   { value: "destination_country", label: "A device exchanges traffic with a country" },
   { value: "device_online", label: "A device is back after a quiet while" },
   { value: "new_destination", label: "A device talks to a new country or network" },
+  { value: "blocklist", label: "A device talks to an address on a blocklist" },
 ]
 
 /** Rules about events alert once per event; the others while a condition lasts. */
@@ -29,7 +30,8 @@ export function isEventRule(type: AlertRuleType): boolean {
     type === "destination_port" ||
     type === "destination_country" ||
     type === "device_online" ||
-    type === "new_destination"
+    type === "new_destination" ||
+    type === "blocklist"
   )
 }
 
@@ -139,6 +141,8 @@ export function describeRule(rule: AlertRule): string {
       return `Back after ${durationLabel(p.inactive_s ?? 0)} or more without traffic, ${devices(p.macs?.length ?? 0)}`
     case "new_destination":
       return `First traffic with a ${p.kind === "asn" ? "network" : "country"} it hadn't in ${p.baseline_days ?? 30} days, ${devices(p.macs?.length ?? 0)}`
+    case "blocklist":
+      return `Traffic with addresses on ${p.lists?.length ? `${p.lists.length} blocklist${p.lists.length === 1 ? "" : "s"}` : "every blocklist"}, ${devices(p.macs?.length ?? 0)}`
     default: {
       const direction = DIRECTIONS.find((d) => d.value === p.direction)?.label ?? "Traffic"
       const parts = [`${direction} over ${formatBytes(p.threshold_bytes ?? 0)} in ${windowLabel(p.window_s ?? 0)}`]
@@ -179,6 +183,8 @@ export interface RuleForm {
   countries: string
   destinationKind: "country" | "asn"
   baselineDays: number
+  /** The blocklists to check; empty for all of them. */
+  lists: string[]
   /** Quiet hours, such as "22:00" and "07:00"; both empty for none. */
   quietFrom: string
   quietTo: string
@@ -207,6 +213,7 @@ export const DEFAULT_FORM: RuleForm = {
   countries: "",
   destinationKind: "country",
   baselineDays: 30,
+  lists: [],
   quietFrom: "",
   quietTo: "",
   severity: "warning",
@@ -256,6 +263,7 @@ export function ruleToForm(rule: AlertRule): RuleForm {
     countries: (p.countries ?? []).join(", "),
     destinationKind: p.kind ?? "country",
     baselineDays: p.baseline_days ?? 30,
+    lists: p.lists ?? [],
     quietFrom: rule.QuietFrom ?? "",
     quietTo: rule.QuietTo ?? "",
     severity: rule.Severity,
@@ -329,6 +337,8 @@ function paramsOf(form: RuleForm): AlertRuleInput["params"] {
       return { inactive_s: form.inactiveSeconds, ...macs }
     case "new_destination":
       return { kind: form.destinationKind, baseline_days: form.baselineDays, ...macs }
+    case "blocklist":
+      return { ...(form.lists.length > 0 ? { lists: form.lists } : {}), ...macs }
     default:
       return {
         direction: form.direction,
@@ -382,6 +392,7 @@ export const LABELS: { key: string; label: string }[] = [
   { key: "asn", label: "Network" },
   { key: "organization", label: "Organization" },
   { key: "back_at", label: "Back at" },
+  { key: "list_name", label: "Blocklist" },
   { key: "peer", label: "Remote address" },
   { key: "peers", label: "Remote addresses" },
 ]

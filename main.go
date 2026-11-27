@@ -12,6 +12,7 @@ import (
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/auth"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
@@ -29,6 +30,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -135,11 +137,14 @@ func main() {
 	// Alert rules are evaluated after every collection round, which also
 	// brings the devices up to date, and the notifications they raise are
 	// sent in the background.
+	// The blocklists of blocklist rules are kept next to the database.
+	lists := blocklists.New(filepath.Join(filepath.Dir(cfg.Database), "blocklists"))
 	dispatcher := notify.NewDispatcher(db, notify.DispatcherOptions{})
 	engine := alerting.NewEngine(db, dispatcher, alerting.Options{
 		Hostnames:  hostnames,
 		Countries:  countries,
 		ASNs:       asns,
+		Blocklists: lists,
 		Classifier: classifier,
 		PublicURL:  cfg.BaseURL(),
 	})
@@ -244,7 +249,7 @@ func main() {
 
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
-		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database,
+		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database, Blocklists: lists,
 		Hosts: func() api.HostRules {
 			running := editor.Running()
 			return api.HostRules{PublicURL: running.BaseURL(), Allowed: running.AllowedHostList()}

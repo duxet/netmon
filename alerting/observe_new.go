@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/storage"
 )
 
@@ -197,4 +198,49 @@ func (e *Engine) observeDestinations(ctx context.Context, rule storage.RuleRecor
 		}
 		return candidate{title: title, body: body, labels: labels}
 	}), nil
+}
+
+func (e *Engine) observeBlocklists(ctx context.Context, rule storage.RuleRecord, p BlocklistParams, devices map[string]device, since time.Time) ([]candidate, error) {
+	if e.opts.Blocklists == nil {
+		return nil, nil
+	}
+	records, err := storage.GetDeviceTraffic(e.db, since)
+	if err != nil {
+		return nil, err
+	}
+
+	lists := p.lists()
+	events := map[string]*destinations{}
+	for _, r := range records {
+		mac := r.MACAddress.String()
+		if !inScope(p.MACs, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
+			continue
+		}
+		for _, id := range e.opts.Blocklists.Match(*r.Peer.Addr, lists) {
+			subject := mac + "|" + id
+			if events[subject] == nil {
+				events[subject] = &destinations{mac: mac, peers: map[string]uint64{}}
+			}
+			events[subject].add(r.Peer.String(), r.Download+r.Upload)
+		}
+	}
+
+	return e.eventCandidates(ctx, devices, events, func(subject string, d device, dest *destinations) candidate {
+		_, id, _ := cutLast(subject, "|")
+		list := listByID(id)
+		peer := dest.biggest()
+		title, body := blocklistText(rule.Name, d, list, peer, len(dest.peers), dest.bytes)
+		labels := d.labels()
+		labels["list"], labels["list_name"], labels["peer"] = id, list.Name, peer
+		return candidate{title: title, body: body, labels: labels}
+	}), nil
+}
+
+func listByID(id string) blocklists.List {
+	for _, l := range blocklists.Lists {
+		if l.ID == id {
+			return l
+		}
+	}
+	return blocklists.List{ID: id, Name: id}
 }

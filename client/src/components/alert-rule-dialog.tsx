@@ -398,12 +398,12 @@ function RuleFormBody({
     setForm((current) => ({ ...current, [key]: value }))
     resetPreview()
   }
-  const toggle = <K extends "macs" | "channelIds">(key: K, item: RuleForm[K][number], on: boolean) => {
+  const toggle = <K extends "macs" | "channelIds" | "lists">(key: K, item: RuleForm[K][number], on: boolean) => {
     setForm((current) => {
       const list = current[key] as (typeof item)[]
       return { ...current, [key]: on ? [...list, item] : list.filter((x) => x !== item) }
     })
-    if (key === "macs") resetPreview()
+    if (key === "macs" || key === "lists") resetPreview()
   }
 
   const id = React.useId()
@@ -430,6 +430,7 @@ function RuleFormBody({
       form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
     device_online: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
     new_destination: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
+    blocklist: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
   }[form.type]
 
   return (
@@ -598,6 +599,39 @@ function RuleFormBody({
             </>
           )}
 
+          {form.type === "blocklist" && (
+            <FieldSet>
+              <FieldLegend variant="label">Lists</FieldLegend>
+              <FieldDescription>
+                Downloaded once a day. Pick none to check them all.
+              </FieldDescription>
+              <div className="flex flex-col gap-2">
+                {(options.data?.Blocklists ?? []).map((list) => (
+                  <Field key={list.ID} orientation="horizontal">
+                    <Checkbox
+                      id={`${id}-list-${list.ID}`}
+                      checked={form.lists.includes(list.ID)}
+                      onCheckedChange={(checked) => toggle("lists", list.ID, checked === true)}
+                    />
+                    <FieldContent>
+                      <FieldLabel htmlFor={`${id}-list-${list.ID}`} className="font-normal">
+                        {list.Name}
+                      </FieldLabel>
+                      <FieldDescription>
+                        {list.About}{" "}
+                        {list.Error
+                          ? `Downloading it failed: ${list.Error}`
+                          : list.Entries > 0
+                            ? `${list.Entries.toLocaleString()} entries.`
+                            : "Not downloaded yet: it is, once a rule checks it."}
+                      </FieldDescription>
+                    </FieldContent>
+                  </Field>
+                ))}
+              </div>
+            </FieldSet>
+          )}
+
           {form.type === "destination_port" && <PortFields id={id} form={form} set={set} />}
 
           {form.type === "destination_country" && (
@@ -617,7 +651,15 @@ function RuleFormBody({
 
           {event && form.type !== "new_device" && form.type !== "device_online" && (
             <FieldDescription>
-              Each device alerts at most once a day for the same {form.type === "destination_port" ? "port" : form.type === "new_destination" ? "destination" : "country"}.
+              Each device alerts at most once a day for the same{" "}
+              {form.type === "destination_port"
+                ? "port"
+                : form.type === "new_destination"
+                  ? "destination"
+                  : form.type === "blocklist"
+                    ? "list"
+                    : "country"}
+              .
             </FieldDescription>
           )}
 

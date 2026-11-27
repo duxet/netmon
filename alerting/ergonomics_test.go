@@ -3,11 +3,14 @@ package alerting
 import (
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/storage"
 )
 
@@ -197,4 +200,39 @@ func TestNewRuleParams(t *testing.T) {
 		}
 	}
 	_ = net.HardwareAddr{}
+}
+
+func TestBlocklist(t *testing.T) {
+	db := openTestDB(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "feodo.txt"), []byte("# C2\n50.16.16.211\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lists := blocklists.New(dir)
+
+	params, err := ValidateParams(Blocklist, []byte(`{"lists": ["feodo"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	addRule(t, db, storage.RuleRecord{Name: "Botnets", Type: Blocklist, Params: params, ChannelIDs: []int64{1}}, start.Add(-time.Hour))
+	te := newTestEngine(t, db)
+	te.Engine.opts.Blocklists = lists
+
+	flow(t, db, laptopMAC, "192.168.1.23", "50.16.16.211", 900, 300, start.Add(time.Minute))
+	flow(t, db, laptopMAC, "192.168.1.23", googleIP, 900, 300, start.Add(time.Minute))
+	ns := te.at(2 * time.Minute)
+	if len(ns) != 1 || !strings.Contains(ns[0].Message.Title, "talked to an address on abuse.ch Feodo Tracker") ||
+		ns[0].Message.Fields["peer"] != "50.16.16.211" || ns[0].Message.Fields["list"] != "feodo" {
+		t.Fatalf("notifications = %v %+v, want the laptop talking to the C2 server", titles(ns), ns)
+	}
+
+	// Once a day per device and list.
+	flow(t, db, laptopMAC, "192.168.1.23", "50.16.16.211", 900, 300, start.Add(3*time.Minute))
+	if ns := te.at(4 * time.Minute); len(ns) != 0 {
+		t.Errorf("again a minute later = %v, want nothing", titles(ns))
+	}
+
+	if _, err := ValidateParams(Blocklist, []byte(`{"lists": ["nope"]}`)); err == nil {
+		t.Error("an unknown list is valid")
+	}
 }

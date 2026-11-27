@@ -324,6 +324,12 @@ port or country, and only about traffic after the rule was created:
   autonomous system, with `GeoLite2-ASN.mmdb`) it hadn't exchanged any with in the last 7,
   30 or 90 days. Each device's own traffic is what is usual for it; devices known for less
   than a day are left out, as everything is new to them.
+- **A device talks to an address on a blocklist**: traffic with an address on
+  [abuse.ch's Feodo Tracker](https://feodotracker.abuse.ch) (botnets' command and control
+  servers) or [Spamhaus DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/)
+  (hijacked networks), which can mean the device is infected. netmon downloads the lists a
+  rule checks once a day, into a `blocklists` directory next to the database, and keeps
+  using the last ones when a download fails; the rule form shows how each is doing.
 
 Every rule can have **quiet hours**, such as 22:00 to 07:00 in netmon's time zone (`TZ`),
 and can be **snoozed** for an hour to a week with the bell on the rules page: alerts are
@@ -703,6 +709,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
     most once per `inactive_s`
   - `new_destination`: `{"kind": "country" | "asn", "baseline_days" (1 to 90, default 30),
     "macs"}`; `ASNs` in `/api/alert-rule-options` tells whether netmon can look up networks
+  - `blocklist`: `{"lists": ["feodo", "spamhaus_drop", "spamhaus_drop_v6"], "macs"}`, with no
+    `lists` for all of them; `Blocklists` in `/api/alert-rule-options` has each list's `ID`,
+    `Name`, `URL`, `About`, `Entries`, `UpdatedAt` and `Error`
 - A preview answers `{"Findings": [...], "Total", "Since"}`: the first 20 findings, each
   with a `Subject`, a `Label`, a `Value` (bytes, or seconds for quiet devices),
   `Fires`, and the `Title` and `Body` it would send. Rules about traffic and quiet

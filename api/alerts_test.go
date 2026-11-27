@@ -48,7 +48,7 @@ func TestAlertRuleOptions(t *testing.T) {
 	app, _ := newTestApp(t)
 	var options AlertRuleOptionsDTO
 	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
-	if len(options.Types) != 7 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
+	if len(options.Types) != 8 || len(options.Blocklists) != 3 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
 		t.Errorf("options = %+v", options)
 	}
 }
@@ -274,8 +274,8 @@ func TestAlertRulePreview(t *testing.T) {
 	}
 	var options AlertRuleOptionsDTO
 	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
-	if options.GeoIP || options.ASNs || len(options.Types) != 7 {
-		t.Errorf("options = %+v, want seven types and no GeoIP", options)
+	if options.GeoIP || options.ASNs || len(options.Types) != 8 {
+		t.Errorf("options = %+v, want eight types and no GeoIP", options)
 	}
 
 	doJSON(t, app, "POST", "/api/alert-rules/preview", `{"type": "traffic_threshold", "params": {}}`, fiber.StatusBadRequest, nil)

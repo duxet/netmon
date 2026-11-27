@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/duxet/netmon/blocklists"
 )
 
 // device is what is known about a device, for messages; or, with network
@@ -315,5 +317,13 @@ func destinationText(ruleName string, p DestinationParams, d device, key, name, 
 	body = fmt.Sprintf("%s exchanged %s with %s%s in %s, which it hadn't in the %d days before. The rule “%s” alerts on new %s.",
 		d.labelled(), formatBytes(float64(bytes)), peer, others(peers), where, p.BaselineDays, ruleName,
 		map[string]string{ByCountry: "countries", ByASN: "networks"}[p.Kind])
+	return title, body
+}
+
+func blocklistText(ruleName string, d device, list blocklists.List, peer string, peers int, bytes uint64) (title, body string) {
+	title = fmt.Sprintf("%s talked to an address on %s", d.label(), list.Name)
+	body = fmt.Sprintf("%s exchanged %s with %s%s, which %s on %s: %s It may be infected, or tricked into it. The rule “%s” checks it.",
+		d.labelled(), formatBytes(float64(bytes)), peer, others(peers), map[bool]string{true: "is", false: "are"}[peers <= 1],
+		list.Name, list.About, ruleName)
 	return title, body
 }
