@@ -459,3 +459,18 @@ func TestNeighborMACs(t *testing.T) {
 		}
 	}
 }
+
+func TestSamplerCountsPortForwardsForTheServer(t *testing.T) {
+	s, meter, source := newSampler()
+
+	mustSample(t, s, t0)
+
+	// Someone on the internet downloads 5000 bytes from the laptop, through
+	// port 8443 of the router's WAN address, forwarded to the laptop's 443.
+	source.set(natConn(1, "203.0.113.7", "198.51.100.2", 51000, 8443, laptopIP.String(), 443, 5000, 800))
+	mustSample(t, s, t0.Add(time.Second))
+
+	if got := latest(t, meter)[laptopMAC]; got.Download != 800 || got.Upload != 5000 || got.IP != laptopIP {
+		t.Errorf("laptop = %+v, want 800 down and 5000 up at %s", got, laptopIP)
+	}
+}

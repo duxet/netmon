@@ -72,6 +72,9 @@ sudo sysctl -w net.netfilter.nf_conntrack_acct=1
 sudo ./netmon
 ```
 
+Connections to a port the router forwards to a device on your network count as that
+device's traffic, though they were sent to the router's address.
+
 ## Running on OpenWrt
 
 Packages for 64-bit targets (`x86_64` and `aarch64`) are attached to each

@@ -170,7 +170,11 @@ func (s *liveSampler) record(flow conntrack.Flow, old conntrack.Flow, seen bool)
 		return
 	}
 
-	src, dst := flow.TupleOrig.IP.SourceAddress, flow.TupleOrig.IP.DestinationAddress
+	src := flow.TupleOrig.IP.SourceAddress
+	dst, _ := destination(flow, func(addr netip.Addr) bool {
+		_, ok := s.macs[addr.Unmap()]
+		return ok
+	})
 	if s.ignore != nil && s.ignore(src, dst) {
 		return
 	}
@@ -218,7 +222,12 @@ func (n *netfilterSource) Flows() ([]conntrack.Flow, error) {
 }
 
 func (n *netfilterSource) Neighbors() (map[netip.Addr]live.MAC, error) {
-	// Everything in one query, rather than one per connection.
+	return readNeighbors()
+}
+
+// readNeighbors returns the MAC addresses of the hosts in the neighbor table,
+// IPv4 and IPv6, in one query rather than one per connection.
+func readNeighbors() (map[netip.Addr]live.MAC, error) {
 	neighbors, err := netlink.NeighList(0, netlink.FAMILY_ALL)
 	if err != nil {
 		return nil, err
