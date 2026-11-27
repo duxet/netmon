@@ -400,6 +400,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		registerConfigRoutes(app, options.Config)
 	}
 	registerNotificationRoutes(app, db)
+	registerBackupRoutes(app, db, options.DatabasePath)
 	alerts := options.Alerts
 	if alerts == nil {
 		alerts = alerting.NewEngine(db, nil, alerting.Options{Hostnames: hostnames, Countries: countries})

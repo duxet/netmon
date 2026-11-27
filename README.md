@@ -206,6 +206,23 @@ How the rates are measured depends on the platform:
 - **macOS** counts packets as they are captured, all the time, so the history is already
   there when the page is opened.
 
+## Backups
+
+`netmon -backup backup.db` writes a copy of the database, with everything netmon
+recorded and its settings, to a new file. It works while netmon runs: the database is
+locked then, so it asks the netmon running with the same configuration for the copy,
+which is taken at one moment without stopping it. **Settings → Configuration** has the
+same backup as a download. To restore one, stop netmon, put the copy in place of
+`flows.db`, remove `flows.db.wal` if there is one, and start netmon again.
+
+The settings alone, without the traffic, can be exported there too, as JSON: the
+networks, the names and icons of devices, the notification channels and the alert
+rules. Importing such a file, here or on another netmon, replaces the networks,
+channels and rules with the same names and adds the others; nothing changes when any of
+it is invalid. The channels' URLs, which hold their credentials, are only exported when
+you ask for them; without them, importing changes the channels with the same names but
+can't add new ones.
+
 ## Monitoring netmon
 
 `GET /healthz` answers `200` with `{"Status": "ok"}` while netmon can read its database
@@ -527,6 +544,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `DELETE /api/alert-rules/:id` | |
 | `GET /api/alerts` | `state` (`firing` or `resolved`), `rule_id`, `limit` (default 50, at most 500), `offset` |
 | `GET /api/alerts/:id` | |
+| `GET /api/backup` | |
+| `GET /api/settings-export` | `secrets` (`true` to include the channels' URLs) |
+| `POST /api/settings-import` | body as `/api/settings-export` returns it |
 | `GET /api/config` | |
 | `PUT /api/config` | body `{"local_dns": "192.168.1.1:53", "retention_days": 90, "public_url": null}` |
 
@@ -643,6 +663,14 @@ the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 of recording failed, or null), `LastRecorded` (when traffic was last written, or null),
 `Stale` (whether that was more than 3 minutes ago) and `Warnings`, problems that keep
 traffic from being recorded in full, such as accounting being off.
+
+`/api/backup` answers with a copy of the database as a DuckDB file. `/api/settings-export`
+answers `{"version": 1, "exported_at", "networks", "devices", "channels", "alert_rules"}`,
+where each network, channel and rule has the fields of the request that creates one, rules
+name their `channels` instead of their IDs, and devices are `{"mac", "name", "icon"}`.
+Channel URLs are redacted unless `secrets=true`. `/api/settings-import` takes the same,
+and answers how many of each it `Created` and `Updated`, with `Warnings` about what it left
+out; it answers 400, changing nothing, when an entry is invalid, naming it (`networks[1]`).
 
 `/api/session` tells whether netmon asks people to sign in and who the request is from:
 `{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and

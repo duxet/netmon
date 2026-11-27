@@ -784,3 +784,27 @@ export function fetchConfig() {
 export function updateConfig(changes: Record<string, SettingValue | null>) {
   return request<Configuration>("/api/config", jsonBody("PUT", changes))
 }
+
+export interface ImportCount {
+  Created: number
+  Updated: number
+}
+
+/** What importing settings did. */
+export interface ImportResult {
+  Networks: ImportCount
+  Devices: ImportCount
+  Channels: ImportCount
+  AlertRules: ImportCount
+  /** What was left out, such as channels without their URLs. */
+  Warnings: string[]
+}
+
+/** Imports settings exported from /api/settings-export, as the file's text. */
+export function importSettings(text: string) {
+  return request<ImportResult>("/api/settings-import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: text,
+  })
+}

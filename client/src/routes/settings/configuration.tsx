@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { CheckIcon, Loader2Icon, LockIcon, RotateCcwIcon, RotateCwIcon } from "lucide-react"
 import * as React from "react"
 
+import { BackupCard } from "@/components/backup-card"
 import { Page, PageHeader } from "@/components/page-header"
 import { ErrorState } from "@/components/query-state"
 import {
@@ -647,6 +648,7 @@ function ConfigurationPage() {
       ) : (
         <ConfigurationForm config={config.data} />
       )}
+      <BackupCard />
     </Page>
   )
 }

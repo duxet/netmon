@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/duxet/netmon/alerting"
@@ -51,6 +52,7 @@ func main() {
 	configFile := flag.String("config", "", "YAML configuration file (default: $"+config.FileEnv+", or "+config.DefaultFile+" if it exists)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	healthcheck := flag.Bool("healthcheck", false, "check that the netmon serving at the configured address is healthy, and exit with 0 if it is")
+	backupTo := flag.String("backup", "", "write a copy of the database to this file, and exit; works while netmon runs")
 	flag.Parse()
 
 	if *showVersion {
@@ -64,6 +66,14 @@ func main() {
 	}
 	if *healthcheck {
 		os.Exit(checkHealth(cfg.Listen))
+	}
+	if *backupTo != "" {
+		if err := backup(cfg, *backupTo); err != nil {
+			fmt.Fprintln(os.Stderr, "Backing up failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Backed up", cfg.Database, "to", *backupTo)
+		return
 	}
 	logging.Setup(cfg.LogLevel)
 	slog.Info("Starting netmon", "version", version.String())
@@ -320,21 +330,91 @@ func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.
 	}
 }
 
-// checkHealth asks the netmon serving at listen whether it is healthy, as a
-// container's health check does, and returns the exit status: 0 when it is.
-func checkHealth(listen string) int {
+// localURL returns the URL of path at the netmon listening on listen, on
+// this machine.
+func localURL(listen, path string) (string, error) {
 	host, port, err := net.SplitHostPort(listen)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return "", err
 	}
 	if addr, err := netip.ParseAddr(host); host == "" || (err == nil && addr.IsUnspecified()) {
 		host = "127.0.0.1"
 	}
+	return "http://" + net.JoinHostPort(host, port) + path, nil
+}
 
-	// Never through a proxy: it is about this machine.
-	client := http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
-	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+// localClient makes requests to netmon on this machine, never through a
+// proxy.
+func localClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}}
+}
+
+// backup writes a copy of the database to path. When netmon runs, the
+// database is locked, so the running netmon makes the copy.
+func backup(cfg *config.Config, path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s exists already", path)
+	}
+	if _, err := os.Stat(cfg.Database); err != nil {
+		return fmt.Errorf("no database: %w", err)
+	}
+
+	db, err := sql.Open("duckdb", cfg.Database)
+	if err == nil {
+		err = db.Ping()
+	}
+	if err == nil {
+		defer db.Close()
+		return storage.Backup(context.Background(), db, path)
+	}
+	if !strings.Contains(err.Error(), "lock") {
+		return err
+	}
+
+	url, err := localURL(cfg.Listen, "/api/backup")
+	if err != nil {
+		return err
+	}
+	resp, err := localClient(0).Get(url)
+	if err != nil {
+		return fmt.Errorf("the database is in use, and netmon isn't answering at %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errors.New("the database is in use, and netmon asks people to sign in, so ask it for a backup in the web UI")
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("netmon answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	part := path + ".part"
+	file, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		_ = file.Close()
+		_ = os.Remove(part)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(part)
+		return err
+	}
+	return os.Rename(part, path)
+}
+
+// checkHealth asks the netmon serving at listen whether it is healthy, as a
+// container's health check does, and returns the exit status: 0 when it is.
+func checkHealth(listen string) int {
+	url, err := localURL(listen, "/healthz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	resp, err := localClient(5 * time.Second).Get(url)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "netmon isn't answering:", err)
 		return 1

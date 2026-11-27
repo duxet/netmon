@@ -40,7 +40,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   database size, failed notifications, and optionally the traffic per device.
 - [x] Tell the binary its version. CI's `VERSION` only names the archives: set it
   with `-ldflags -X`, add `netmon -version`, and show it in the web UI.
-- [ ] Add backups. The database is locked while netmon runs, so add a
+- [x] Add backups. The database is locked while netmon runs, so add a
   `netmon backup` command (DuckDB's `EXPORT DATABASE`), and an export and import of
   the settings alone: networks, device names and icons, channels and rules.
 - [ ] Publish a container image for amd64 and arm64 to GHCR, with a compose example
