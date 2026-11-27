@@ -430,7 +430,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	if meter == nil {
 		meter = live.NewMeter()
 	}
-	registerLiveRoutes(app, meter)
+	registerLiveRoutes(app, db, meter)
 
 	type HostnamesBody struct {
 		IPAddresses []string `json:"ip_addresses"`

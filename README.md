@@ -311,7 +311,8 @@ port or country, and only about traffic after the rule was created:
 
 - **A new device joins the network**: once for every device first seen after the rule
   was created. Phones join with a private, random Wi-Fi address per network, which
-  counts as a new device; turn on "Ignore private Wi-Fi addresses" if that is too many.
+  counts as a new device; turn on "Ignore private Wi-Fi addresses" if that is too many,
+  or merge the addresses into the phone with **Edit device** on its page.
 - **A device connects to a port**: connections a device opens to some ports (TCP, UDP
   or either) of any address, such as telnet (23, 2323) from a smart plug.
 - **A device exchanges traffic with a country**: with any of a list of countries, or
@@ -551,6 +552,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `DELETE /api/devices/:mac/name` | |
 | `PUT /api/devices/:mac/icon` | body `{"icon": "laptop"}`, see below |
 | `DELETE /api/devices/:mac/icon` | |
+| `DELETE /api/devices/:mac` | `traffic` (`true` to delete its traffic too) |
+| `POST /api/devices/:mac/merge` | body `{"macs": ["da:a1:19:00:00:01", ...]}` |
+| `DELETE /api/devices/:mac/aliases/:alias` | |
 | `GET /api/networks` | |
 | `POST /api/networks` | body `{"name": "...", "prefixes": ["192.168.20.0/24", ...], "vlan": 20, "color": "orange"}` |
 | `GET /api/networks/summary` | `from`, `to` |
@@ -624,9 +628,18 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   traffic has no devices. Pass the `Time` of the newest sample you already have as `since`,
   exactly as it was returned, to get only newer ones. Asking is what makes the Linux collector
   measure (see [Live view](#live-view)), so don't poll it while nobody is looking.
+- `DELETE /api/devices/:mac` forgets a device: when it was seen, its name and icon, and
+  the addresses merged into it. Its traffic stays, unless `traffic=true`, and it is a new
+  device if it shows up again. `POST /api/devices/:mac/merge` merges other MAC addresses
+  into a device, such as the random ones a phone uses on each network: their traffic so
+  far becomes the device's, which can't be undone, and so does their traffic to come,
+  in the live view too; alert rules about them are about the device then.
+  `DELETE /api/devices/:mac/aliases/:alias` counts an address's traffic to come as its own
+  again.
 - `/api/devices` lists every MAC address ever seen on either side of a flow,
   most recently seen first, with the `IPAddress` it used last, `FirstSeen`,
-  `LastSeen`, and `Name`, `Icon`, `Hostname` and `Vendor` as for clients. Unlike
+  `LastSeen`, `Aliases` (the MAC addresses merged into it), and `Name`, `Icon`,
+  `Hostname` and `Vendor` as for clients. Unlike
   `/api/clients` it has no time range and includes devices that only
   received connections, such as a NAS.
 - Clients and devices have the `NetworkID` of the network their IP address belongs to,

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
@@ -209,5 +210,24 @@ func TestLiveIsNotCached(t *testing.T) {
 
 	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+func TestLiveCountsMergedAddressesAsTheirDevice(t *testing.T) {
+	phone, _ := net.ParseMAC("da:a1:19:00:00:01")
+	random, _ := net.ParseMAC("da:a1:19:00:00:02")
+	samples := []live.Sample{{Time: time.Now(), Devices: []live.DeviceRate{
+		{MAC: live.MAC(phone[:6]), Download: 1000, Upload: 100},
+		{MAC: live.MAC(random[:6]), Download: 500, Upload: 50},
+	}}}
+
+	dtos := toLiveDTOs(samples, func(mac string) string {
+		if mac == random.String() {
+			return phone.String()
+		}
+		return mac
+	})
+	if devices := dtos[0].Devices; len(devices) != 1 || devices[0].MACAddress != phone.String() || devices[0].Download != 1500 {
+		t.Errorf("devices = %+v, want the phone with both addresses' traffic", devices)
 	}
 }

@@ -2,10 +2,13 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"log/slog"
+	"net"
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -65,9 +68,77 @@ func parseDeviceMAC(c fiber.Ctx) (*common.MACAddress, error) {
 	return mac, nil
 }
 
-// registerDeviceRoutes adds the endpoints for listing devices, and for
-// naming them and picking their icons.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// registerDeviceRoutes adds the endpoints for listing devices, naming them,
+// picking their icons, merging and forgetting them.
 func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames) {
+	// Forgets a device, and with ?traffic=true deletes its traffic too.
+	app.Delete("/api/devices/:mac", func(c fiber.Ctx) error {
+		mac, err := parseDeviceMAC(c)
+		if err != nil {
+			return err
+		}
+		traffic := c.Query("traffic") == "true"
+		if err := storage.ForgetDevice(db, mac.HardwareAddr, traffic); err != nil {
+			return err
+		}
+		slog.Info("Forgot device", "mac", mac, "traffic", traffic)
+		return c.SendStatus(fiber.StatusNoContent)
+	})
+
+	// Merges other MAC addresses into a device.
+	app.Post("/api/devices/:mac/merge", func(c fiber.Ctx) error {
+		mac, err := parseDeviceMAC(c)
+		if err != nil {
+			return err
+		}
+		var body struct {
+			MACs []string `json:"macs"`
+		}
+		if err := c.Bind().Body(&body); err != nil {
+			return badRequest("invalid request body: " + err.Error())
+		}
+		if len(body.MACs) == 0 || len(body.MACs) > 64 {
+			return badRequest("macs must be 1 to 64 MAC addresses to merge into the device")
+		}
+		var aliases []net.HardwareAddr
+		for _, value := range body.MACs {
+			alias, err := common.ParseMACAddress(value)
+			if err != nil {
+				return badRequest("invalid mac address: " + value)
+			}
+			aliases = append(aliases, alias.HardwareAddr)
+		}
+		if err := storage.MergeDevices(db, mac.HardwareAddr, aliases, time.Now()); err != nil {
+			return err
+		}
+		slog.Info("Merged devices", "mac", mac, "merged", body.MACs)
+		return c.SendStatus(fiber.StatusNoContent)
+	})
+
+	// Stops counting the traffic to come of a merged MAC address as the
+	// device's.
+	app.Delete("/api/devices/:mac/aliases/:alias", func(c fiber.Ctx) error {
+		alias, err := common.ParseMACAddress(c.Params("alias"))
+		if err != nil {
+			return badRequest("invalid mac address: " + c.Params("alias"))
+		}
+		if err := storage.DeleteAlias(db, alias.HardwareAddr); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "that MAC address isn't merged into a device")
+			}
+			return err
+		}
+		slog.Info("Unmerged a MAC address", "alias", alias)
+		return c.SendStatus(fiber.StatusNoContent)
+	})
+
 	type nameBody struct {
 		Name string `json:"name"`
 	}
@@ -94,6 +165,10 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		if err != nil {
 			return err
 		}
+		aliases, err := storage.GetAliases(db)
+		if err != nil {
+			return err
+		}
 
 		devices := make([]DeviceDTO, 0, len(records))
 		for _, record := range records {
@@ -117,6 +192,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 				NetworkID:  networkIDOf(matcher, record.IPAddress),
 				FirstSeen:  record.FirstSeen,
 				LastSeen:   record.LastSeen,
+				Aliases:    nonNil(aliases[record.MACAddress.String()]),
 			})
 		}
 

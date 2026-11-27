@@ -69,7 +69,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [ ] Make alerts easier to live with: acknowledge or snooze a firing alert, quiet
   hours, and rules for a device that comes back online and for a device's first
   traffic with a new country or ASN.
-- [ ] Manage devices: forget a device (there is no `DELETE /api/devices/:mac`), and
+- [x] Manage devices: forget a device (there is no `DELETE /api/devices/:mac`), and
   merge several MAC addresses into one device, for phones that use a random one per
   network.
 - [ ] Publish devices to Home Assistant over MQTT: whether each is online, for

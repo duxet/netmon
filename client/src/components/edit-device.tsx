@@ -24,6 +24,7 @@ import {
   setDeviceIcon,
   type DeviceIconName,
 } from "@/lib/api"
+import { ManageDevice } from "@/components/manage-device"
 import { DEVICE_ICON_INFO, GENERIC_DEVICE_ICON } from "@/lib/device-icons"
 import { deviceLabel, type Device } from "@/lib/network"
 
@@ -162,6 +163,8 @@ function EditForm({ device, onDone }: { device: EditableDevice; onDone: () => vo
 
       {mutation.isError && <FieldError>{mutation.error.message}</FieldError>}
 
+      <ManageDevice mac={device.mac} onForgotten={onDone} />
+
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
@@ -193,7 +196,7 @@ export function EditDeviceButton({ device }: { device: EditableDevice }) {
           <PencilIcon />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         {/* Mounted only while open, so it starts from the current name and icon each time. */}
         {open && <EditForm device={device} onDone={() => setOpen(false)} />}
       </DialogContent>

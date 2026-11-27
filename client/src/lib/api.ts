@@ -465,10 +465,29 @@ export interface KnownDevice {
   NetworkID: number | null
   FirstSeen: string
   LastSeen: string
+  /** MAC addresses merged into the device, whose traffic counts as its. */
+  Aliases: string[]
 }
 
 export function fetchKnownDevices() {
   return requestList<KnownDevice>("/api/devices")
+}
+
+/** Forgets a device; with traffic, its traffic is deleted too. */
+export async function forgetDevice(mac: string, traffic: boolean) {
+  await send(withQuery(`/api/devices/${mac}`, { traffic: traffic ? "true" : undefined }), {
+    method: "DELETE",
+  })
+}
+
+/** Merges other MAC addresses into a device: their traffic, past and to come, counts as its. */
+export async function mergeDevices(mac: string, macs: string[]) {
+  await send(`/api/devices/${mac}/merge`, jsonBody("POST", { macs }))
+}
+
+/** Counts a merged MAC address's traffic to come as its own again. */
+export async function unmergeAddress(mac: string, alias: string) {
+  await send(`/api/devices/${mac}/aliases/${alias}`, { method: "DELETE" })
 }
 
 export type AlertRuleType =

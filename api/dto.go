@@ -66,6 +66,9 @@ type DeviceDTO struct {
 	// flows, on either side of a connection.
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// Aliases are the MAC addresses merged into the device, whose traffic
+	// counts as its.
+	Aliases []string
 }
 
 // DeviceNameDTO is a device's user-given name.

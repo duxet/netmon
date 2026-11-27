@@ -233,3 +233,66 @@ func TestListDevices(t *testing.T) {
 		t.Errorf("GET /api/devices without the table = %d %s, want 500", status, body)
 	}
 }
+
+func TestForgetAndMergeDevices(t *testing.T) {
+	app, db := newTestApp(t)
+	seedNetwork(t, db)
+	if err := storage.SyncDevices(db, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, app, "POST", "/api/devices/"+testTVMAC+"/merge", `{"macs": ["`+testLaptopMAC+`"]}`); status != fiber.StatusNoContent {
+		t.Fatalf("merge = %d %s", status, body)
+	}
+	type device struct {
+		MACAddress string
+		Aliases    []string
+	}
+	type client struct{ Endpoint struct{ MACAddress string } }
+
+	var devices []device
+	get(t, app, "/api/devices", &devices)
+	var tv *device
+	for i := range devices {
+		if devices[i].MACAddress == testLaptopMAC {
+			t.Errorf("the laptop is still listed after merging it into the TV")
+		}
+		if devices[i].MACAddress == testTVMAC {
+			tv = &devices[i]
+		}
+	}
+	if tv == nil || len(tv.Aliases) != 1 || tv.Aliases[0] != testLaptopMAC {
+		t.Fatalf("TV = %+v, want the laptop's address merged into it", tv)
+	}
+
+	var clients []client
+	get(t, app, "/api/clients", &clients)
+	for _, c := range clients {
+		if c.Endpoint.MACAddress == testLaptopMAC {
+			t.Errorf("client %+v is still the laptop's", c)
+		}
+	}
+
+	if status, _ := do(t, app, "DELETE", "/api/devices/"+testTVMAC+"/aliases/"+testLaptopMAC, ""); status != fiber.StatusNoContent {
+		t.Errorf("unmerge = %d, want 204", status)
+	}
+	if status, _ := do(t, app, "DELETE", "/api/devices/"+testTVMAC+"/aliases/"+testLaptopMAC, ""); status != fiber.StatusNotFound {
+		t.Errorf("unmerge again = %d, want 404", status)
+	}
+
+	if status, _ := do(t, app, "DELETE", "/api/devices/"+testTVMAC+"?traffic=true", ""); status != fiber.StatusNoContent {
+		t.Errorf("forget = %d, want 204", status)
+	}
+	get(t, app, "/api/clients", &clients)
+	for _, c := range clients {
+		if c.Endpoint.MACAddress == testTVMAC {
+			t.Errorf("client %+v is the forgotten TV's", c)
+		}
+	}
+
+	for _, bad := range []string{`{"macs": []}`, `{"macs": ["nope"]}`} {
+		if status, _ := do(t, app, "POST", "/api/devices/"+testTVMAC+"/merge", bad); status != fiber.StatusBadRequest {
+			t.Errorf("merge %s = %d, want 400", bad, status)
+		}
+	}
+}

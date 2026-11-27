@@ -105,6 +105,10 @@ func DeleteDeviceIcon(db *sql.DB, mac net.HardwareAddr) error {
 // Flows without a MAC address (NULL, or empty when the collector found an
 // incomplete neighbor entry) are skipped.
 func SyncDevices(db *sql.DB, since time.Time) error {
+	if err := ApplyAliases(db); err != nil {
+		return err
+	}
+
 	_, err := db.Exec(`
 		INSERT INTO devices
 		SELECT mac, arg_max(ip, created_at), min(created_at), max(created_at)
