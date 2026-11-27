@@ -415,6 +415,7 @@ a typo doesn't go unnoticed.
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
+| `allowed_hosts`        | `NETMON_ALLOWED_HOSTS`        | none                     | More [names netmon answers to](#addresses-netmon-answers-to), separated by commas, or `*` |
 | `log_level`            | `NETMON_LOG_LEVEL`            | `info`                   | The least severe messages logged: `debug`, `info`, `warn` or `error` |
 | `memory_limit`         | `NETMON_MEMORY_LIMIT`         | 80% of the memory        | Memory the database may use: `256MB`, `1GiB`, or a share such as `50%` |
 | `threads`              | `NETMON_THREADS`              | `0` (one per core)       | Threads the database runs queries on                               |
@@ -467,6 +468,21 @@ network count as local too. Set `ignore_local_traffic: false` (or
 the live view as well, and changes to it, or to the networks, apply to new traffic
 within a minute; traffic recorded before stays.
 
+### Addresses netmon answers to
+
+netmon only answers requests for its IP addresses, names without a domain (`router`),
+names in domains nobody can register (`.lan`, `.local`, `.home`, `.home.arpa`,
+`.internal`, `.localdomain` and a few more), and the name in `public_url`. Requests for
+any other name get a `403`. That keeps web pages from reading your traffic or changing
+settings by pointing a name of their own at netmon's address (DNS rebinding). If you open
+netmon at another name, such as a DDNS name or one behind a reverse proxy that doesn't
+pass the `Host` header on, add it to `allowed_hosts`.
+
+netmon also refuses changes (any request but `GET`, `HEAD` and `OPTIONS`) that a page on
+another site asks for, as browsers say in the `Sec-Fetch-Site` or `Origin` headers, and
+answers no CORS requests: the web UI comes from netmon itself. Scripts, which send
+neither header, aren't affected.
+
 ### Changing settings in the web UI
 
 **Settings → Configuration** shows every setting, where its value comes from (the
@@ -477,7 +493,7 @@ touched, so comments, blank lines and the rest of the file stay as they are; a s
 taken back to its default is taken out of the file. A change is checked as netmon would
 check the file when starting, and nothing is saved when it fails.
 
-- The DNS servers, the retention of flows and alerts, how long hours are kept, the public URL, ignoring local
+- The DNS servers, the retention of flows and alerts, how long hours are kept, the public URL, the allowed hosts, ignoring local
   traffic, the log level and the database's memory limit and threads apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
   database and the capture interface apply when netmon starts again, which the page
@@ -707,7 +723,7 @@ out; it answers 400, changing nothing, when an entry is invalid, naming it (`net
 - [ ] CSV export
 
 ### Security and operations
-- [ ] Add optional authentication and restrict CORS (currently any origin is allowed)
+- [x] Add optional authentication and restrict CORS (currently any origin is allowed)
 - [x] Add CI: Go tests and vet; frontend lint, typecheck and build
 - [ ] Add frontend unit tests for flow direction and time-series code
 - [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`

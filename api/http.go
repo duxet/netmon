@@ -21,7 +21,6 @@ import (
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
@@ -61,8 +60,12 @@ type Options struct {
 	// Deliveries counts the notifications sent, failed and suppressed, for
 	// /metrics. Without it, /metrics has no notifications.
 	Deliveries func() map[string]uint64
-	// DatabasePath is the database file, whose size /metrics reports.
+	// DatabasePath is the database file, whose size /metrics reports, and
+	// next to which backups are made. Without it there are no backups.
 	DatabasePath string
+	// Hosts says which addresses netmon answers to. Without it, only those
+	// on the local network are.
+	Hosts func() HostRules
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -154,8 +157,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
 
-	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
 	app.Use(logRequests)
+	hosts := options.Hosts
+	if hosts == nil {
+		hosts = func() HostRules { return HostRules{} }
+	}
+	app.Use(protect(hosts))
 
 	registerHealthRoutes(app, db, options.Collector)
 

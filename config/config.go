@@ -117,6 +117,11 @@ type Config struct {
 	// using every core.
 	Threads int `koanf:"threads"`
 
+	// AllowedHosts are more names, separated by commas, that netmon answers
+	// to besides addresses, names on the local network and the public URL's,
+	// such as netmon.example.com; "*" allows any.
+	AllowedHosts string `koanf:"allowed_hosts"`
+
 	// File is the YAML file the configuration was read from, empty when there
 	// was none.
 	File string `koanf:"-"`
@@ -172,6 +177,15 @@ func (c Config) BaseURL() string {
 	}
 
 	return "http://" + net.JoinHostPort(hostname, port)
+}
+
+// AllowedHostList returns AllowedHosts as a list of lowercase names.
+func (c Config) AllowedHostList() []string {
+	var hosts []string
+	for _, host := range strings.FieldsFunc(c.AllowedHosts, func(r rune) bool { return r == ',' || r == ' ' }) {
+		hosts = append(hosts, strings.ToLower(strings.TrimSuffix(host, ".")))
+	}
+	return hosts
 }
 
 // OIDCEnabled reports whether people have to sign in with an OpenID Connect
@@ -304,6 +318,11 @@ func (c Config) validate() error {
 	}
 	if c.Threads < 0 {
 		return keyErrorf("threads", "threads must be a number of threads, with 0 using every core: %d", c.Threads)
+	}
+	for _, host := range c.AllowedHostList() {
+		if host != "*" && !hostnamePattern.MatchString(host) {
+			return keyErrorf("allowed_hosts", "allowed_hosts must be names such as netmon.example.com, separated by commas, or *: %q", host)
+		}
 	}
 	if _, ok := logging.Parse(c.LogLevel); !ok {
 		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)

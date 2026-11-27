@@ -75,6 +75,10 @@ func newTestAppFor(t *testing.T, options func(db *sql.DB) Options) (*fiber.App, 
 	if opts.Hostnames == nil {
 		opts.Hostnames = noHostnames()
 	}
+	// Test requests are for example.com.
+	if opts.Hosts == nil {
+		opts.Hosts = func() HostRules { return HostRules{Allowed: []string{"example.com"}} }
+	}
 	return CreateHTTPApp(db, assets, opts), db
 }
 

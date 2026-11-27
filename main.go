@@ -244,6 +244,10 @@ func main() {
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
 		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database,
+		Hosts: func() api.HostRules {
+			running := editor.Running()
+			return api.HostRules{PublicURL: running.BaseURL(), Allowed: running.AllowedHostList()}
+		},
 	})
 
 	go func() {

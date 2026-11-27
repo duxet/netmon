@@ -360,7 +360,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level memory_limit threads"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level memory_limit threads allowed_hosts"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}
@@ -398,5 +398,23 @@ func TestDatabaseLimits(t *testing.T) {
 	t.Setenv("NETMON_THREADS", "-1")
 	if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "threads") {
 		t.Errorf("threads -1: %v, want an error about threads", err)
+	}
+}
+
+func TestAllowedHosts(t *testing.T) {
+	t.Setenv("NETMON_ALLOWED_HOSTS", "netmon.example.com, Stats.Example.org.")
+	cfg, err := parse("", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.AllowedHostList(), " "); got != "netmon.example.com stats.example.org" {
+		t.Errorf("allowed hosts = %q", got)
+	}
+
+	for _, bad := range []string{"https://netmon.example.com", "netmon.example.com/x", "a b/c"} {
+		t.Setenv("NETMON_ALLOWED_HOSTS", bad)
+		if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "allowed_hosts") {
+			t.Errorf("allowed_hosts %q: %v, want an error about allowed_hosts", bad, err)
+		}
 	}
 }

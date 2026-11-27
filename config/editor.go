@@ -44,6 +44,7 @@ var infos = map[string]info{
 	"log_level":            {live: true},
 	"memory_limit":         {live: true},
 	"threads":              {live: true},
+	"allowed_hosts":        {live: true},
 }
 
 // InvalidError is a change the editor refuses, such as a value of the wrong

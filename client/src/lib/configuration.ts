@@ -20,6 +20,7 @@ export const SETTING_LABELS: Record<string, string> = {
   log_level: "Log level",
   memory_limit: "Memory limit",
   threads: "Threads",
+  allowed_hosts: "Allowed hosts",
 }
 
 /** Settings that are whole numbers. */

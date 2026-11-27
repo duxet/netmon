@@ -481,6 +481,21 @@ function ConfigurationForm({ config }: { config: Configuration }) {
         })}
       </Section>
 
+      <Section
+        title="Access"
+        description="netmon only answers at its addresses, names on your network such as router.lan, and the public URL's name, so that no web page can point a name of its own at it."
+      >
+        {field("allowed_hosts", {
+          description: (
+            <>
+              More names netmon is opened at, such as <code>netmon.example.com</code>, separated by commas, or{" "}
+              <code>*</code> for any. Keep the one you are using now, or this page goes out of reach.
+            </>
+          ),
+          placeholder: "None",
+        })}
+      </Section>
+
       <Section title="Notifications" description="Messages link to the alert they are about.">
         {field("public_url", {
           description: "The address people open netmon at, which messages link to.",

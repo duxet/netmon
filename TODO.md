@@ -48,7 +48,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 
 ## Security
 
-- [ ] Protect against DNS rebinding and CSRF. Without single sign-on, any web page
+- [x] Protect against DNS rebinding and CSRF. Without single sign-on, any web page
   that someone on the network opens can call `PUT /api/config` and the notification
   channel endpoints, which can make netmon send requests to any URL. Restricting
   CORS doesn't stop that. Check the `Host` header against `public_url` and a list of
