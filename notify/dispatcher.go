@@ -115,6 +115,9 @@ type Dispatcher struct {
 	// held counts the messages not sent to each channel because of the
 	// rate limit since the last one that was.
 	held map[int64]int
+	// deliveries counts the deliveries recorded since the dispatcher
+	// started, by status.
+	deliveries map[string]uint64
 }
 
 // NewDispatcher starts a dispatcher's workers. Close stops them.
@@ -122,13 +125,14 @@ func NewDispatcher(db *sql.DB, opts DispatcherOptions) *Dispatcher {
 	opts = opts.withDefaults()
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
-		db:     db,
-		opts:   opts,
-		queue:  make(chan job, opts.QueueSize),
-		ctx:    ctx,
-		cancel: cancel,
-		sends:  map[int64][]time.Time{},
-		held:   map[int64]int{},
+		db:         db,
+		opts:       opts,
+		queue:      make(chan job, opts.QueueSize),
+		ctx:        ctx,
+		cancel:     cancel,
+		sends:      map[int64][]time.Time{},
+		held:       map[int64]int{},
+		deliveries: map[string]uint64{},
 	}
 
 	d.wg.Add(opts.Workers)
@@ -314,8 +318,28 @@ func (d *Dispatcher) deliver(j job) {
 	d.record(j, Sent, attempts, "")
 }
 
+// Deliveries counts the deliveries recorded since the dispatcher started, one
+// per alert and channel, by status: sent, failed or suppressed.
+func (d *Dispatcher) Deliveries() map[string]uint64 {
+	if d == nil {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	counts := make(map[string]uint64, len(d.deliveries))
+	for status, n := range d.deliveries {
+		counts[status] = n
+	}
+	return counts
+}
+
 // record writes one delivery per alert of a job.
 func (d *Dispatcher) record(j job, status string, attempts int, reason string) {
+	d.mu.Lock()
+	d.deliveries[status] += uint64(len(j.alerts))
+	d.mu.Unlock()
+
 	var errText *string
 	if reason != "" {
 		errText = &reason

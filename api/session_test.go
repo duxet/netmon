@@ -144,6 +144,8 @@ func TestEveryRouteNeedsASession(t *testing.T) {
 		"GET /auth/callback":   true,
 		"POST /auth/logout":    true,
 		"GET /auth/signed-out": true,
+		// For container health checks, which can't sign in.
+		"GET /healthz": true,
 	}
 	seenOpen := map[string]bool{}
 
@@ -161,7 +163,7 @@ func TestEveryRouteNeedsASession(t *testing.T) {
 		checked++
 
 		switch {
-		case strings.HasPrefix(path, "/api/") || (route.Method != "GET" && route.Method != "HEAD"):
+		case strings.HasPrefix(path, "/api/") || path == "/metrics" || (route.Method != "GET" && route.Method != "HEAD"):
 			if resp.StatusCode != fiber.StatusUnauthorized {
 				t.Errorf("%s (%s) without a session = %d, want 401", key, path, resp.StatusCode)
 			}

@@ -33,10 +33,14 @@ func newCollectorStatusDTO(status collector.HealthStatus, now time.Time) *Collec
 	if dto.Warnings == nil {
 		dto.Warnings = []string{}
 	}
+	// Rounds come every minute, even without traffic, so a collector that
+	// started a while ago and hasn't recorded since is stuck too.
+	since := status.StartedAt
 	if !status.LastRecorded.IsZero() {
 		at := status.LastRecorded
 		dto.LastRecorded = &at
-		dto.Stale = now.Sub(at) > staleRecording
+		since = at
 	}
+	dto.Stale = status.Running && !since.IsZero() && now.Sub(since) > staleRecording
 	return dto
 }

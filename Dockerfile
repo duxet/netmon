@@ -12,4 +12,6 @@ FROM alpine:latest
 
 COPY --from=go /src/netmon /usr/bin
 
+HEALTHCHECK CMD ["/usr/bin/netmon", "-healthcheck"]
+
 CMD ["/usr/bin/netmon"]

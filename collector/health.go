@@ -17,8 +17,9 @@ type Health struct {
 
 // HealthStatus is how a collector is doing.
 type HealthStatus struct {
-	// Running is whether the collector started.
-	Running bool
+	// Running is whether the collector started, and StartedAt when.
+	Running   bool
+	StartedAt time.Time
 	// Error is why the collector didn't start, or why the last round of
 	// recording failed; empty when the last one succeeded.
 	Error string
@@ -70,7 +71,7 @@ func (h *Health) update(change func(*HealthStatus)) {
 
 // Started records that the collector is running.
 func (h *Health) Started() {
-	h.update(func(s *HealthStatus) { s.Running, s.Error = true, "" })
+	h.update(func(s *HealthStatus) { s.Running, s.Error, s.StartedAt = true, "", time.Now() })
 }
 
 // Failed records why the collector couldn't start.

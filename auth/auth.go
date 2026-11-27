@@ -222,7 +222,7 @@ func (a *Authenticator) require(c fiber.Ctx) error {
 // sign in and then back to the page.
 func (a *Authenticator) deny(c fiber.Ctx) error {
 	isPage := c.Method() == fiber.MethodGet || c.Method() == fiber.MethodHead
-	if !isPage || strings.HasPrefix(c.Path(), "/api/") {
+	if !isPage || strings.HasPrefix(c.Path(), "/api/") || c.Path() == "/metrics" {
 		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
 	}
 	return c.Redirect().Status(fiber.StatusFound).To(loginURL(c.OriginalURL()))

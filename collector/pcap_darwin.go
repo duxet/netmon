@@ -103,7 +103,7 @@ func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, er
 }
 
 func (c *pcapCollector) flush() {
-	rows, err := c.table.flushTo(c.db)
+	rows, err := c.table.flushTo(c.db, c.opts.Totals)
 	if err != nil {
 		slog.Error("Failed to store flows", "err", err)
 		c.opts.Health.roundFailed(err)

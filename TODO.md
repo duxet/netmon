@@ -35,7 +35,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   request ("Returning list of flows") and one per failed reverse DNS lookup
   (`lookup/hostnames.go`), which flood `logd` on OpenWrt. Switch to `log/slog`,
   with a `log_level` setting.
-- [ ] Add `/healthz`, with a `HEALTHCHECK` in the Dockerfile, and a Prometheus
+- [x] Add `/healthz`, with a `HEALTHCHECK` in the Dockerfile, and a Prometheus
   `/metrics` endpoint: collector rounds, rows written, lost Netfilter events,
   database size, failed notifications, and optionally the traffic per device.
 - [x] Tell the binary its version. CI's `VERSION` only names the archives: set it

@@ -28,6 +28,9 @@ type Options struct {
 
 	// Health, if set, is told how recording goes.
 	Health *Health
+
+	// Totals, if set, adds up the traffic of every device recorded.
+	Totals *Totals
 }
 
 // ignored reports whether the traffic between src and dst is to be left out.

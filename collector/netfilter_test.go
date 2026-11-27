@@ -619,3 +619,22 @@ func TestRoundWarnsWhenConntrackDoesNotCount(t *testing.T) {
 		t.Errorf("warnings without the setting = %q, want none", w)
 	}
 }
+
+func TestRecordAddsUpTheTrafficOfDevices(t *testing.T) {
+	n, kernel := newTestCollector(newTestDB(t))
+	n.opts.Totals = NewTotals()
+
+	kernel.set(
+		conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100),
+		conn(2, laptopIP.String(), phoneIP.String(), 50001, 8009, 300, 4000),
+	)
+	mustRecord(t, n)
+
+	devices := n.opts.Totals.Devices()
+	if got := devices[net.HardwareAddr(laptopMAC[:]).String()]; got != (DeviceTotal{Received: 1300, Sent: 4100}) {
+		t.Errorf("laptop = %+v, want 1300 received and 4100 sent", got)
+	}
+	if got := devices[net.HardwareAddr(phoneMAC[:]).String()]; got != (DeviceTotal{Received: 4000, Sent: 300}) {
+		t.Errorf("phone = %+v, want 4000 received and 300 sent", got)
+	}
+}

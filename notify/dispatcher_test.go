@@ -225,6 +225,9 @@ func TestDispatchRateLimit(t *testing.T) {
 	if statuses[Sent] != 2 || statuses[Suppressed] != 2 {
 		t.Errorf("statuses = %v, want 2 sent and 2 suppressed", statuses)
 	}
+	if counts := d.Deliveries(); counts[Sent] != 2 || counts[Suppressed] != 2 || counts[Failed] != 0 {
+		t.Errorf("delivery counts = %v, want 2 sent and 2 suppressed", counts)
+	}
 
 	// Once the window has passed, the next message says what was held back.
 	mu.Lock()

@@ -53,8 +53,16 @@ type Options struct {
 	// isn't served.
 	Config *config.Editor
 	// Collector tells how recording traffic goes. Without it, /api/status
-	// has no collector.
+	// has no collector and /healthz doesn't check it.
 	Collector *collector.Health
+	// Totals adds up the traffic of each device, for /metrics. Without it,
+	// /metrics has no devices.
+	Totals *collector.Totals
+	// Deliveries counts the notifications sent, failed and suppressed, for
+	// /metrics. Without it, /metrics has no notifications.
+	Deliveries func() map[string]uint64
+	// DatabasePath is the database file, whose size /metrics reports.
+	DatabasePath string
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -148,6 +156,8 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
 	app.Use(logRequests)
+
+	registerHealthRoutes(app, db, options.Collector)
 
 	// Everything registered after this needs a session.
 	if options.Auth != nil {
@@ -360,6 +370,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	registerSessionRoutes(app, options.Auth != nil)
 	registerStatusRoutes(app, options.Collector)
+	registerMetricsRoutes(app, db, metrics{
+		health:       options.Collector,
+		totals:       options.Totals,
+		deliveries:   options.Deliveries,
+		databasePath: options.DatabasePath,
+	})
 	registerDeviceRoutes(app, db, hostnames)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {

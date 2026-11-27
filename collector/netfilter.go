@@ -499,6 +499,17 @@ func (n *netfilterCollector) record() (int, error) {
 
 	n.baseline = n.baseline.next(current, closed)
 
+	for _, snapshot := range snapshots {
+		var srcMAC, dstMAC net.HardwareAddr
+		if snapshot.srcMAC != nil {
+			srcMAC = snapshot.srcMAC.HardwareAddr
+		}
+		if snapshot.dstMAC != nil {
+			dstMAC = snapshot.dstMAC.HardwareAddr
+		}
+		n.opts.Totals.AddFlow(srcMAC, dstMAC, snapshot.inBytes, snapshot.outBytes)
+	}
+
 	return len(snapshots), nil
 }
 

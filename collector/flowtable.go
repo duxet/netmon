@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"sync"
 
@@ -30,6 +31,14 @@ type macAddr struct {
 // neither the broadcast address nor a multicast one.
 func (m macAddr) unicast() bool {
 	return m.valid && m.addr[0]&1 == 0
+}
+
+// hardwareAddr returns the address, or nil when there is none.
+func (m macAddr) hardwareAddr() net.HardwareAddr {
+	if !m.valid {
+		return nil
+	}
+	return net.HardwareAddr(m.addr[:])
 }
 
 // dbValue is the value to store in a BLOB column: the address, or NULL.
@@ -316,15 +325,21 @@ func (t *flowTable) Flush() (rows []flowRow, dropped uint64) {
 }
 
 // flushTo writes the traffic collected since the previous flush to the
-// database, and returns how many flows it wrote.
-func (t *flowTable) flushTo(db *sql.DB) (int, error) {
+// database, adds it to totals, and returns how many flows it wrote.
+func (t *flowTable) flushTo(db *sql.DB, totals *Totals) (int, error) {
 	rows, dropped := t.Flush()
 
 	if dropped > 0 {
 		slog.Warn("Flow table is full, ignored the packets of new flows", "packets", dropped)
 	}
 
-	return len(rows), insertFlows(db, rows)
+	if err := insertFlows(db, rows); err != nil {
+		return 0, err
+	}
+	for _, r := range rows {
+		totals.AddFlow(r.srcMAC.hardwareAddr(), r.dstMAC.hardwareAddr(), r.in.bytes, r.out.bytes)
+	}
+	return len(rows), nil
 }
 
 func insertFlows(db *sql.DB, rows []flowRow) error {

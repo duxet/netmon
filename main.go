@@ -20,10 +20,15 @@ import (
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/version"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,6 +49,7 @@ var clientAssets embed.FS
 func main() {
 	configFile := flag.String("config", "", "YAML configuration file (default: $"+config.FileEnv+", or "+config.DefaultFile+" if it exists)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	healthcheck := flag.Bool("healthcheck", false, "check that the netmon serving at the configured address is healthy, and exit with 0 if it is")
 	flag.Parse()
 
 	if *showVersion {
@@ -54,6 +60,9 @@ func main() {
 	cfg, err := config.Load(*configFile)
 	if err != nil {
 		fatal("Can't start", err)
+	}
+	if *healthcheck {
+		os.Exit(checkHealth(cfg.Listen))
 	}
 	logging.Setup(cfg.LogLevel)
 	slog.Info("Starting netmon", "version", version.String())
@@ -164,8 +173,10 @@ func main() {
 	meter := live.NewMeter()
 
 	health := collector.NewHealth()
+	totals := collector.NewTotals()
 	coll, err := collector.CollectTraffic(db, meter, collector.Options{
 		Health: health,
+		Totals: totals,
 		OnFlush: func(at time.Time) {
 			readNetworks()
 			engine.Trigger(at)
@@ -209,7 +220,8 @@ func main() {
 	}
 
 	app := api.CreateHTTPApp(db, assets, api.Options{
-		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor, Collector: health,
+		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
+		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database,
 	})
 
 	go func() {
@@ -293,6 +305,35 @@ func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.
 		default:
 		}
 	}
+}
+
+// checkHealth asks the netmon serving at listen whether it is healthy, as a
+// container's health check does, and returns the exit status: 0 when it is.
+func checkHealth(listen string) int {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if addr, err := netip.ParseAddr(host); host == "" || (err == nil && addr.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+
+	// Never through a proxy: it is about this machine.
+	client := http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "netmon isn't answering:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		fmt.Fprintf(os.Stderr, "netmon is unhealthy: %s\n", strings.TrimSpace(string(body)))
+		return 1
+	}
+	return 0
 }
 
 // fatal logs why netmon can't go on, and exits.

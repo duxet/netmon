@@ -201,6 +201,46 @@ How the rates are measured depends on the platform:
 - **macOS** counts packets as they are captured, all the time, so the history is already
   there when the page is opened.
 
+## Monitoring netmon
+
+`GET /healthz` answers `200` with `{"Status": "ok"}` while netmon can read its database
+and records traffic, and `503` with `{"Status": "unhealthy", "Problems": [...]}` when it
+can't: the collector didn't start, the last round of recording failed, or nothing has
+been recorded for 3 minutes. It needs no session, even with
+[single sign-on](#single-sign-on), so uptime monitors and container health checks can use
+it. `netmon -healthcheck` asks the netmon running with the same configuration, and exits
+with 0 when it is healthy and 1 when it isn't; the Docker image uses it as its
+`HEALTHCHECK`.
+
+`GET /metrics` serves metrics for [Prometheus](https://prometheus.io), in its text format:
+
+| Metric | |
+|--------|-|
+| `netmon_info{version}` | Always 1, with the version as a label |
+| `netmon_collector_running` | Whether the collector started |
+| `netmon_collector_rounds_total`, `netmon_collector_failed_rounds_total` | Rounds of recording traffic, about one a minute, and those that failed |
+| `netmon_collector_flows_written_total` | Flows written to the database |
+| `netmon_collector_last_recorded_timestamp_seconds` | When traffic was last recorded |
+| `netmon_collector_event_overflows_total` | Times the kernel dropped events about connections closing (Linux) |
+| `netmon_collector_dropped_connections_total` | Closed connections left out while recording failed (Linux) |
+| `netmon_collector_warnings` | Problems that keep traffic from being recorded in full, such as accounting being off |
+| `netmon_database_size_bytes` | Size of `flows.db`, with its write-ahead log |
+| `netmon_alerts_firing` | Alerts firing now |
+| `netmon_notification_deliveries_total{status}` | Notifications about alerts, per alert and channel: `sent`, `failed` or `suppressed` |
+| `netmon_device_received_bytes_total{mac,name}`, `netmon_device_sent_bytes_total{mac,name}` | Traffic of each device, from its own side |
+
+Counters start at 0 when netmon starts. The traffic of devices is what netmon records,
+so it leaves out [local traffic](#local-traffic) unless that is recorded too, and goes
+up once a minute. `name` is the name you gave the device, or empty. With single sign-on
+on, `/metrics` needs a session like the API.
+
+```yaml
+scrape_configs:
+  - job_name: netmon
+    static_configs:
+      - targets: ["router.lan:2137"]
+```
+
 ## Notifications
 
 netmon can send notifications through [shoutrrr](https://shoutrrr.nickfedor.com), which
@@ -435,6 +475,8 @@ rounded to whole hours.
 |----------|------------|
 | `GET /api/session` | |
 | `GET /api/status` | |
+| `GET /healthz` | see [Monitoring netmon](#monitoring-netmon) |
+| `GET /metrics` | see [Monitoring netmon](#monitoring-netmon) |
 | `GET /api/stats` | `network`, `from`, `to` |
 | `GET /api/clients` | `network`, `from`, `to` |
 | `GET /api/apps` | `mac`, `ip` or `network`, `from`, `to` |

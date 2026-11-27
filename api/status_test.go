@@ -46,4 +46,13 @@ func TestCollectorStatusDTO(t *testing.T) {
 	if !stale.Stale {
 		t.Errorf("recorded 10 minutes ago: %+v, want it stale", stale)
 	}
+
+	starting := newCollectorStatusDTO(collector.HealthStatus{Running: true, StartedAt: now.Add(-time.Minute)}, now)
+	if starting.Stale || starting.LastRecorded != nil {
+		t.Errorf("started a minute ago: %+v, want it fine", starting)
+	}
+	stuck := newCollectorStatusDTO(collector.HealthStatus{Running: true, StartedAt: now.Add(-10 * time.Minute)}, now)
+	if !stuck.Stale {
+		t.Errorf("started 10 minutes ago without recording: %+v, want it stale", stuck)
+	}
 }
