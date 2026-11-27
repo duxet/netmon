@@ -92,13 +92,17 @@ type Config struct {
 
 	// UniFiURL turns on reading clients from a UniFi Network Application: the
 	// address of the console or of the self-hosted application, such as
-	// https://192.168.1.1. UniFiAPIKey is required with it, and is made in
-	// UniFi Network under Settings, Control Plane, Integrations. UniFiSite is
+	// https://192.168.1.1. It needs UniFiAPIKey, made in UniFi Network under
+	// Settings, Control Plane, Integrations, for the Integration API, or else
+	// UniFiUsername and UniFiPassword of a local account, to sign in as the
+	// web UI does, which works with every Network Application. UniFiSite is
 	// the site's name or internal reference. UniFiFingerprint is the SHA-256
 	// fingerprint of the controller's certificate, to trust a self-signed one,
-	// as UniFi consoles have.
+	// as UniFi's are.
 	UniFiURL         string `koanf:"unifi_url"`
 	UniFiAPIKey      string `koanf:"unifi_api_key"`
+	UniFiUsername    string `koanf:"unifi_username"`
+	UniFiPassword    string `koanf:"unifi_password"`
 	UniFiSite        string `koanf:"unifi_site"`
 	UniFiFingerprint string `koanf:"unifi_fingerprint"`
 
@@ -179,18 +183,26 @@ func (c Config) UniFiEnabled() bool {
 // validateUniFi checks the UniFi settings.
 func (c Config) validateUniFi() error {
 	if !c.UniFiEnabled() {
-		if c.UniFiAPIKey != "" || c.UniFiFingerprint != "" {
-			return keyErrorf("unifi_url", "unifi_api_key and unifi_fingerprint have no effect without unifi_url: "+
-				"set the URL to read clients from UniFi, or remove them")
+		if c.UniFiAPIKey != "" || c.UniFiUsername != "" || c.UniFiPassword != "" || c.UniFiFingerprint != "" {
+			return keyErrorf("unifi_url", "unifi_api_key, unifi_username, unifi_password and unifi_fingerprint "+
+				"have no effect without unifi_url: set the URL to read clients from UniFi, or remove them")
 		}
 		return nil
 	}
 	if _, err := unifi.ParseURL(c.UniFiURL); err != nil {
 		return keyErrorf("unifi_url", "unifi_url must be an https:// URL, such as https://192.168.1.1: %q", c.UniFiURL)
 	}
-	if c.UniFiAPIKey == "" {
-		return keyErrorf("unifi_api_key", "unifi_api_key is required with unifi_url: make one in UniFi Network under "+
-			"Settings, Control Plane, Integrations")
+	login := c.UniFiUsername != "" || c.UniFiPassword != ""
+	switch {
+	case c.UniFiAPIKey != "" && login:
+		return keyErrorf("unifi_api_key", "use either unifi_api_key, or unifi_username and unifi_password, not both")
+	case login && c.UniFiUsername == "":
+		return keyErrorf("unifi_username", "unifi_username is required with unifi_password")
+	case login && c.UniFiPassword == "":
+		return keyErrorf("unifi_password", "unifi_password is required with unifi_username")
+	case !login && c.UniFiAPIKey == "":
+		return keyErrorf("unifi_username", "unifi_url needs unifi_username and unifi_password of a local UniFi account, "+
+			"or unifi_api_key, made in UniFi Network under Settings, Control Plane, Integrations")
 	}
 	if c.UniFiSite == "" {
 		return keyErrorf("unifi_site", "unifi_site must be the name of a site, such as default")

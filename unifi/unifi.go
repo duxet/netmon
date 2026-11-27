@@ -1,10 +1,16 @@
-// Package unifi reads the clients a UniFi Network Application knows about,
-// through its official Integration API, so that devices can be shown with
-// the names, connection type and uplink UniFi has for them.
+// Package unifi reads the clients a UniFi Network Application knows about, so
+// that devices can be shown with the names, connection type and uplink UniFi
+// has for them.
 //
-// The API is polled in the background, and what it last said is kept in
-// memory by MAC address. A controller that can't be reached only means there
-// is nothing new: devices keep what was learnt about them before.
+// There are two ways in. With an API key, clients are read through the
+// official Integration API, which consoles running UniFi OS and recent
+// Network Applications have. With the username and password of a local
+// account, netmon signs in as the web UI does and reads the API the web UI
+// uses, which every Network Application has, the self-hosted ones included.
+//
+// The controller is polled in the background, and what it last said is kept
+// in memory by MAC address. A controller that can't be reached only means
+// there is nothing new: devices keep what was learnt about them before.
 package unifi
 
 import (
@@ -13,10 +19,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,11 +34,8 @@ const (
 	// DefaultInterval is how often the controller is asked for its clients.
 	DefaultInterval = time.Minute
 	requestTimeout  = 15 * time.Second
-	pageLimit       = 200
-	// maxPages bounds a sync, in case the controller pages forever.
-	maxPages = 100
 	// maxResponse bounds what is read of one response.
-	maxResponse = 16 << 20
+	maxResponse = 32 << 20
 )
 
 // Connection types, as the Integration API names them.
@@ -54,14 +55,14 @@ type Client struct {
 	// IPAddress is the address UniFi saw it use; it may be empty.
 	IPAddress string
 	// Uplink is the name of the access point or switch it is connected to,
-	// empty when unknown.
+	// with the switch port when known; empty when unknown.
 	Uplink string
 	// ConnectedAt is when it connected, zero when unknown.
 	ConnectedAt time.Time
 	// Connected tells whether it was connected at the last sync. Clients that
 	// left are kept, with what was last known about them.
 	Connected bool
-	// LastSeen is the last sync that found it connected.
+	// LastSeen is when UniFi last saw it connected, zero when unknown.
 	LastSeen time.Time
 }
 
@@ -77,49 +78,72 @@ type Status struct {
 	Connected int
 }
 
-// Options configures a [Source].
+// Options configures a [Source]. It needs either APIKey, or Username and
+// Password.
 type Options struct {
 	// URL is the console's or Network Application's address, such as
 	// https://192.168.1.1 or https://unifi.lan:8443.
 	URL string
 	// APIKey is a key made in UniFi Network under Settings, Control Plane,
-	// Integrations.
+	// Integrations, for the Integration API.
 	APIKey string
+	// Username and Password are those of a local UniFi account, for the API
+	// the web UI uses. The account mustn't need two-factor authentication;
+	// View Only access is enough.
+	Username string
+	Password string
 	// Site is the site's name or internal reference ("default"), or its ID.
 	// Empty means "default".
 	Site string
 	// Fingerprint is the SHA-256 fingerprint of the controller's certificate,
 	// in hex, with or without colons. With it, that certificate is trusted
-	// even when it is self-signed, as UniFi consoles' are; without it, the
+	// even when it is self-signed, as UniFi's are; without it, the
 	// certificate has to be valid for the system.
 	Fingerprint string
 	// Interval is how often to sync; DefaultInterval when zero.
 	Interval time.Duration
 }
 
+// snapshot is what one sync found: the site's name, and clients by MAC
+// address (as net.HardwareAddr.String). Clients that aren't connected may be
+// among them, from a list of every client the controller knows.
+type snapshot struct {
+	site    string
+	clients map[string]Client
+}
+
+// reader reads the clients from a controller in one way.
+type reader interface {
+	read(ctx context.Context) (snapshot, error)
+}
+
 // Source keeps the clients the controller reported. A nil *Source knows of
 // none, so callers don't need to check whether UniFi is configured.
 type Source struct {
-	opts   Options
-	http   *http.Client
-	base   *url.URL
-	prefix string // the path the Integration API is under, once found
-	siteID string
+	interval time.Duration
+	reader   reader
+	now      func() time.Time
 
 	mu      sync.RWMutex
-	clients map[string]Client // by MAC address, as net.HardwareAddr.String
+	clients map[string]Client
 	status  Status
 }
 
 // New returns a source for the controller in opts. It doesn't contact the
-// controller until [Source.Run].
+// controller until [Source.Run] or [Source.Sync].
 func New(opts Options) (*Source, error) {
 	base, err := ParseURL(opts.URL)
 	if err != nil {
 		return nil, err
 	}
-	if opts.APIKey == "" {
-		return nil, errors.New("an API key is required")
+	hasKey, hasLogin := opts.APIKey != "", opts.Username != "" || opts.Password != ""
+	switch {
+	case hasKey && hasLogin:
+		return nil, errors.New("use either an API key, or a username and password, not both")
+	case hasLogin && (opts.Username == "" || opts.Password == ""):
+		return nil, errors.New("both a username and a password are needed")
+	case !hasKey && !hasLogin:
+		return nil, errors.New("an API key, or a username and password, are needed")
 	}
 	if opts.Site == "" {
 		opts.Site = "default"
@@ -136,17 +160,28 @@ func New(opts Options) (*Source, error) {
 		}
 		transport.TLSClientConfig = pinned(want)
 	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout,
+		// Credentials are only sent where they were configured to go.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 
-	return &Source{
-		opts:    opts,
-		http:    &http.Client{Transport: transport, Timeout: requestTimeout},
-		base:    base,
-		clients: map[string]Client{},
-	}, nil
+	s := &Source{interval: opts.Interval, now: time.Now, clients: map[string]Client{}}
+	if hasKey {
+		s.reader = &integration{http: client, base: base, key: opts.APIKey, site: opts.Site, now: s.clock}
+	} else {
+		s.reader = &legacy{
+			http: client, base: base, username: opts.Username, password: opts.Password, site: opts.Site, now: s.clock,
+		}
+	}
+	return s, nil
 }
 
+func (s *Source) clock() time.Time { return s.now() }
+
 // ParseURL checks the controller's address: an https:// URL (http:// only
-// for this machine, as the API key is sent with every request).
+// for this machine, as credentials are sent with requests).
 func ParseURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSuffix(raw, "/"))
 	if err != nil || u.Host == "" || (u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname()))) {
@@ -224,21 +259,22 @@ func (s *Source) Run(ctx context.Context) {
 	if s == nil {
 		return
 	}
-	ticker := time.NewTicker(s.opts.Interval)
+	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
-	failing := false
+	failing := ""
 	for {
 		err := s.Sync(ctx)
 		switch {
 		case ctx.Err() != nil:
 			return
-		case err != nil && !failing:
+		case err != nil && err.Error() != failing:
+			// Say it once, and again only when it changes.
 			log.Printf("Can't read clients from UniFi, will keep trying: %v", err)
-			failing = true
-		case err == nil && failing:
+			failing = err.Error()
+		case err == nil && failing != "":
 			log.Println("Reading clients from UniFi works again")
-			failing = false
+			failing = ""
 		}
 
 		select {
@@ -249,238 +285,47 @@ func (s *Source) Run(ctx context.Context) {
 	}
 }
 
-// Sync reads the clients from the controller once.
+// Sync reads the clients from the controller once. It must not be called
+// concurrently with itself or Run.
 func (s *Source) Sync(ctx context.Context) error {
-	err := s.sync(ctx)
-	s.mu.Lock()
-	if err != nil {
-		s.status.LastError = err.Error()
-	} else {
-		s.status.LastError = ""
-	}
-	s.mu.Unlock()
-	return err
-}
+	snap, err := s.reader.read(ctx)
 
-func (s *Source) sync(ctx context.Context) error {
-	if s.siteID == "" {
-		if err := s.findSite(ctx); err != nil {
-			return err
-		}
-	}
-
-	// Names of the access points and switches, for the clients' uplinks. They
-	// are only a nicety, so failing to read them isn't a failed sync.
-	devices, err := s.devices(ctx)
-	if err != nil {
-		log.Printf("Can't read UniFi devices, clients will have no uplink names: %v", err)
-	}
-
-	var clients []apiClient
-	err = s.pages(ctx, "/sites/"+url.PathEscape(s.siteID)+"/clients", func(raw json.RawMessage) error {
-		var page []apiClient
-		if err := json.Unmarshal(raw, &page); err != nil {
-			return err
-		}
-		clients = append(clients, page...)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if snap.site != "" {
+		s.status.Site = snap.site
+	}
+	if err != nil {
+		s.status.LastError = err.Error()
+		return err
+	}
+	s.status.LastError = ""
+	s.merge(snap)
+	return nil
+}
+
+// merge takes in what a sync found. Every client it doesn't have as connected
+// isn't any more; one it lists as not connected only replaces what is known
+// about it when it was seen later.
+func (s *Source) merge(snap snapshot) {
 	for mac, c := range s.clients {
 		c.Connected = false
 		s.clients[mac] = c
 	}
 	connected := 0
-	for _, c := range clients {
-		hw, err := net.ParseMAC(c.MACAddress)
-		if err != nil {
-			continue
-		}
-		client := Client{
-			Name:      strings.TrimSpace(c.Name),
-			Type:      c.Type,
-			IPAddress: c.IPAddress,
-			Uplink:    devices[c.UplinkDeviceID],
-			Connected: true,
-			LastSeen:  now,
-		}
-		if t, err := time.Parse(time.RFC3339, c.ConnectedAt); err == nil {
-			client.ConnectedAt = t
-		}
-		s.clients[hw.String()] = client
-		connected++
-	}
-	s.status.LastSync = now
-	s.status.Connected = connected
-	return nil
-}
-
-type apiSite struct {
-	ID                string `json:"id"`
-	InternalReference string `json:"internalReference"`
-	Name              string `json:"name"`
-}
-
-type apiClient struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Type           string `json:"type"`
-	IPAddress      string `json:"ipAddress"`
-	MACAddress     string `json:"macAddress"`
-	ConnectedAt    string `json:"connectedAt"`
-	UplinkDeviceID string `json:"uplinkDeviceId"`
-}
-
-type apiDevice struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-type apiPage struct {
-	Offset     int             `json:"offset"`
-	Limit      int             `json:"limit"`
-	Count      int             `json:"count"`
-	TotalCount int             `json:"totalCount"`
-	Data       json.RawMessage `json:"data"`
-}
-
-// findSite looks the configured site up, and with it where the API is: under
-// /proxy/network on a UniFi OS console, at the root of a self-hosted Network
-// Application.
-func (s *Source) findSite(ctx context.Context) error {
-	var sites []apiSite
-	var lastErr error
-	for _, prefix := range []string{"/proxy/network/integration/v1", "/integration/v1"} {
-		s.prefix = prefix
-		sites = sites[:0]
-		lastErr = s.pages(ctx, "/sites", func(raw json.RawMessage) error {
-			var page []apiSite
-			if err := json.Unmarshal(raw, &page); err != nil {
-				return err
+	for mac, c := range snap.clients {
+		if c.Connected {
+			connected++
+		} else if old, ok := s.clients[mac]; ok && !c.LastSeen.After(old.LastSeen) {
+			if c.Name != "" {
+				old.Name = c.Name
 			}
-			sites = append(sites, page...)
-			return nil
-		})
-		var status *statusError
-		if lastErr == nil || !errors.As(lastErr, &status) || status.code != http.StatusNotFound {
-			break
+			c = old
 		}
+		s.clients[mac] = c
 	}
-	if lastErr != nil {
-		s.prefix = ""
-		return lastErr
-	}
-
-	var names []string
-	for _, site := range sites {
-		if site.ID == s.opts.Site || strings.EqualFold(site.InternalReference, s.opts.Site) || strings.EqualFold(site.Name, s.opts.Site) {
-			s.siteID = site.ID
-			s.mu.Lock()
-			s.status.Site = site.Name
-			s.mu.Unlock()
-			return nil
-		}
-		names = append(names, fmt.Sprintf("%q", site.InternalReference))
-	}
-	return fmt.Errorf("UniFi has no site %q; its sites are %s", s.opts.Site, strings.Join(names, ", "))
-}
-
-// devices returns the names of the site's UniFi devices by their IDs.
-func (s *Source) devices(ctx context.Context) (map[string]string, error) {
-	names := map[string]string{}
-	err := s.pages(ctx, "/sites/"+url.PathEscape(s.siteID)+"/devices", func(raw json.RawMessage) error {
-		var page []apiDevice
-		if err := json.Unmarshal(raw, &page); err != nil {
-			return err
-		}
-		for _, d := range page {
-			names[d.ID] = d.Name
-		}
-		return nil
-	})
-	return names, err
-}
-
-// pages calls each with the data of every page of a list.
-func (s *Source) pages(ctx context.Context, path string, each func(json.RawMessage) error) error {
-	offset := 0
-	for range maxPages {
-		var page apiPage
-		if err := s.get(ctx, path, url.Values{"offset": {fmt.Sprint(offset)}, "limit": {fmt.Sprint(pageLimit)}}, &page); err != nil {
-			return err
-		}
-		if err := each(page.Data); err != nil {
-			return fmt.Errorf("reading %s from UniFi: %w", path, err)
-		}
-		offset += page.Count
-		if page.Count == 0 || offset >= page.TotalCount {
-			return nil
-		}
-	}
-	return fmt.Errorf("reading %s from UniFi: more than %d pages", path, maxPages)
-}
-
-type statusError struct {
-	code int
-	path string
-	body string
-}
-
-func (e *statusError) Error() string {
-	msg := fmt.Sprintf("UniFi answered %s with %d %s", e.path, e.code, http.StatusText(e.code))
-	switch e.code {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		msg += "; check the API key"
-	}
-	if e.body != "" {
-		msg += ": " + e.body
-	}
-	return msg
-}
-
-func (s *Source) get(ctx context.Context, path string, query url.Values, into any) error {
-	u := *s.base
-	u.Path = strings.TrimSuffix(u.Path, "/") + s.prefix + path
-	u.RawQuery = query.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-API-KEY", s.opts.APIKey)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := s.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("asking UniFi: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
-	if err != nil {
-		return fmt.Errorf("reading UniFi's answer to %s: %w", s.prefix+path, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return &statusError{code: resp.StatusCode, path: s.prefix + path, body: snippet(body)}
-	}
-	if err := json.Unmarshal(body, into); err != nil {
-		return fmt.Errorf("UniFi's answer to %s isn't what the Integration API sends: %w", s.prefix+path, err)
-	}
-	return nil
-}
-
-// snippet is the start of an error response, on one line.
-func snippet(body []byte) string {
-	text := strings.Join(strings.Fields(string(body)), " ")
-	if len(text) > 200 {
-		text = text[:200] + "…"
-	}
-	return text
+	s.status.LastSync = s.now()
+	s.status.Connected = connected
 }
 
 // Client returns what UniFi knows about the device with the MAC address mac
@@ -504,4 +349,42 @@ func (s *Source) Status() (Status, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status, true
+}
+
+// statusError is an answer with an unexpected HTTP status.
+type statusError struct {
+	code int
+	path string
+	body string
+	hint string
+}
+
+func (e *statusError) Error() string {
+	msg := fmt.Sprintf("UniFi answered %s with %d %s", e.path, e.code, http.StatusText(e.code))
+	if e.hint != "" {
+		msg += "; " + e.hint
+	}
+	if e.body != "" {
+		msg += ": " + e.body
+	}
+	return msg
+}
+
+// snippet is the start of an error response, on one line.
+func snippet(body []byte) string {
+	text := strings.Join(strings.Fields(string(body)), " ")
+	if len(text) > 200 {
+		text = text[:200] + "…"
+	}
+	return text
+}
+
+// macKey returns the MAC address in the form clients are kept by, or false
+// for one that isn't a MAC address.
+func macKey(raw string) (string, bool) {
+	hw, err := net.ParseMAC(raw)
+	if err != nil || len(hw) != 6 {
+		return "", false
+	}
+	return hw.String(), true
 }

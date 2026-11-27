@@ -84,7 +84,9 @@ function UniFiBadge({ unifi }: { unifi: UniFiClient }) {
   const since = unifi.ConnectedAt ? new Date(unifi.ConnectedAt).toLocaleString() : null
   const title = unifi.Connected
     ? `Connected${since ? ` since ${since}` : ""}, according to UniFi`
-    : `Not connected; UniFi last saw it ${new Date(unifi.LastSeen).toLocaleString()}`
+    : unifi.LastSeen
+      ? `Not connected; UniFi last saw it ${new Date(unifi.LastSeen).toLocaleString()}`
+      : "Not connected, according to UniFi"
   return (
     <Badge variant="outline" className={unifi.Connected ? "font-normal" : "font-normal text-muted-foreground"} title={title}>
       <Icon data-icon="inline-start" />

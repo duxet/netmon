@@ -63,7 +63,8 @@ export interface UniFiClient {
   /** Whether it was connected when UniFi was last asked. */
   Connected: boolean
   ConnectedAt: string | null
-  LastSeen: string
+  /** When UniFi last saw it connected, if it knows. */
+  LastSeen: string | null
 }
 
 /** How reading clients from UniFi goes, from /api/unifi. */
