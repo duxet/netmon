@@ -2,10 +2,14 @@
 // (YouTube, Telegram, X, Netflix, ...) based on the networks those services
 // operate.
 //
-// Flows only carry IP addresses, so classification works on two signals:
-//   - a built-in list of IP prefixes announced by each service, and
+// Flows only carry IP addresses, so classification works on three signals:
+//   - a built-in list of IP prefixes announced by each service,
 //   - the autonomous system number (ASN) of the address, looked up in the
-//     optional GeoLite2-ASN.mmdb database (if present in the working directory).
+//     optional GeoLite2-ASN.mmdb database (if present in the working directory),
+//     and
+//   - the names the address answered for when clients looked them up, when
+//     netmon learns them (see the domains package), matched against each
+//     service's domains.
 //
 // The ASN database is more complete and stays up to date, so using it is
 // recommended. Traffic served from shared CDNs (Cloudflare, Akamai, AWS, ...)
@@ -15,6 +19,7 @@ package apps
 import (
 	"log/slog"
 	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/duxet/netmon/lookup"
@@ -27,6 +32,9 @@ type App struct {
 	Name     string
 	ASNs     []uint
 	Prefixes []string
+	// Domains are the domains of the names the app's addresses answer for,
+	// for addresses on shared CDNs, which only tell by the name looked up.
+	Domains []string
 }
 
 // Known is the list of recognised applications. Several services share
@@ -35,8 +43,9 @@ type App struct {
 // WhatsApp), so they're grouped together.
 var Known = []App{
 	{
-		Name: "YouTube / Google",
-		ASNs: []uint{15169, 36040, 43515},
+		Name:    "YouTube / Google",
+		Domains: []string{"youtube.com", "googlevideo.com", "ytimg.com", "youtu.be", "google.com", "gstatic.com", "googleapis.com", "googleusercontent.com", "ggpht.com", "gvt1.com", "gvt2.com"},
+		ASNs:    []uint{15169, 36040, 43515},
 		Prefixes: []string{
 			"8.8.4.0/24", "8.8.8.0/24", "64.233.160.0/19", "66.102.0.0/20", "66.249.64.0/19",
 			"72.14.192.0/18", "74.125.0.0/16", "108.177.0.0/17", "142.250.0.0/15", "172.217.0.0/16",
@@ -47,8 +56,9 @@ var Known = []App{
 		},
 	},
 	{
-		Name: "Telegram",
-		ASNs: []uint{44907, 59930, 62014, 62041, 211157},
+		Name:    "Telegram",
+		Domains: []string{"telegram.org", "t.me", "telegram.me", "tdesktop.com", "telesco.pe"},
+		ASNs:    []uint{44907, 59930, 62014, 62041, 211157},
 		Prefixes: []string{
 			// https://core.telegram.org/resources/cidr.txt
 			"91.105.192.0/23", "91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22",
@@ -58,16 +68,18 @@ var Known = []App{
 		},
 	},
 	{
-		Name: "X (Twitter)",
-		ASNs: []uint{13414, 35995},
+		Name:    "X (Twitter)",
+		Domains: []string{"twitter.com", "x.com", "twimg.com", "t.co"},
+		ASNs:    []uint{13414, 35995},
 		Prefixes: []string{
 			"69.195.160.0/19", "104.244.40.0/21", "192.133.76.0/22", "199.16.156.0/22",
 			"199.59.148.0/22",
 		},
 	},
 	{
-		Name: "Meta (Facebook, Instagram, WhatsApp)",
-		ASNs: []uint{32934, 63293},
+		Name:    "Meta (Facebook, Instagram, WhatsApp)",
+		Domains: []string{"facebook.com", "facebook.net", "fbcdn.net", "fbsbx.com", "messenger.com", "instagram.com", "cdninstagram.com", "whatsapp.com", "whatsapp.net"},
+		ASNs:    []uint{32934, 63293},
 		Prefixes: []string{
 			"31.13.24.0/21", "31.13.64.0/18", "66.220.144.0/20", "69.63.176.0/20", "69.171.224.0/19",
 			"102.132.96.0/20", "129.134.0.0/16", "157.240.0.0/16", "163.70.128.0/17",
@@ -76,8 +88,9 @@ var Known = []App{
 		},
 	},
 	{
-		Name: "Netflix",
-		ASNs: []uint{2906, 40027, 55095},
+		Name:    "Netflix",
+		Domains: []string{"netflix.com", "netflix.net", "nflxvideo.net", "nflximg.net", "nflximg.com", "nflxext.com", "nflxso.net"},
+		ASNs:    []uint{2906, 40027, 55095},
 		Prefixes: []string{
 			"23.246.0.0/18", "37.77.184.0/21", "45.57.0.0/17", "64.120.128.0/17", "66.197.128.0/17",
 			"108.175.32.0/20", "192.173.64.0/18", "198.38.96.0/19", "198.45.48.0/20",
@@ -87,26 +100,31 @@ var Known = []App{
 	},
 	{
 		Name:     "Apple",
+		Domains:  []string{"apple.com", "icloud.com", "icloud-content.com", "mzstatic.com", "aaplimg.com", "apple-cloudkit.com", "cdn-apple.com", "apple.news"},
 		ASNs:     []uint{714, 6185},
 		Prefixes: []string{"17.0.0.0/8"},
 	},
 	{
-		Name: "TikTok",
-		ASNs: []uint{138699, 396986},
+		Name:    "TikTok",
+		Domains: []string{"tiktok.com", "tiktokcdn.com", "tiktokcdn-us.com", "tiktokv.com", "tiktokv.us", "byteoversea.com", "ibytedtos.com", "ibyteimg.com", "ttwstatic.com", "musical.ly"},
+		ASNs:    []uint{138699, 396986},
 	},
 	{
 		Name:     "Spotify",
+		Domains:  []string{"spotify.com", "spotify.net", "scdn.co", "spotifycdn.com"},
 		ASNs:     []uint{8403},
 		Prefixes: []string{"78.31.8.0/21"},
 	},
 	{
 		Name:     "Twitch",
+		Domains:  []string{"twitch.tv", "ttvnw.net", "jtvnw.net", "twitchcdn.net"},
 		ASNs:     []uint{46489},
 		Prefixes: []string{"185.42.204.0/22"},
 	},
 	{
-		Name: "Steam",
-		ASNs: []uint{32590},
+		Name:    "Steam",
+		Domains: []string{"steampowered.com", "steamcommunity.com", "steamcontent.com", "steamserver.net", "steamstatic.com", "valve.net"},
+		ASNs:    []uint{32590},
 		Prefixes: []string{
 			"155.133.224.0/19", "162.254.192.0/21", "185.25.180.0/22", "208.64.200.0/22",
 			"208.78.164.0/22",
@@ -123,6 +141,10 @@ type Classifier struct {
 	prefixes []prefixEntry
 	asns     map[uint]string
 	asnDB    *lookup.ASNs
+	// domains are the apps by their domains, and names returns the names an
+	// address answered for, when known.
+	domains map[string]string
+	names   func(netip.Addr) []string
 
 	mu    sync.RWMutex
 	cache map[netip.Addr]string
@@ -140,12 +162,16 @@ func NewClassifier(apps []App, asnDBPath string) *Classifier {
 // database (nil, or one that isn't loaded), only the built-in prefixes are used.
 func NewClassifierWithASNs(apps []App, asnDB *lookup.ASNs) *Classifier {
 	c := &Classifier{
-		asns:  map[uint]string{},
-		asnDB: asnDB,
-		cache: map[netip.Addr]string{},
+		asns:    map[uint]string{},
+		asnDB:   asnDB,
+		cache:   map[netip.Addr]string{},
+		domains: map[string]string{},
 	}
 
 	for _, app := range apps {
+		for _, domain := range app.Domains {
+			c.domains[domain] = app.Name
+		}
 		for _, asn := range app.ASNs {
 			c.asns[asn] = app.Name
 		}
@@ -176,24 +202,54 @@ func Default() *Classifier {
 	return defaultClassifier
 }
 
+// SetNames lets the classifier recognize addresses by the names they
+// answered for when looked up, which names returns, newest first: an
+// address on a CDN is an app's when the name it was looked up by is in one
+// of the app's domains.
+func (c *Classifier) SetNames(names func(netip.Addr) []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.names = names
+}
+
 // Classify returns the app name for the given address, or Other.
 func (c *Classifier) Classify(addr netip.Addr) string {
 	addr = addr.Unmap()
 
 	c.mu.RLock()
 	app, ok := c.cache[addr]
+	names := c.names
 	c.mu.RUnlock()
-	if ok {
-		return app
+	if !ok {
+		app = c.classify(addr)
+		c.mu.Lock()
+		c.cache[addr] = app
+		c.mu.Unlock()
 	}
 
-	app = c.classify(addr)
-
-	c.mu.Lock()
-	c.cache[addr] = app
-	c.mu.Unlock()
-
+	// Names are learned all the time, so they are looked at every time.
+	if app == Other && names != nil && IsPublic(addr) {
+		for _, name := range names(addr) {
+			if found := c.byDomain(name); found != "" {
+				return found
+			}
+		}
+	}
 	return app
+}
+
+// byDomain returns the app whose domain name is in, or empty.
+func (c *Classifier) byDomain(name string) string {
+	for {
+		if app, ok := c.domains[name]; ok {
+			return app
+		}
+		_, parent, found := strings.Cut(name, ".")
+		if !found {
+			return ""
+		}
+		name = parent
+	}
 }
 
 func (c *Classifier) classify(addr netip.Addr) string {

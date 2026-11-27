@@ -272,3 +272,25 @@ func TestDecodeWithoutLinkLayerAddresses(t *testing.T) {
 		t.Errorf("length = %d, want 33", p.length)
 	}
 }
+
+func TestDNSResponse(t *testing.T) {
+	ip := ipv4("1.1.1.1", "192.168.1.23", layers.IPProtocolUDP)
+	for _, test := range []struct {
+		src, dst layers.UDPPort
+		want     bool
+	}{
+		{53, 40000, true},
+		{40000, 53, false},
+		{443, 40000, false},
+	} {
+		udp := &layers.UDP{SrcPort: test.src, DstPort: test.dst}
+		if err := udp.SetNetworkLayerForChecksum(ip); err != nil {
+			t.Fatal(err)
+		}
+		data := serialize(t, ethernet(gwHW, clientHW, layers.EthernetTypeIPv4), ip, udp, gopacket.Payload([]byte("answer")))
+		packet := gopacket.NewPacket(data, layers.LinkTypeEthernet, gopacket.Default)
+		if got := dnsResponse(packet); (got != nil) != test.want || (test.want && string(got) != "answer") {
+			t.Errorf("%d -> %d: payload %q, want one: %v", test.src, test.dst, got, test.want)
+		}
+	}
+}

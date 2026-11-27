@@ -251,5 +251,10 @@ func (c *pcapCollector) capture(ctx context.Context, handle *pcap.Handle) error 
 		if p, ok := decodePacket(packet, info.Length); ok {
 			c.table.Add(p)
 		}
+		if c.opts.DNS != nil {
+			if payload := dnsResponse(packet); payload != nil {
+				c.opts.DNS(payload, info.Timestamp)
+			}
+		}
 	}
 }

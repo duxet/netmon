@@ -448,6 +448,16 @@ function ConfigurationForm({ config }: { config: Configuration }) {
           description: "Asked about local addresses. Your router usually knows the names it gave out over DHCP.",
         })}
         {field("public_dns", { description: "Asked about internet addresses." })}
+        {field("dns_log", {
+          description: (
+            <>
+              dnsmasq's log, with <code>log-queries</code> on, to learn which names the addresses clients talk to
+              were looked up by, such as netflix.com for a CDN's address: a file, or <code>logread</code> on OpenWrt.
+              Applies after a restart; on macOS they come from the packets captured.
+            </>
+          ),
+          placeholder: "None",
+        })}
       </Section>
 
       <Section

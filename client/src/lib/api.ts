@@ -93,6 +93,8 @@ export interface TrafficMeasurement {
 export interface HostnameEntry {
   IPAddress: string
   Hostname: string | null
+  /** The name the address answered for when it was last looked up, if netmon knows. */
+  Domain?: string | null
 }
 
 export interface AppTraffic {

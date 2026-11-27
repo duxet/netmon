@@ -21,6 +21,7 @@ export const SETTING_LABELS: Record<string, string> = {
   memory_limit: "Memory limit",
   threads: "Threads",
   allowed_hosts: "Allowed hosts",
+  dns_log: "DNS log",
   mqtt_broker: "MQTT broker",
   mqtt_username: "Username",
   mqtt_password: "Password",
@@ -49,7 +50,7 @@ export const CHOICE_SETTINGS: Record<string, { value: string; label: string }[]>
 }
 
 /** The settings the OpenWrt package's service always sets from /etc/config/netmon. */
-export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days", "memory_limit", "threads"])
+export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days", "memory_limit", "threads", "dns_log"])
 
 export function settingLabel(key: string): string {
   return SETTING_LABELS[key] ?? key

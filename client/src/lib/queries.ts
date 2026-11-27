@@ -135,7 +135,8 @@ export function useHostnames(ipAddresses: string[]) {
     queryKey: ["hostnames", ips],
     queryFn: async () => {
       const entries = await fetchHostnames(ips)
-      return new Map(entries.map((entry) => [entry.IPAddress, cleanHostname(entry.Hostname)]))
+      // The name an address was looked up by says more than reverse DNS.
+      return new Map(entries.map((entry) => [entry.IPAddress, entry.Domain ?? cleanHostname(entry.Hostname)]))
     },
     enabled: ips.length > 0,
     staleTime: 15 * 60_000,

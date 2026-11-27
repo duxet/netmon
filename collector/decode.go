@@ -89,6 +89,16 @@ func decodePacket(pkt gopacket.Packet, wireLen int) (packetInfo, bool) {
 
 // icmpHint recognises ICMP packets, which have no ports, and tells which side
 // started the exchange if it was a ping.
+// dnsResponse returns the payload of a packet from a DNS server, port 53 over
+// UDP, or nil for other packets.
+func dnsResponse(pkt gopacket.Packet) []byte {
+	udp, ok := pkt.Layer(layers.LayerTypeUDP).(*layers.UDP)
+	if !ok || udp.SrcPort != 53 || len(udp.Payload) == 0 {
+		return nil
+	}
+	return udp.Payload
+}
+
 func icmpHint(pkt gopacket.Packet, p *packetInfo) initiatorHint {
 	if l, ok := pkt.Layer(layers.LayerTypeICMPv4).(*layers.ICMPv4); ok {
 		p.proto = uint8(layers.IPProtocolICMPv4)

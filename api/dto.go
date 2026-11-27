@@ -14,6 +14,9 @@ type EndpointDTO struct {
 	// ASN is the autonomous system that announces the address. Like Country,
 	// it is only set by /api/flows, and only with a GeoLite2-ASN database.
 	ASN *ASNDTO
+	// Domain is the name the address answered for when it was last looked
+	// up, when netmon learns them from DNS; only set by /api/flows.
+	Domain *string
 }
 
 // ASNDTO is an autonomous system: the network of an ISP, a cloud provider or
@@ -109,6 +112,9 @@ type TrafficMeasurementDTO struct {
 type HostnameDTO struct {
 	IPAddress common.IPAddress
 	Hostname  *string
+	// Domain is the name the address answered for when it was last looked
+	// up, which says more than reverse DNS for the addresses of CDNs.
+	Domain *string
 }
 
 type AppTrafficDTO struct {
@@ -124,7 +130,8 @@ type GroupDTO struct {
 	// for Rest.
 	Key string
 	// Label says more about the key when it needs it: the organization of an
-	// AS number. It is empty for the other groups.
+	// AS number, or the name a remote host answered for when looked up. It
+	// is empty for the other groups.
 	Label       string
 	Download    uint64
 	Upload      uint64

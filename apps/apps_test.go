@@ -40,3 +40,27 @@ func TestKnownPrefixesAreValid(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyByName(t *testing.T) {
+	c := NewClassifier(Known, "")
+	cdn := netip.MustParseAddr("203.0.113.50")
+	if app := c.Classify(cdn); app != Other {
+		t.Fatalf("CDN address without names = %s, want Other", app)
+	}
+
+	names := map[netip.Addr][]string{cdn: {"ipv4-c001.1.lhr004.ix.nflxvideo.net"}}
+	c.SetNames(func(addr netip.Addr) []string { return names[addr] })
+	if app := c.Classify(cdn); app != "Netflix" {
+		t.Errorf("CDN address looked up as nflxvideo.net = %s, want Netflix", app)
+	}
+
+	// The prefixes win over names, and a name that merely ends alike isn't one.
+	names[netip.MustParseAddr("149.154.167.51")] = []string{"www.netflix.com"}
+	names[netip.MustParseAddr("203.0.113.51")] = []string{"notnetflix.com"}
+	if app := c.Classify(netip.MustParseAddr("149.154.167.51")); app != "Telegram" {
+		t.Errorf("Telegram address = %s, want Telegram", app)
+	}
+	if app := c.Classify(netip.MustParseAddr("203.0.113.51")); app != Other {
+		t.Errorf("notnetflix.com = %s, want Other", app)
+	}
+}

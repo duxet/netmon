@@ -4,9 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/netip"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/internal/geoiptest"
 	"github.com/duxet/netmon/lookup"
 )
@@ -56,6 +60,30 @@ func TestFlowsSearch(t *testing.T) {
 		slices.Sort(got)
 		if status != 200 || !equal(got, want) || total != itoa(uint16(len(want))) {
 			t.Errorf("q=%s: %d flows %v (total %s), want %v", query, status, got, total, want)
+		}
+	}
+}
+
+func TestLookedUpNames(t *testing.T) {
+	names := domains.New()
+	names.Observe(netip.MustParseAddr("140.82.121.4"), "github.com", time.Now())
+	app, db := newTestAppFor(t, func(*sql.DB) Options { return Options{Domains: names} })
+	seedNetwork(t, db)
+
+	status, body := do(t, app, "POST", "/api/hostnames", `{"ip_addresses": ["140.82.121.4", "1.1.1.1"]}`)
+	if status != 200 || !strings.Contains(body, `"Domain":"github.com"`) || !strings.Contains(body, `"Domain":null`) {
+		t.Errorf("POST /api/hostnames = %d %s, want github.com's domain", status, body)
+	}
+
+	if status, body := do(t, app, "GET", "/api/flows?mac="+testLaptopMAC+"&q=github", ""); status != 200 || !strings.Contains(body, `"Domain":"github.com"`) {
+		t.Errorf("GET /api/flows?q=github = %d %s, want the flow found by its domain", status, body)
+	}
+
+	var summary FlowSummaryDTO
+	get(t, app, "/api/flows/summary?mac="+testLaptopMAC, &summary)
+	for _, peer := range summary.TopPeers.Items {
+		if peer.Key == "140.82.121.4" && peer.Label != "github.com" {
+			t.Errorf("top peer %+v, want it labelled github.com", peer)
 		}
 	}
 }

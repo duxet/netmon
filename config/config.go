@@ -117,6 +117,12 @@ type Config struct {
 	// using every core.
 	Threads int `koanf:"threads"`
 
+	// DNSLog is dnsmasq's log, with log-queries on, to learn from the names
+	// clients look up which names the addresses they then talk to are for:
+	// a file, or logread for OpenWrt's system log. Empty learns none (but on
+	// macOS, where they come from the packets captured).
+	DNSLog string `koanf:"dns_log"`
+
 	// MQTTBroker turns on publishing devices to Home Assistant over MQTT:
 	// the broker, such as tcp://homeassistant.lan:1883 or ssl://broker:8883.
 	// MQTTUsername and MQTTPassword log in to it.

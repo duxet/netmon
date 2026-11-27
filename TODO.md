@@ -58,7 +58,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 
 ## Features
 
-- [ ] Record the domain names clients look up, as reverse DNS knows nothing useful
+- [x] Record the domain names clients look up, as reverse DNS knows nothing useful
   about most CDN and cloud addresses, which is why Cloudflare and Akamai traffic is
   "Other". Read dnsmasq's query log on OpenWrt, or the DNS answers and TLS SNI where
   packets are captured (macOS). Flows would then show `netflix.com`, and apps would

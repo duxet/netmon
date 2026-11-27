@@ -12,6 +12,7 @@ import (
 
 	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 )
@@ -99,6 +100,8 @@ type flowSearch struct {
 	classifier *apps.Classifier
 	names      map[netip.Addr]*string
 	hostnames  *lookup.Hostnames
+	// domains are the names addresses answered for when looked up.
+	domains *domains.Names
 
 	// about caches what is known of each address.
 	about map[netip.Addr]string
@@ -169,6 +172,7 @@ func (s *flowSearch) describe(addr netip.Addr) string {
 	if name := s.names[addr]; name != nil {
 		parts = append(parts, *name)
 	}
+	parts = append(parts, s.domains.Names(addr)...)
 	if code, name, ok := s.countries.Lookup(addr); ok {
 		parts = append(parts, code, name)
 	}

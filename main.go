@@ -15,6 +15,7 @@ import (
 	"github.com/duxet/netmon/blocklists"
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
+	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/homeassistant"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/logging"
@@ -133,6 +134,17 @@ func main() {
 	asns := lookup.OpenASNs(cfg.GeoIPASN)
 	defer asns.Close()
 	classifier := apps.NewClassifierWithASNs(apps.Known, asns)
+
+	// The names clients look up tell what the addresses they then talk to
+	// are for, from dnsmasq's log or, on macOS, the packets captured.
+	names := domains.New()
+	if err := names.Load(db, time.Now().Add(-domains.Retention)); err != nil {
+		slog.Error("Failed to load the names of addresses", "err", err)
+	}
+	classifier.SetNames(names.Names)
+	if cfg.DNSLog != "" {
+		go domains.Follow(ctx, cfg.DNSLog, names)
+	}
 	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
 
 	// Alert rules are evaluated after every collection round, which also
@@ -216,9 +228,15 @@ func main() {
 	coll, err := collector.CollectTraffic(db, meter, collector.Options{
 		Health: health,
 		Totals: totals,
+		DNS:    names.ObserveDNS,
 		OnFlush: func(at time.Time) {
 			readNetworks()
 			engine.Trigger(at)
+			go func() {
+				if err := names.Flush(db, at); err != nil {
+					slog.Error("Failed to save the names of addresses", "err", err)
+				}
+			}()
 			if publisher != nil {
 				go publisher.Publish(at)
 			}
@@ -264,6 +282,7 @@ func main() {
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
 		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database, Blocklists: lists,
+		Domains: names,
 		Hosts: func() api.HostRules {
 			running := editor.Running()
 			return api.HostRules{PublicURL: running.BaseURL(), Allowed: running.AllowedHostList()}
@@ -282,6 +301,9 @@ func main() {
 		dispatcher.Close(notifyShutdownTimeout)
 		if publisher != nil {
 			publisher.Close()
+		}
+		if err := names.Flush(db, time.Now()); err != nil {
+			slog.Error("Failed to save the names of addresses", "err", err)
 		}
 
 		_ = app.ShutdownWithContext(context.Background())

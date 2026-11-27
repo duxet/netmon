@@ -31,6 +31,11 @@ type Options struct {
 
 	// Totals, if set, adds up the traffic of every device recorded.
 	Totals *Totals
+
+	// DNS, if set, is given the DNS responses collectors that capture
+	// packets see (macOS), with when they were captured, to learn the names
+	// of addresses from. It has to be done with the payload when it returns.
+	DNS func(payload []byte, at time.Time)
 }
 
 // ignored reports whether the traffic between src and dst is to be left out.

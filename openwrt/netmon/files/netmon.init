@@ -7,7 +7,7 @@ STOP=10
 PROG=/usr/bin/netmon
 
 start_service() {
-	local enabled data_dir local_dns public_dns retention_days memory_limit threads
+	local enabled data_dir local_dns public_dns retention_days memory_limit threads dns_log
 
 	config_load netmon
 	config_get_bool enabled main enabled 1
@@ -19,6 +19,7 @@ start_service() {
 	config_get retention_days main retention_days 0
 	config_get memory_limit main memory_limit
 	config_get threads main threads
+	config_get dns_log main dns_log logread
 
 	mkdir -p "$data_dir"
 
@@ -36,7 +37,8 @@ start_service() {
 		NETMON_PUBLIC_DNS="$public_dns" \
 		NETMON_RETENTION_DAYS="$retention_days" \
 		NETMON_MEMORY_LIMIT="$memory_limit" \
-		NETMON_THREADS="$threads"
+		NETMON_THREADS="$threads" \
+		NETMON_DNS_LOG="$dns_log"
 	procd_set_param respawn
 	procd_set_param stdout 1
 	procd_set_param stderr 1

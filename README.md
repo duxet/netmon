@@ -113,6 +113,7 @@ It is configured in `/etc/config/netmon`:
 | `retention_days` | `0` (keep all)   | `NETMON_RETENTION_DAYS`                               |
 | `memory_limit`   | `256MB`          | `NETMON_MEMORY_LIMIT`, empty for DuckDB's default     |
 | `threads`        | `2`              | `NETMON_THREADS`, empty for one per core              |
+| `dns_log`        | `logread`        | `NETMON_DNS_LOG`, where dnsmasq logs queries          |
 
 ```sh
 uci set netmon.main.data_dir=/mnt/sda1/netmon
@@ -136,8 +137,8 @@ Things to know:
   The default firewall keeps the WAN away from port 2137; don't open it there.
   The service starts in `data_dir`, so put the single sign-on settings in a
   `netmon.yaml` there (see [Configuration](#configuration)).
-- The service passes `local_dns`, `public_dns`, `retention_days`, `memory_limit` and
-  `threads` to netmon as environment variables, which override the YAML file, so **Settings → Configuration**
+- The service passes `local_dns`, `public_dns`, `retention_days`, `memory_limit`,
+  `threads` and `dns_log` to netmon as environment variables, which override the YAML file, so **Settings → Configuration**
   shows them but leaves them to `/etc/config/netmon`. The other settings it changes in
   `netmon.yaml` in `data_dir`.
 
@@ -156,7 +157,35 @@ network, which also names the organizations behind traffic that matches no known
 
 Services that share infrastructure can't be told apart by IP (YouTube and other
 Google services; Facebook, Instagram and WhatsApp), and traffic served from shared
-CDNs such as Cloudflare or Akamai is reported as "Other".
+CDNs such as Cloudflare or Akamai is reported as "Other", unless netmon knows the names
+clients looked up (see below).
+
+### Names clients look up
+
+Reverse DNS says little about the addresses of CDNs and clouds. netmon can learn
+instead which name each address answered for when a client looked it up, such as
+`www.netflix.com` for an address of Akamai's: the web UI then shows that name for
+remote hosts, search finds them by it, and an address that belongs to no app's networks
+counts as the app whose domains its name is in (`nflxvideo.net` is Netflix's).
+
+- **OpenWrt**: turn on dnsmasq's query log, which netmon reads from the system log
+  (`dns_log` is `logread` in `/etc/config/netmon`):
+
+  ```sh
+  uci set dhcp.@dnsmasq[0].logqueries=1
+  uci commit dhcp
+  service dnsmasq restart
+  ```
+
+- **Other routers running dnsmasq, or Pi-hole**: set `dns_log` to the file dnsmasq logs
+  queries to (`log-queries` and `log-facility=/var/log/dnsmasq.log`, or Pi-hole's
+  `/var/log/pihole/pihole.log`). netmon follows it as `tail -F` does.
+- **macOS**: netmon reads the DNS answers among the packets it captures, without
+  setting anything.
+
+The names are kept for 30 days after they were last seen, in `flows.db`. A name is the
+latest an address answered for, so an address shared by many sites shows whichever was
+looked up last.
 
 ## Networks
 
@@ -478,6 +507,7 @@ a typo doesn't go unnoticed.
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
+| `dns_log`              | `NETMON_DNS_LOG`              | none                     | dnsmasq's query log, a file or `logread`, to [learn names](#names-clients-look-up) |
 | `mqtt_broker`          | `NETMON_MQTT_BROKER`          | none                     | MQTT broker to publish devices to [Home Assistant](#home-assistant) on |
 | `mqtt_username`        | `NETMON_MQTT_USERNAME`        | none                     | User name at the broker                                            |
 | `mqtt_password`        | `NETMON_MQTT_PASSWORD`        | none                     | Password at the broker; only in the file or the environment        |
@@ -658,13 +688,16 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   those. An unknown network is answered with a 404.
 - `app` is an app name from `/api/apps`, or `Other`.
 - Flows: `q` matches a port, a protocol, or part of the remote host's IP address,
-  hostname, country (its code in full, or part of its name), autonomous system (`AS15169`
+  hostname, the names it was looked up by, country (its code in full, or part of its name), autonomous system (`AS15169`
   or part of the organization) or app (`Other` for none); without a client or network,
   either end's. Names are looked up for the 256 remote hosts with the most traffic, and
   known ones match for the others; `sort` is
   `total` (default), `download`, `upload` or `packets`; `order` is `desc`
   (default) or `asc`; `limit` is at most 1000 (all flows without it). The
   number of matching flows is in the `X-Total-Count` header.
+- `/api/flows` has the `Domain` of each endpoint, the name it was last looked up by, and
+  `/api/hostnames` each address's `Domain` next to its `Hostname`; the summary labels its
+  top remote hosts with it.
 - The summary has totals and the `top` (default 8) remote hosts, services
   (`"protocol/port"`), countries and autonomous systems (`ASNs`, keyed by AS number
   with the organization as `Label`), plus the sum of the rest. `/api/flows` has the

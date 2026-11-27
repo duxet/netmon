@@ -17,6 +17,7 @@ import (
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/config"
+	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
@@ -70,6 +71,9 @@ type Options struct {
 	// Blocklists are the lists blocklist rules check, whose state the rule
 	// form shows.
 	Blocklists *blocklists.Blocklists
+	// Domains are the names addresses answered for when looked up. Without
+	// them, remote hosts only have reverse DNS names.
+	Domains *domains.Names
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -78,7 +82,7 @@ const maxHostnamesPerRequest = 256
 // totalCountHeader carries the number of flows matching a paged request.
 const totalCountHeader = "X-Total-Count"
 
-func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.ASNs) []FlowDTO {
+func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.ASNs, names *domains.Names) []FlowDTO {
 	var dtos []FlowDTO
 
 	for _, flow := range flows {
@@ -89,12 +93,14 @@ func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.
 				IPAddress:  record.SourceIPAddress,
 				Country:    countries.Country(record.SourceIPAddress),
 				ASN:        asnOf(asns, record.SourceIPAddress),
+				Domain:     domainOf(names, record.SourceIPAddress),
 			},
 			Destination: EndpointDTO{
 				MACAddress: record.DestinationMACAddress,
 				IPAddress:  record.DestinationIPAddress,
 				Country:    countries.Country(record.DestinationIPAddress),
 				ASN:        asnOf(asns, record.DestinationIPAddress),
+				Domain:     domainOf(names, record.DestinationIPAddress),
 			},
 			IPProto: record.IPProto,
 			Port:    record.Port,
@@ -108,6 +114,15 @@ func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.
 	}
 
 	return dtos
+}
+
+// domainOf is the name an address answered for when it was last looked up,
+// or nil when netmon doesn't know one.
+func domainOf(names *domains.Names, ip common.IPAddress) *string {
+	if ip.Addr == nil {
+		return nil
+	}
+	return nonEmpty(names.Name(ip.Unmap()))
 }
 
 // spaFallback serves the app shell for client-side routes such as
@@ -191,7 +206,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				return err
 			}
 			c.Set(totalCountHeader, strconv.Itoa(total))
-			return c.JSON(toFlowDTOs(orientFlows(records, filter), countries, asns))
+			return c.JSON(toFlowDTOs(orientFlows(records, filter), countries, asns, options.Domains))
 		}
 
 		// A search matches what only netmon knows, such as how an address is
@@ -203,10 +218,11 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 		oriented := orientFlows(records, filter)
 		search := newFlowSearch(c.Context(), page.Query, hasSubject(filter), oriented, countries, asns, classifier, hostnames)
+		search.domains = options.Domains
 		flows, total := pageFlows(oriented, page, search.matches)
 		c.Set(totalCountHeader, strconv.Itoa(total))
 
-		return c.JSON(toFlowDTOs(flows, countries, asns))
+		return c.JSON(toFlowDTOs(flows, countries, asns, options.Domains))
 	}
 
 	app.Get("/api/flows", func(c fiber.Ctx) error {
@@ -240,7 +256,13 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		return c.JSON(summarizeFlows(peers, services, top, countries, asns))
+		summary := summarizeFlows(peers, services, top, countries, asns)
+		for i, peer := range summary.TopPeers.Items {
+			if addr, err := netip.ParseAddr(peer.Key); err == nil {
+				summary.TopPeers.Items[i].Label = options.Domains.Name(addr)
+			}
+		}
+		return c.JSON(summary)
 	})
 
 	app.Get("/api/stats", func(c fiber.Ctx) error {
@@ -465,6 +487,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			result = append(result, HostnameDTO{
 				IPAddress: addr,
 				Hostname:  names[addr.Unmap()],
+				Domain:    nonEmpty(options.Domains.Name(addr.Unmap())),
 			})
 		}
 
