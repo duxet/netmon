@@ -253,7 +253,11 @@ func TestLoadErrors(t *testing.T) {
 		{name: "issuer without public url", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\n", want: "public_url is required"},
 		{name: "public url without a scheme", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\npublic_url: netmon.example.com\n", want: "public_url must be an http://"},
 		{name: "unifi key without url", env: map[string]string{"NETMON_UNIFI_API_KEY": "k3y"}, want: "have no effect without unifi_url"},
-		{name: "unifi url without key", file: "unifi_url: https://192.168.1.1\n", want: "unifi_api_key is required"},
+		{name: "unifi url without key", file: "unifi_url: https://192.168.1.1\n", want: "needs unifi_username and unifi_password"},
+		{name: "unifi password without url", env: map[string]string{"NETMON_UNIFI_PASSWORD": "pw"}, want: "have no effect without unifi_url"},
+		{name: "unifi username without password", file: "unifi_url: https://192.168.1.1\nunifi_username: netmon\n", want: "unifi_password is required"},
+		{name: "unifi password without username", file: "unifi_url: https://192.168.1.1\nunifi_password: pw\n", want: "unifi_username is required"},
+		{name: "unifi key and password", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k\nunifi_username: netmon\nunifi_password: pw\n", want: "not both"},
 		{name: "unifi url over http", file: "unifi_url: http://192.168.1.1\nunifi_api_key: k3y\n", want: "unifi_url must be an https://"},
 		{name: "unifi bad fingerprint", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k3y\nunifi_fingerprint: abc\n", want: "SHA-256 fingerprint"},
 		{name: "unifi empty site", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k3y\nunifi_site: \"\"\n", want: "unifi_site must be"},
@@ -319,6 +323,13 @@ unifi_fingerprint: `+strings.Repeat("AB:", 31)+`AB
 	if !cfg.UniFiEnabled() || cfg.UniFiAPIKey != "k3y" || cfg.UniFiSite != "default" {
 		t.Errorf("got %+v, want UniFi on the default site", *cfg)
 	}
+	t.Setenv("NETMON_UNIFI_API_KEY", "")
+	t.Setenv("NETMON_UNIFI_USERNAME", "netmon")
+	t.Setenv("NETMON_UNIFI_PASSWORD", "pw")
+	cfg = mustLoad(t, path)
+	if cfg.UniFiUsername != "netmon" || cfg.UniFiPassword != "pw" || cfg.UniFiAPIKey != "" {
+		t.Errorf("got %+v, want UniFi with a username and password", *cfg)
+	}
 	if Defaults().UniFiEnabled() {
 		t.Error("UniFi is on by default")
 	}
@@ -382,7 +393,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_site unifi_fingerprint interface ignore_local_traffic"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

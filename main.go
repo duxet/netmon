@@ -199,6 +199,8 @@ func main() {
 		unifiSource, err = unifi.New(unifi.Options{
 			URL:         cfg.UniFiURL,
 			APIKey:      cfg.UniFiAPIKey,
+			Username:    cfg.UniFiUsername,
+			Password:    cfg.UniFiPassword,
 			Site:        cfg.UniFiSite,
 			Fingerprint: cfg.UniFiFingerprint,
 		})

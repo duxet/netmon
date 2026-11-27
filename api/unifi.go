@@ -22,7 +22,7 @@ type UniFiClientDTO struct {
 	// ConnectedAt is since when, and LastSeen when UniFi last had it.
 	Connected   bool
 	ConnectedAt *time.Time
-	LastSeen    time.Time
+	LastSeen    *time.Time
 }
 
 // UniFiStatusDTO is how reading clients from UniFi goes.
@@ -52,7 +52,9 @@ func unifiClientOf(source *unifi.Source, mac common.MACAddress) *UniFiClientDTO 
 		Connection: client.Type,
 		Uplink:     client.Uplink,
 		Connected:  client.Connected,
-		LastSeen:   client.LastSeen,
+	}
+	if !client.LastSeen.IsZero() {
+		dto.LastSeen = &client.LastSeen
 	}
 	if !client.ConnectedAt.IsZero() {
 		dto.ConnectedAt = &client.ConnectedAt

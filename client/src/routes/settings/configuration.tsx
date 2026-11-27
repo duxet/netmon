@@ -253,11 +253,12 @@ function FileOnlyCard({ settings }: { settings: ConfigSetting[] }) {
         </div>
         <div className="flex flex-col">
           <h3 className="text-sm font-medium">UniFi</h3>
-          <div className="divide-y">{rows(["unifi_url", "unifi_api_key", "unifi_site", "unifi_fingerprint"])}</div>
+          <div className="divide-y">{rows(["unifi_url", "unifi_username", "unifi_password", "unifi_api_key", "unifi_site", "unifi_fingerprint"])}</div>
           <UniFiStatusLine />
           <p className="text-xs text-muted-foreground">
-            Names, connection type and access point or switch of clients, from the UniFi Network Application's
-            Integration API. Make an API key under Settings, Control Plane, Integrations. {reason("unifi_url")}
+            Names, connection type and access point or switch of clients, from the UniFi Network Application.
+            netmon signs in with a local UniFi account (View Only is enough), or uses an Integration API key
+            where UniFi has them. {reason("unifi_url")}
           </p>
         </div>
         <div className="flex flex-col">
