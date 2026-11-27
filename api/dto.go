@@ -293,6 +293,13 @@ type SessionDTO struct {
 	User *UserDTO
 }
 
+// StatusDTO tells how netmon is doing.
+type StatusDTO struct {
+	// Version is the release, such as 1.2.3, or "dev" for other builds,
+	// with the commit they were built from when known.
+	Version string
+}
+
 // UserDTO is a person signed in through single sign-on. Name and Email are
 // null when the provider didn't say.
 type UserDTO struct {

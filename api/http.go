@@ -355,6 +355,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	registerSessionRoutes(app, options.Auth != nil)
+	registerStatusRoutes(app)
 	registerDeviceRoutes(app, db, hostnames)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {

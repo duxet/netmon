@@ -158,6 +158,12 @@ export interface Session {
   User: { Name: string | null; Email: string | null } | null
 }
 
+/** How netmon is doing. */
+export interface Status {
+  /** The release, such as 1.2.3, or "dev" with the commit it was built from. */
+  Version: string
+}
+
 export class ApiError extends Error {
   readonly status: number
   /** The API's own explanation, without the request it was about. */
@@ -319,6 +325,10 @@ export function fetchLive(since?: string, signal?: AbortSignal) {
 
 export function fetchSession() {
   return request<Session>("/api/session")
+}
+
+export function fetchStatus() {
+  return request<Status>("/api/status")
 }
 
 /** Ends the session, and leaves for a page that doesn't send people straight back in. */

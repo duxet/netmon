@@ -36,6 +36,10 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$workdir"
+echo "netmon -version"
+# shellcheck disable=SC2086 # the runner may come with arguments
+${SMOKE_TEST_RUNNER:-} "$binary" -version | grep -E '^netmon [^ ]'
+
 if [ -n "${SMOKE_TEST_RUNNER:-}" ]; then
 	# shellcheck disable=SC2086 # the runner may come with arguments
 	$SMOKE_TEST_RUNNER "$binary" >netmon.log 2>&1 &
@@ -59,6 +63,8 @@ done
 echo "GET /api/stats"
 curl -fsS "$base/api/stats"
 echo
+echo "GET /api/status"
+curl -fsS "$base/api/status" | grep -q '"Version"'
 echo "GET /"
 curl -fsS "$base/" | grep -qi "<html"
 echo "ok"

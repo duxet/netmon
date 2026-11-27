@@ -20,6 +20,9 @@ By default netmon keeps its database (`flows.db`) in the directory it is started
 from; see [Configuration](#configuration) to change that.
 Windows is not supported, as there is no collector for it yet.
 
+`netmon -version` prints which release it is; the web UI shows it at the bottom of
+the sidebar.
+
 The Linux binaries are statically linked, so they don't depend on the C library
 of your distribution. The macOS binaries aren't signed, so Gatekeeper blocks
 them when they were downloaded with a browser; allow them with
@@ -425,6 +428,7 @@ rounded to whole hours.
 | Endpoint | Parameters |
 |----------|------------|
 | `GET /api/session` | |
+| `GET /api/status` | |
 | `GET /api/stats` | `network`, `from`, `to` |
 | `GET /api/clients` | `network`, `from`, `to` |
 | `GET /api/apps` | `mac`, `ip` or `network`, `from`, `to` |
@@ -570,6 +574,9 @@ be changed in the file), `Secret` and `Set` (secrets have no values), and `Resta
 settings in its body, a string, a number or `true` or `false` as the setting is, or `null` to take one out of
 the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 `{"error", "setting"}` for a change it refuses, which saves nothing.
+
+`/api/status` tells how netmon is doing: `{"Version": "1.2.3"}`, with `dev` and the
+commit for builds that aren't releases.
 
 `/api/session` tells whether netmon asks people to sign in and who the request is from:
 `{"AuthEnabled": true, "User": {"Name": "...", "Email": "..."}}`, where `Name` and

@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"embed"
 	"flag"
+	"fmt"
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/api"
 	"github.com/duxet/netmon/apps"
@@ -18,6 +19,7 @@ import (
 	"github.com/duxet/netmon/networks"
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/version"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -41,13 +43,20 @@ var clientAssets embed.FS
 
 func main() {
 	configFile := flag.String("config", "", "YAML configuration file (default: $"+config.FileEnv+", or "+config.DefaultFile+" if it exists)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("netmon", version.String())
+		return
+	}
 
 	cfg, err := config.Load(*configFile)
 	if err != nil {
 		fatal("Can't start", err)
 	}
 	logging.Setup(cfg.LogLevel)
+	slog.Info("Starting netmon", "version", version.String())
 	if cfg.File != "" {
 		slog.Info("Read configuration", "file", cfg.File)
 	}

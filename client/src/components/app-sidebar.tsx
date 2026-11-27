@@ -34,7 +34,7 @@ import { useRange } from "@/hooks/use-range"
 import { deviceIconInfo } from "@/lib/device-icons"
 import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
-import { alertsQuery, devicesQuery, networksQuery } from "@/lib/queries"
+import { alertsQuery, devicesQuery, networksQuery, statusQuery } from "@/lib/queries"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -43,6 +43,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   // The same query as the Alerts page's, so they share one request.
   const { data: firing } = useQuery(alertsQuery({ state: "firing", limit: 100 }))
   const { data: networks } = useQuery(networksQuery())
+  const { data: status } = useQuery(statusQuery())
   const { isMobile, setOpenMobile } = useSidebar()
   const closeOnMobile = () => isMobile && setOpenMobile(false)
 
@@ -177,6 +178,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
       <SidebarFooter>
         <NavUser />
+        {status && (
+          <p
+            className="truncate px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden"
+            title={`netmon ${status.Version}`}
+          >
+            netmon {status.Version}
+          </p>
+        )}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

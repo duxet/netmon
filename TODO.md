@@ -38,7 +38,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [ ] Add `/healthz`, with a `HEALTHCHECK` in the Dockerfile, and a Prometheus
   `/metrics` endpoint: collector rounds, rows written, lost Netfilter events,
   database size, failed notifications, and optionally the traffic per device.
-- [ ] Tell the binary its version. CI's `VERSION` only names the archives: set it
+- [x] Tell the binary its version. CI's `VERSION` only names the archives: set it
   with `-ldflags -X`, add `netmon -version`, and show it in the web UI.
 - [ ] Add backups. The database is locked while netmon runs, so add a
   `netmon backup` command (DuckDB's `EXPORT DATABASE`), and an export and import of

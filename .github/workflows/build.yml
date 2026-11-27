@@ -116,15 +116,17 @@ jobs:
       - name: Build
         run: |
           mkdir dist
+          # netmon -version and the web UI show the release.
+          version="-X github.com/duxet/netmon/version.Version=${VERSION#v}"
           if [ "$GOOS" = linux ]; then
             # Static, so that one binary runs on any distribution, and on
             # musl systems such as Alpine and OpenWrt. netgo and osusergo keep
             # Go away from glibc's name service switch, which a static glibc
             # can only load from a matching shared glibc.
             go build -trimpath -tags netgo,osusergo \
-              -ldflags "-s -w -extldflags=-static" -o dist/netmon .
+              -ldflags "-s -w -extldflags=-static $version" -o dist/netmon .
           else
-            go build -trimpath -ldflags "-s -w" -o dist/netmon .
+            go build -trimpath -ldflags "-s -w $version" -o dist/netmon .
           fi
 
       - name: Check the binary
