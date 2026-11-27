@@ -597,7 +597,11 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   lists the clients whose own address is in the network, and `/api/stats` counts only
   those. An unknown network is answered with a 404.
 - `app` is an app name from `/api/apps`, or `Other`.
-- Flows: `q` matches part of an IP address, a port or a protocol; `sort` is
+- Flows: `q` matches a port, a protocol, or part of the remote host's IP address,
+  hostname, country (its code in full, or part of its name), autonomous system (`AS15169`
+  or part of the organization) or app (`Other` for none); without a client or network,
+  either end's. Names are looked up for the 256 remote hosts with the most traffic, and
+  known ones match for the others; `sort` is
   `total` (default), `download`, `upload` or `packets`; `order` is `desc`
   (default) or `asc`; `limit` is at most 1000 (all flows without it). The
   number of matching flows is in the `X-Total-Count` header.

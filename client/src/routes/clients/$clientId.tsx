@@ -492,7 +492,7 @@ function ClientDetail() {
                 </InputGroupAddon>
                 <InputGroupInput
                   type="search"
-                  placeholder="Filter by IP, port or protocol"
+                  placeholder="Filter by host, country, network, app, IP, port or protocol"
                   aria-label="Filter connections"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}

@@ -3,10 +3,14 @@ package api
 import (
 	"bytes"
 	"cmp"
+	"context"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
+	"github.com/duxet/netmon/apps"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
@@ -79,33 +83,138 @@ var protocolNames = map[uint8]string{
 	50: "esp", 51: "ah", 58: "icmpv6", 132: "sctp",
 }
 
-// matchesQuery reports whether a flow matches a search: a part of the remote
-// host's IP address (either endpoint without a client filter), a port
-// number, or a protocol name.
-func matchesQuery(flow orientedFlow, query string, hasClient bool) bool {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return true
+// maxSearchLookups is how many remote hosts a search looks the names of up,
+// the ones with the most traffic; others only match by names known already.
+const maxSearchLookups = 256
+
+// flowSearch matches flows against a search: a port number, a protocol name,
+// or part of the remote host's address (either end's without a client),
+// hostname, country code or name, AS number or organization, or app.
+type flowSearch struct {
+	query     string
+	hasClient bool
+
+	countries  *lookup.Countries
+	asns       *lookup.ASNs
+	classifier *apps.Classifier
+	names      map[netip.Addr]*string
+	hostnames  *lookup.Hostnames
+
+	// about caches what is known of each address.
+	about map[netip.Addr]string
+}
+
+// newFlowSearch prepares a search of flows, looking up the names of the
+// remote hosts with the most traffic first.
+func newFlowSearch(ctx context.Context, query string, hasClient bool, flows []orientedFlow,
+	countries *lookup.Countries, asns *lookup.ASNs, classifier *apps.Classifier, hostnames *lookup.Hostnames,
+) *flowSearch {
+	s := &flowSearch{
+		query: strings.ToLower(strings.TrimSpace(query)), hasClient: hasClient,
+		countries: countries, asns: asns, classifier: classifier, hostnames: hostnames,
+		names: map[netip.Addr]*string{}, about: map[netip.Addr]string{},
+	}
+	// Names only matter for searches that could be part of one.
+	if s.query == "" || hostnames == nil || !strings.ContainsFunc(s.query, unicode.IsLetter) {
+		return s
 	}
 
-	if port, err := strconv.ParseUint(query, 10, 16); err == nil && uint16(port) == flow.record.Port {
-		return true
+	traffic := map[netip.Addr]uint64{}
+	for _, flow := range flows {
+		for _, addr := range s.ends(flow) {
+			traffic[addr] += flow.total()
+		}
 	}
-
-	if protocolNames[flow.record.IPProto] == query {
-		return true
+	addrs := make([]netip.Addr, 0, len(traffic))
+	for addr := range traffic {
+		addrs = append(addrs, addr)
 	}
+	slices.SortFunc(addrs, func(a, b netip.Addr) int { return cmp.Or(cmp.Compare(traffic[b], traffic[a]), a.Compare(b)) })
+	for _, addr := range addrs[min(len(addrs), maxSearchLookups):] {
+		if name, ok := hostnames.Cached(addr); ok {
+			s.names[addr] = name
+		}
+	}
+	for addr, name := range hostnames.LookupAll(ctx, addrs[:min(len(addrs), maxSearchLookups)]) {
+		s.names[addr] = name
+	}
+	return s
+}
 
+// ends returns the ends of a flow a search looks at: the remote host, or
+// both without a client.
+func (s *flowSearch) ends(flow orientedFlow) []netip.Addr {
 	addrs := []common.IPAddress{flow.peer}
-	if !hasClient {
+	if !s.hasClient {
 		addrs = []common.IPAddress{flow.record.SourceIPAddress, flow.record.DestinationIPAddress}
 	}
+	var ends []netip.Addr
 	for _, addr := range addrs {
-		if addr.Addr != nil && strings.Contains(strings.ToLower(addr.String()), query) {
-			return true
+		if addr.Addr != nil {
+			ends = append(ends, addr.Unmap())
+		}
+	}
+	return ends
+}
+
+// describe returns what is known about an address, lowercase, one thing per
+// line: its address, name, country code and name, AS number and
+// organization, and app.
+func (s *flowSearch) describe(addr netip.Addr) string {
+	if about, ok := s.about[addr]; ok {
+		return about
+	}
+
+	parts := []string{addr.String()}
+	if name := s.names[addr]; name != nil {
+		parts = append(parts, *name)
+	}
+	if code, name, ok := s.countries.Lookup(addr); ok {
+		parts = append(parts, code, name)
+	}
+	if number, organization, ok := s.asns.Lookup(addr); ok {
+		parts = append(parts, "as"+strconv.FormatUint(uint64(number), 10), organization)
+	}
+	if s.classifier != nil {
+		if app := s.classifier.Classify(addr); app != apps.Other {
+			parts = append(parts, app)
 		}
 	}
 
+	about := strings.ToLower(strings.Join(parts, "\n"))
+	s.about[addr] = about
+	return about
+}
+
+// matches reports whether a flow matches the search.
+func (s *flowSearch) matches(flow orientedFlow) bool {
+	if s.query == "" {
+		return true
+	}
+	if port, err := strconv.ParseUint(s.query, 10, 16); err == nil && uint16(port) == flow.record.Port {
+		return true
+	}
+	if protocolNames[flow.record.IPProto] == s.query {
+		return true
+	}
+
+	for _, addr := range s.ends(flow) {
+		about := s.describe(addr)
+		// Two letters are a country code, which has to match in full rather
+		// than as part of a name.
+		if len(s.query) == 2 && !strings.ContainsFunc(s.query, unicode.IsDigit) {
+			if slices.Contains(strings.Split(about, "\n"), s.query) {
+				return true
+			}
+			continue
+		}
+		if s.query == "other" && s.classifier != nil && s.classifier.Classify(addr) == apps.Other {
+			return true
+		}
+		if strings.Contains(about, s.query) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -144,10 +253,10 @@ func boolInt(b bool) int {
 // pageFlows filters and sorts flows and returns the requested page with the
 // number of flows matching the query. Ties are broken by endpoints, protocol
 // and port, so pages stay stable across requests.
-func pageFlows(flows []orientedFlow, page FlowsPage, hasClient bool) ([]orientedFlow, int) {
+func pageFlows(flows []orientedFlow, page FlowsPage, matches func(orientedFlow) bool) ([]orientedFlow, int) {
 	matching := make([]orientedFlow, 0, len(flows))
 	for _, flow := range flows {
-		if matchesQuery(flow, page.Query, hasClient) {
+		if matches(flow) {
 			matching = append(matching, flow)
 		}
 	}

@@ -197,7 +197,9 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		flows, total := pageFlows(orientFlows(records, filter), page, hasSubject(filter))
+		oriented := orientFlows(records, filter)
+		search := newFlowSearch(c.Context(), page.Query, hasSubject(filter), oriented, countries, asns, classifier, hostnames)
+		flows, total := pageFlows(oriented, page, search.matches)
 		c.Set(totalCountHeader, strconv.Itoa(total))
 
 		return c.JSON(toFlowDTOs(flows, countries, asns))

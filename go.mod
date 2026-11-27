@@ -14,6 +14,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.2
 	github.com/knadh/koanf/v2 v2.4.1
+	github.com/maxmind/mmdbwriter v1.2.0
 	github.com/nicholas-fedor/shoutrrr v0.25.0
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	github.com/rubenv/sql-migrate v1.8.1
@@ -67,6 +68,7 @@ require (
 	go.duckdb.org/libduckdb/linux-amd64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/linux-arm64 v0.20001.0 // indirect
 	go.duckdb.org/libduckdb/windows-amd64 v0.20001.0 // indirect
+	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261124000051-d6646c509b6d // indirect
 	golang.org/x/mod v0.43.0 // indirect

@@ -145,6 +145,18 @@ func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 	return hostname
 }
 
+// Cached returns the name of addr if it was looked up a while ago and is
+// still cached, without asking for it: ok is false when it would have to be.
+func (r *Hostnames) Cached(addr netip.Addr) (name *string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.cache[addr.Unmap()]
+	if !ok || !r.now().Before(entry.expires) {
+		return nil, false
+	}
+	return entry.hostname, true
+}
+
 // store caches an answer, unless the servers changed since it was asked for.
 func (r *Hostnames) store(addr netip.Addr, entry hostnameEntry, servers uint64) {
 	r.mu.Lock()

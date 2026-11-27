@@ -82,7 +82,8 @@ func TestFlowsInSQLMatchGo(t *testing.T) {
 		for _, sort := range []string{"total", "download", "upload", "packets"} {
 			for _, asc := range []bool{false, true} {
 				for _, page := range [][2]int{{0, 0}, {7, 0}, {7, 14}, {50, 3}, {10, 10000}} {
-					want, wantTotal := pageFlows(oriented, FlowsPage{Sort: sort, Asc: asc, Limit: page[0], Offset: page[1]}, hasSubject(filter))
+					all := func(orientedFlow) bool { return true }
+					want, wantTotal := pageFlows(oriented, FlowsPage{Sort: sort, Asc: asc, Limit: page[0], Offset: page[1]}, all)
 					got, total, err := storage.GetFlowsPage(db, filter, storage.FlowOrder{Sort: sort, Asc: asc, Limit: page[0], Offset: page[1]})
 					if err != nil {
 						t.Fatal(err)

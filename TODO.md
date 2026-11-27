@@ -77,5 +77,5 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [x] Add time ranges: the last hour (its data is kept per minute), a custom range,
   and zooming into a chart by dragging across it. Only the last 24 hours, 7 days and
   30 days can be picked now.
-- [ ] Search flows by hostname, country, ASN and app. `q` only matches IP
+- [x] Search flows by hostname, country, ASN and app. `q` only matches IP
   addresses, ports and protocols (`matchesQuery` in `api/flows.go`).
