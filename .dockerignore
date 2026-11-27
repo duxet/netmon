@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+**/node_modules
+client/dist
+*.db
+*.db.wal
+*.mmdb
+netmon.yaml
+/netmon
+/netmon_arm64
+openwrt/netmon/src

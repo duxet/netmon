@@ -43,7 +43,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [x] Add backups. The database is locked while netmon runs, so add a
   `netmon backup` command (DuckDB's `EXPORT DATABASE`), and an export and import of
   the settings alone: networks, device names and icons, channels and rules.
-- [ ] Publish a container image for amd64 and arm64 to GHCR, with a compose example
+- [x] Publish a container image for amd64 and arm64 to GHCR, with a compose example
   (`network_mode: host`, `cap_add: NET_ADMIN`).
 
 ## Security

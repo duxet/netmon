@@ -15,6 +15,7 @@ platform, which holds the `netmon` binary (the web UI is built in), and a
 | macOS, Intel          | `netmon_<version>_darwin_amd64.tar.gz` |
 | macOS, Apple silicon  | `netmon_<version>_darwin_arm64.tar.gz` |
 | OpenWrt               | a `.ipk` or `.apk` package, see [below](#running-on-openwrt) |
+| Docker                | `ghcr.io/duxet/netmon`, see [below](#running-in-docker) |
 
 By default netmon keeps its database (`flows.db`) in the directory it is started
 from; see [Configuration](#configuration) to change that.
@@ -83,6 +84,55 @@ the collector couldn't start (without root, say), recording fails or seems stuck
 connection tracking doesn't count traffic because accounting is off. If writing to the
 database keeps failing, netmon keeps the traffic of up to 65,536 closed connections for
 when it works again, and leaves out the rest.
+
+## Running in Docker
+
+Each release is also a container image for `linux/amd64` and `linux/arm64`, at
+`ghcr.io/duxet/netmon`, tagged with its version (`1.2.3`, `1.2` and `1`) and `latest`.
+It runs the Linux collector, so it has the same needs, and two more:
+
+- the host's network (`network_mode: host`), as connection tracking is kept per
+  network namespace: in a container's own network, netmon would only see the
+  container's connections;
+- `CAP_NET_ADMIN`, to read connection tracking.
+
+[`compose.yaml`](compose.yaml) has both:
+
+```yaml
+services:
+  netmon:
+    image: ghcr.io/duxet/netmon:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Europe/Berlin
+    restart: unless-stopped
+```
+
+```sh
+sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+docker compose up -d
+```
+
+netmon starts in `/data`, so `flows.db` is kept there, and it reads `netmon.yaml` and
+the GeoLite2 databases from there when you put them in `./data`. Settings can be given
+as environment variables too. Set `TZ` to your time zone for quiet hours and the times
+in notifications. The image's health check runs `netmon -healthcheck` (see
+[Monitoring netmon](#monitoring-netmon)), and `docker compose exec netmon netmon -backup
+backup.db` writes a [backup](#backups) to `./data/backup.db`. To
+[learn names](#names-clients-look-up) from dnsmasq's query log, mount the log file into
+the container and set `NETMON_DNS_LOG` to its path; `logread` isn't in the image.
+
+The image only works on a Linux host: Docker Desktop on macOS and Windows runs
+containers in a virtual machine, whose traffic is all that netmon would see. To build it
+yourself, for either platform from either one:
+
+```sh
+docker buildx build --platform linux/arm64 --build-arg VERSION=v1.2.3 -t netmon .
+```
 
 ## Running on OpenWrt
 
@@ -867,7 +917,7 @@ minute). `POST /api/tokens` answers with the `Token` too, which isn't shown agai
 - [x] Add optional authentication and restrict CORS (currently any origin is allowed)
 - [x] Add CI: Go tests and vet; frontend lint, typecheck and build
 - [ ] Add frontend unit tests for flow direction and time-series code
-- [ ] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed) and fill in `arm64.Dockerfile`
+- [x] Build the frontend in the Dockerfile (a fresh checkout has no `client/dist` to embed), and build the image for arm64 too
 - [x] Make port, database path, the GeoIP country path and DNS servers configurable via a YAML file or environment variables
 - [x] Make the path of `GeoLite2-ASN.mmdb` configurable too
 - [ ] Add collectors for other platforms (Windows, BSD)
@@ -901,13 +951,17 @@ go generate ./vendors
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) lints and tests
 every push and pull request, and builds netmon for each platform (Linux and
-macOS on amd64 and arm64) and the OpenWrt packages. Pushing a version tag also
-publishes a release with all of them, and their checksums:
+macOS on amd64 and arm64), the OpenWrt packages and the container image, which it
+starts once to check it. Pushing a version tag also publishes a release with all of
+them and their checksums, and pushes the image to `ghcr.io/duxet/netmon`:
 
 ```sh
 git tag v1.2.3
 git push origin v1.2.3
 ```
+
+GitHub makes a new container package private, so after the first release, make
+`netmon` public in the package's settings, or pulling the image needs a login.
 
 The OpenWrt package (`openwrt/netmon`) installs the static Linux binary
 instead of compiling it: DuckDB's prebuilt libraries are built for glibc, while

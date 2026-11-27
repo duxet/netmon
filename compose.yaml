@@ -1,0 +1,19 @@
+# netmon with Docker Compose: docker compose up -d
+#
+# netmon reads the host's connection tracking, so it shares the host's
+# network and needs CAP_NET_ADMIN. Turn accounting on on the host first:
+#
+#   sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+services:
+  netmon:
+    image: ghcr.io/duxet/netmon:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      # flows.db, netmon.yaml and the GeoLite2 databases.
+      - ./data:/data
+    environment:
+      TZ: Europe/Berlin
+      # NETMON_LOCAL_DNS: 192.168.1.1:53
+    restart: unless-stopped
