@@ -19,6 +19,9 @@ const (
 	Sent       = "sent"
 	Failed     = "failed"
 	Suppressed = "suppressed"
+	// Held notifications weren't sent because their rule was snoozed or in
+	// its quiet hours.
+	Held = "held"
 )
 
 // Notification is a message about an alert, for the channels of its rule.
@@ -28,6 +31,9 @@ type Notification struct {
 	Kind       string
 	Message    Message
 	ChannelIDs []int64
+	// Hold, when set, says why the notification isn't to be sent, such as
+	// a snooze: it is only recorded as held.
+	Hold string
 }
 
 // DispatcherOptions tunes a Dispatcher; zero values pick the defaults.
@@ -171,6 +177,20 @@ func (d *Dispatcher) Dispatch(notifications []Notification) {
 	for _, channel := range channels {
 		pending := byChannel[channel.ID]
 		if len(pending) == 0 || !channel.Enabled {
+			continue
+		}
+
+		// What is held back is only recorded.
+		var send []Notification
+		for _, n := range pending {
+			if n.Hold != "" {
+				d.record(job{channel: channel, message: n.Message, alerts: refs([]Notification{n})}, Held, 0, n.Hold)
+				continue
+			}
+			send = append(send, n)
+		}
+		pending = send
+		if len(pending) == 0 {
 			continue
 		}
 

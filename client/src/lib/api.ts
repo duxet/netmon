@@ -496,6 +496,8 @@ export type AlertRuleType =
   | "device_inactive"
   | "destination_port"
   | "destination_country"
+  | "device_online"
+  | "new_destination"
 export type Severity = "info" | "warning" | "critical"
 export type TrafficDirection = "download" | "upload" | "total"
 
@@ -536,14 +538,35 @@ export interface CountryParams {
   macs?: string[]
 }
 
-export type AlertRuleParams = NewDeviceParams | TrafficParams | InactiveParams | PortParams | CountryParams
+export interface OnlineParams {
+  /** How long a device has to have been quiet. */
+  inactive_s: number
+  macs?: string[]
+}
+
+export interface DestinationParams {
+  /** Countries, or networks (autonomous systems). */
+  kind: "country" | "asn"
+  /** How far back a device's traffic tells what it usually talks to. */
+  baseline_days: number
+  macs?: string[]
+}
+
+export type AlertRuleParams =
+  | NewDeviceParams
+  | TrafficParams
+  | InactiveParams
+  | PortParams
+  | CountryParams
+  | OnlineParams
+  | DestinationParams
 
 /** When to send notifications. */
 export interface AlertRule {
   ID: number
   Name: string
   Type: AlertRuleType
-  Params: Partial<NewDeviceParams & TrafficParams & InactiveParams & PortParams & CountryParams>
+  Params: Partial<NewDeviceParams & TrafficParams & InactiveParams & PortParams & CountryParams & DestinationParams>
   Severity: Severity
   /** How often a firing alert is sent again, or null to send it once. */
   RepeatIntervalSeconds: number | null
@@ -554,6 +577,11 @@ export interface AlertRule {
   LastEvaluatedAt: string | null
   CreatedAt: string
   UpdatedAt: string
+  /** Its notifications are held back until then; null when it isn't snoozed. */
+  SnoozedUntil: string | null
+  /** Its notifications are held back every day between them, such as 22:00 and 07:00. */
+  QuietFrom: string | null
+  QuietTo: string | null
 }
 
 export interface AlertRuleInput {
@@ -565,6 +593,8 @@ export interface AlertRuleInput {
   notify_on_resolve: boolean
   enabled: boolean
   channel_ids: number[]
+  quiet_from?: string
+  quiet_to?: string
 }
 
 /** What the rule form offers. */
@@ -577,6 +607,8 @@ export interface AlertRuleOptions {
   MinRepeatSeconds: number
   /** Whether a GeoIP database is loaded, which country rules need. */
   GeoIP: boolean
+  /** Whether the ASN database is loaded, which rules about networks need. */
+  ASNs: boolean
 }
 
 /** Something a previewed rule finds. */
@@ -605,7 +637,7 @@ export interface AlertRulePreview {
 export interface Delivery {
   ChannelID: number
   Kind: "firing" | "reminder" | "resolved"
-  Status: "sent" | "failed" | "suppressed"
+  Status: "sent" | "failed" | "suppressed" | "held"
   Attempts: number
   /** Why it failed, with the channel's secrets redacted. */
   Error: string | null
@@ -629,6 +661,9 @@ export interface Alert {
   LastEvaluatedAt: string
   LastNotifiedAt: string | null
   ResolvedAt: string | null
+  /** When someone said they know of it, which isn't sent again while it lasts, and who. */
+  AcknowledgedAt: string | null
+  AcknowledgedBy: string | null
   Deliveries: Delivery[]
 }
 
@@ -646,6 +681,24 @@ export interface AlertsPage {
 
 export function fetchAlertRules() {
   return requestList<AlertRule>("/api/alert-rules")
+}
+
+/** Holds back a rule's notifications for a while. */
+export function snoozeAlertRule(id: number, seconds: number) {
+  return request<AlertRule>(`/api/alert-rules/${id}/snooze`, jsonBody("POST", { for_s: seconds }))
+}
+
+export function unsnoozeAlertRule(id: number) {
+  return request<AlertRule>(`/api/alert-rules/${id}/snooze`, { method: "DELETE" })
+}
+
+/** Says you know of an alert, which isn't sent again while it lasts. */
+export function acknowledgeAlert(id: number) {
+  return request<Alert>(`/api/alerts/${id}/acknowledge`, { method: "POST" })
+}
+
+export function unacknowledgeAlert(id: number) {
+  return request<Alert>(`/api/alerts/${id}/acknowledge`, { method: "DELETE" })
 }
 
 export function fetchAlertRuleOptions() {

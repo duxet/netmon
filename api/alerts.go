@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
+	"github.com/duxet/netmon/auth"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
@@ -22,6 +24,9 @@ import (
 const (
 	defaultAlertsLimit = 50
 	maxAlertsLimit     = 500
+
+	// maxSnooze is how long a rule can be snoozed for at most.
+	maxSnooze = 30 * 24 * time.Hour
 )
 
 // ruleBody is the request body for creating or replacing an alert rule.
@@ -37,6 +42,10 @@ type ruleBody struct {
 	NotifyOnResolve *bool   `json:"notify_on_resolve"`
 	Enabled         *bool   `json:"enabled"`
 	ChannelIDs      []int64 `json:"channel_ids"`
+	// QuietFrom and QuietTo, such as "22:00" and "07:00", hold back the
+	// rule's notifications every day between them; both empty for none.
+	QuietFrom string `json:"quiet_from,omitempty"`
+	QuietTo   string `json:"quiet_to,omitempty"`
 }
 
 func parseRuleID(c fiber.Ctx) (int64, error) {
@@ -77,6 +86,9 @@ func parseRule(db *sql.DB, body *ruleBody) (storage.RuleRecord, error) {
 	if err := alerting.ValidateRepeat(body.RepeatIntervalSeconds); err != nil {
 		return storage.RuleRecord{}, badRequest(err.Error())
 	}
+	if err := alerting.ValidateQuietHours(body.QuietFrom, body.QuietTo); err != nil {
+		return storage.RuleRecord{}, badRequest(err.Error())
+	}
 
 	channels, err := storage.ListChannels(db)
 	if err != nil {
@@ -97,6 +109,8 @@ func parseRule(db *sql.DB, body *ruleBody) (storage.RuleRecord, error) {
 		NotifyOnResolve:       body.NotifyOnResolve == nil || *body.NotifyOnResolve,
 		Enabled:               body.Enabled == nil || *body.Enabled,
 		ChannelIDs:            body.ChannelIDs,
+		QuietFrom:             body.QuietFrom,
+		QuietTo:               body.QuietTo,
 	}
 	// Alerts about events are over at once: there is nothing to repeat or
 	// resolve.
@@ -126,6 +140,9 @@ func toRuleDTO(r storage.RuleRecord) AlertRuleDTO {
 		LastEvaluatedAt:       r.LastEvaluatedAt,
 		CreatedAt:             r.CreatedAt,
 		UpdatedAt:             r.UpdatedAt,
+		SnoozedUntil:          r.SnoozedUntil,
+		QuietFrom:             nonEmpty(r.QuietFrom),
+		QuietTo:               nonEmpty(r.QuietTo),
 	}
 }
 
@@ -145,6 +162,8 @@ func toAlertDTO(a storage.AlertRecord, deliveries []storage.DeliveryRecord) Aler
 		LastEvaluatedAt: a.LastEvaluatedAt,
 		LastNotifiedAt:  a.LastNotifiedAt,
 		ResolvedAt:      a.ResolvedAt,
+		AcknowledgedAt:  a.AcknowledgedAt,
+		AcknowledgedBy:  nonEmpty(a.AcknowledgedBy),
 		Deliveries:      []DeliveryDTO{},
 	}
 	for _, d := range deliveries {
@@ -160,7 +179,7 @@ func toAlertDTO(a storage.AlertRecord, deliveries []storage.DeliveryRecord) Aler
 const previewRuleName = "New rule"
 
 // registerAlertRoutes adds the endpoints for alert rules and alerts.
-func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, countries *lookup.Countries) {
+func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, countries *lookup.Countries, asns *lookup.ASNs) {
 	// What the rule form offers.
 	app.Get("/api/alert-rule-options", func(c fiber.Ctx) error {
 		names := make([]string, 0, len(apps.Known)+1)
@@ -176,8 +195,84 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 			MaxWindowSeconds: alerting.MaxWindowSeconds,
 			MinRepeatSeconds: alerting.MinRepeatSeconds,
 			GeoIP:            countries.Available(),
+			ASNs:             asns.Available(),
 		})
 	})
+
+	// Holds back a rule's notifications for a while, or until a time.
+	app.Post("/api/alert-rules/:id/snooze", func(c fiber.Ctx) error {
+		id, err := parseRuleID(c)
+		if err != nil {
+			return err
+		}
+		var body struct {
+			ForSeconds int64      `json:"for_s"`
+			Until      *time.Time `json:"until"`
+		}
+		if err := c.Bind().Body(&body); err != nil {
+			return badRequest("invalid request body: " + err.Error())
+		}
+		until := time.Now().Add(time.Duration(body.ForSeconds) * time.Second)
+		if body.Until != nil {
+			until = *body.Until
+		}
+		if !until.After(time.Now()) || until.After(time.Now().Add(maxSnooze)) {
+			return badRequest("snooze for_s seconds, or until a time, in the next 30 days")
+		}
+		if err := storage.SnoozeRule(db, id, &until); err != nil {
+			return ruleNotFound(err)
+		}
+		slog.Info("Snoozed alert rule", "id", id, "until", until)
+		rule, err := storage.GetRule(db, id)
+		if err != nil {
+			return ruleNotFound(err)
+		}
+		return c.JSON(toRuleDTO(rule))
+	})
+
+	app.Delete("/api/alert-rules/:id/snooze", func(c fiber.Ctx) error {
+		id, err := parseRuleID(c)
+		if err != nil {
+			return err
+		}
+		if err := storage.SnoozeRule(db, id, nil); err != nil {
+			return ruleNotFound(err)
+		}
+		rule, err := storage.GetRule(db, id)
+		if err != nil {
+			return ruleNotFound(err)
+		}
+		return c.JSON(toRuleDTO(rule))
+	})
+
+	// Says someone knows of an alert, which isn't sent again while it lasts.
+	acknowledge := func(c fiber.Ctx, at time.Time) error {
+		id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return badRequest("invalid alert id: " + c.Params("id"))
+		}
+		by := ""
+		if user := auth.UserFrom(c); user != nil {
+			by = cmp.Or(user.Name, user.Email)
+		}
+		if err := storage.AcknowledgeAlert(db, id, at, by); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "alert not found")
+			}
+			return err
+		}
+		alert, err := storage.GetAlert(db, id)
+		if err != nil {
+			return err
+		}
+		deliveries, err := storage.Deliveries(db, []int64{id})
+		if err != nil {
+			return err
+		}
+		return c.JSON(toAlertDTO(alert, deliveries[id]))
+	}
+	app.Post("/api/alerts/:id/acknowledge", func(c fiber.Ctx) error { return acknowledge(c, time.Now()) })
+	app.Delete("/api/alerts/:id/acknowledge", func(c fiber.Ctx) error { return acknowledge(c, time.Time{}) })
 
 	// What a rule would find now, without saving it.
 	app.Post("/api/alert-rules/preview", func(c fiber.Ctx) error {
@@ -195,7 +290,7 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 		rule.CreatedAt = time.Now()
 
 		preview, err := alerts.Preview(c.Context(), rule)
-		if errors.Is(err, alerting.ErrNoGeoIP) {
+		if errors.Is(err, alerting.ErrNoGeoIP) || errors.Is(err, alerting.ErrNoASNs) {
 			return badRequest(err.Error())
 		}
 		if err != nil {

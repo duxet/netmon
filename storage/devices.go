@@ -7,6 +7,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/duxet/netmon/common"
 )
 
 // GetDeviceNames returns the names users gave their devices, by MAC address
@@ -203,6 +204,80 @@ func GetPortTraffic(db *sql.DB, since time.Time, ports []uint16, protocols []int
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query port traffic: %w", err)
+	}
+	return records, nil
+}
+
+// ComebackRecord is a device that had traffic again after a quiet while.
+type ComebackRecord struct {
+	MACAddress common.MACAddress
+	// Back is when its traffic started again.
+	Back time.Time
+}
+
+// GetComebacks returns the devices with traffic at or after since that had
+// none for at least quiet before it. Rows of an hour or a day count for all
+// of it, so a device is only quiet when it is for sure.
+func GetComebacks(db *sql.DB, since time.Time, quiet time.Duration) ([]ComebackRecord, error) {
+	lookback := since.Add(-quiet)
+	rows, err := db.Query(`
+		SELECT mac, min(created_at) FILTER (WHERE created_at >= $1)
+		FROM (
+			SELECT src_mac AS mac, created_at, hours FROM all_flows
+			WHERE octet_length(src_mac) > 0 AND created_at > $2::TIMESTAMPTZ - INTERVAL 1 DAY
+				AND created_at + to_minutes(minutes::BIGINT) > $2
+			UNION ALL
+			SELECT dst_mac, created_at, hours FROM all_flows
+			WHERE octet_length(dst_mac) > 0 AND created_at > $2::TIMESTAMPTZ - INTERVAL 1 DAY
+				AND created_at + to_minutes(minutes::BIGINT) > $2
+		)
+		GROUP BY mac
+		HAVING count(*) FILTER (WHERE created_at >= $1) > 0 AND count(*) FILTER (WHERE created_at < $1) = 0
+		ORDER BY mac
+	`, since, lookback)
+	comebacks, err := collect(rows, err, func(rows *sql.Rows, r *ComebackRecord) error {
+		return rows.Scan(&r.MACAddress, &r.Back)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query comebacks: %w", err)
+	}
+	return comebacks, nil
+}
+
+// LastTrafficBefore returns when a device last had traffic before a time:
+// the end of the last minute, hour or day it had some in. ok is false when
+// it never had any.
+func LastTrafficBefore(db *sql.DB, mac []byte, before time.Time) (last time.Time, ok bool, err error) {
+	var t sql.NullTime
+	err = db.QueryRow(`
+		SELECT max(least(created_at + to_minutes(minutes::BIGINT), $2::TIMESTAMPTZ))
+		FROM all_flows
+		WHERE (src_mac = $1 OR dst_mac = $1) AND created_at < $2
+	`, mac, before).Scan(&t)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("query last traffic: %w", err)
+	}
+	return t.Time, t.Valid, nil
+}
+
+// GetDevicePeers returns the remote addresses every device exchanged traffic
+// with from from to to, once each.
+func GetDevicePeers(db *sql.DB, from, to time.Time) ([]DeviceTrafficRecord, error) {
+	rows, err := db.Query(`
+		SELECT DISTINCT mac, peer
+		FROM (
+			SELECT src_mac AS mac, dst_ip AS peer FROM all_flows
+			WHERE octet_length(src_mac) > 0 AND created_at >= $1::TIMESTAMPTZ AND created_at < $2::TIMESTAMPTZ
+			UNION ALL
+			SELECT dst_mac, src_ip FROM all_flows
+			WHERE octet_length(dst_mac) > 0 AND created_at >= $1::TIMESTAMPTZ AND created_at < $2::TIMESTAMPTZ
+		)
+	`, from, to)
+	records, err := collect(rows, err, func(rows *sql.Rows, r *DeviceTrafficRecord) error {
+		return rows.Scan(&r.MACAddress, &r.Peer)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query device peers: %w", err)
 	}
 	return records, nil
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestAlertRuleOptions(t *testing.T) {
 	app, _ := newTestApp(t)
 	var options AlertRuleOptionsDTO
 	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
-	if len(options.Types) != 5 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
+	if len(options.Types) != 7 || options.Apps[len(options.Apps)-1] != "Other" || options.MinWindowSeconds != 300 {
 		t.Errorf("options = %+v", options)
 	}
 }
@@ -273,13 +274,57 @@ func TestAlertRulePreview(t *testing.T) {
 	}
 	var options AlertRuleOptionsDTO
 	doJSON(t, app, "GET", "/api/alert-rule-options", "", fiber.StatusOK, &options)
-	if options.GeoIP || len(options.Types) != 5 {
-		t.Errorf("options = %+v, want five types and no GeoIP", options)
+	if options.GeoIP || options.ASNs || len(options.Types) != 7 {
+		t.Errorf("options = %+v, want seven types and no GeoIP", options)
 	}
 
 	doJSON(t, app, "POST", "/api/alert-rules/preview", `{"type": "traffic_threshold", "params": {}}`, fiber.StatusBadRequest, nil)
 	// Previews save nothing.
 	if body := doJSON(t, app, "GET", "/api/alert-rules", "", fiber.StatusOK, nil); body != "[]" {
 		t.Errorf("rules after previews = %s, want none", body)
+	}
+}
+
+func TestSnoozeAndAcknowledge(t *testing.T) {
+	app, db := newTestApp(t)
+
+	status, body := do(t, app, "POST", "/api/alert-rules",
+		`{"name": "Quiet nights", "type": "new_device", "quiet_from": "22:00", "quiet_to": "07:00"}`)
+	if status != fiber.StatusCreated || !strings.Contains(body, `"QuietFrom":"22:00"`) || !strings.Contains(body, `"SnoozedUntil":null`) {
+		t.Fatalf("POST /api/alert-rules = %d %s, want quiet hours", status, body)
+	}
+	if status, _ := do(t, app, "POST", "/api/alert-rules", `{"name": "x", "type": "new_device", "quiet_from": "22:00"}`); status != fiber.StatusBadRequest {
+		t.Errorf("half the quiet hours = %d, want 400", status)
+	}
+
+	if status, body := do(t, app, "POST", "/api/alert-rules/1/snooze", `{"for_s": 3600}`); status != fiber.StatusOK || strings.Contains(body, `"SnoozedUntil":null`) {
+		t.Errorf("snooze = %d %s, want it snoozed", status, body)
+	}
+	for _, bad := range []string{`{"for_s": -5}`, `{"for_s": 99999999}`} {
+		if status, _ := do(t, app, "POST", "/api/alert-rules/1/snooze", bad); status != fiber.StatusBadRequest {
+			t.Errorf("snooze %s = %d, want 400", bad, status)
+		}
+	}
+	if status, body := do(t, app, "DELETE", "/api/alert-rules/1/snooze", ""); status != fiber.StatusOK || !strings.Contains(body, `"SnoozedUntil":null`) {
+		t.Errorf("unsnooze = %d %s", status, body)
+	}
+	if status, _ := do(t, app, "POST", "/api/alert-rules/99/snooze", `{"for_s": 3600}`); status != fiber.StatusNotFound {
+		t.Errorf("snooze an unknown rule = %d, want 404", status)
+	}
+
+	id, err := storage.InsertAlert(db, storage.AlertRecord{RuleID: 1, RuleName: "Quiet nights", Subject: "x", State: storage.AlertFiring,
+		Severity: "warning", Title: "x", Body: "x", StartedAt: time.Now(), LastEvaluatedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/alerts/" + strconv.FormatInt(id, 10) + "/acknowledge"
+	if status, body := do(t, app, "POST", path, ""); status != fiber.StatusOK || strings.Contains(body, `"AcknowledgedAt":null`) {
+		t.Errorf("acknowledge = %d %s", status, body)
+	}
+	if status, body := do(t, app, "DELETE", path, ""); status != fiber.StatusOK || !strings.Contains(body, `"AcknowledgedAt":null`) {
+		t.Errorf("unacknowledge = %d %s", status, body)
+	}
+	if status, _ := do(t, app, "POST", "/api/alerts/999/acknowledge", ""); status != fiber.StatusNotFound {
+		t.Errorf("acknowledge an unknown alert = %d, want 404", status)
 	}
 }

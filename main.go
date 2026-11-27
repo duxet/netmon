@@ -139,6 +139,7 @@ func main() {
 	engine := alerting.NewEngine(db, dispatcher, alerting.Options{
 		Hostnames:  hostnames,
 		Countries:  countries,
+		ASNs:       asns,
 		Classifier: classifier,
 		PublicURL:  cfg.BaseURL(),
 	})

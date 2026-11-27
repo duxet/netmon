@@ -42,6 +42,7 @@ import {
   DIRECTIONS,
   formProblem,
   formToInput,
+  BASELINES,
   INACTIVE_DURATIONS,
   isEventRule,
   knownDeviceLabel,
@@ -312,7 +313,7 @@ function CountryFields({ id, form, set, geoIP }: { id: string; form: RuleForm; s
 
 function formatFindingValue(type: AlertRuleType, value: number | null): string {
   if (value === null) return ""
-  if (type === "device_inactive") {
+  if (type === "device_inactive" || type === "device_online") {
     const minutes = Math.round(value / 60)
     return minutes < 60 ? `quiet ${minutes} min` : `quiet ${Math.floor(minutes / 60)} h ${minutes % 60} min`
   }
@@ -427,6 +428,8 @@ function RuleFormBody({
     destination_port: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
     destination_country:
       form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
+    device_online: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
+    new_destination: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
   }[form.type]
 
   return (
@@ -519,6 +522,82 @@ function RuleFormBody({
             </Field>
           )}
 
+          {form.type === "device_online" && (
+            <Field>
+              <FieldLabel htmlFor={`${id}-online`}>After no traffic for at least</FieldLabel>
+              <Select value={String(form.inactiveSeconds)} onValueChange={(value) => set("inactiveSeconds", Number(value))}>
+                <SelectTrigger id={`${id}-online`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {INACTIVE_DURATIONS.map((d) => (
+                    <SelectItem key={d.seconds} value={String(d.seconds)}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                Such as a child's tablet in use again at night, or a camera back after a power cut. A device
+                first seen meanwhile is new rather than back.
+              </FieldDescription>
+            </Field>
+          )}
+
+          {form.type === "new_destination" && (
+            <>
+              <Field>
+                <FieldLabel>New</FieldLabel>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  value={form.destinationKind}
+                  onValueChange={(value) => value && set("destinationKind", value as RuleForm["destinationKind"])}
+                  className="w-fit"
+                >
+                  <ToggleGroupItem value="country" className="px-3">
+                    Countries
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="asn" className="px-3">
+                    Networks
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {form.destinationKind === "country" && !(options.data?.GeoIP ?? true) && (
+                  <FieldError>
+                    netmon has no GeoIP database yet: put GeoLite2-Country.mmdb next to the binary and restart it, or
+                    this rule finds nothing.
+                  </FieldError>
+                )}
+                {form.destinationKind === "asn" && !(options.data?.ASNs ?? true) && (
+                  <FieldError>
+                    netmon has no ASN database yet: put GeoLite2-ASN.mmdb next to the binary and restart it, or this
+                    rule finds nothing.
+                  </FieldError>
+                )}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${id}-baseline`}>New compared with</FieldLabel>
+                <Select value={String(form.baselineDays)} onValueChange={(value) => set("baselineDays", Number(value))}>
+                  <SelectTrigger id={`${id}-baseline`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {BASELINES.map((b) => (
+                      <SelectItem key={b.days} value={String(b.days)}>
+                        {b.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Each device's own traffic tells what it usually talks to. Devices known for less than a day are
+                  left out, as everything is new to them.
+                </FieldDescription>
+              </Field>
+            </>
+          )}
+
           {form.type === "destination_port" && <PortFields id={id} form={form} set={set} />}
 
           {form.type === "destination_country" && (
@@ -536,8 +615,10 @@ function RuleFormBody({
             />
           )}
 
-          {event && form.type !== "new_device" && (
-            <FieldDescription>Each device alerts at most once a day for the same port or country.</FieldDescription>
+          {event && form.type !== "new_device" && form.type !== "device_online" && (
+            <FieldDescription>
+              Each device alerts at most once a day for the same {form.type === "destination_port" ? "port" : form.type === "new_destination" ? "destination" : "country"}.
+            </FieldDescription>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -577,6 +658,41 @@ function RuleFormBody({
               </Field>
             )}
           </div>
+
+          <Field>
+            <FieldLabel htmlFor={`${id}-quiet-from`}>Quiet hours</FieldLabel>
+            <div className="flex items-center gap-2">
+              <Input
+                id={`${id}-quiet-from`}
+                type="time"
+                value={form.quietFrom}
+                onChange={(e) => set("quietFrom", e.target.value)}
+                className="w-32"
+                aria-label="Quiet from"
+              />
+              <span className="text-sm text-muted-foreground">to</span>
+              <Input
+                type="time"
+                value={form.quietTo}
+                onChange={(e) => set("quietTo", e.target.value)}
+                className="w-32"
+                aria-label="Quiet until"
+              />
+              {(form.quietFrom || form.quietTo) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setForm((current) => ({ ...current, quietFrom: "", quietTo: "" }))}
+                >
+                  None
+                </Button>
+              )}
+            </div>
+            <FieldDescription>
+              Every day between these times, in netmon's time zone, alerts are only recorded, not sent.
+            </FieldDescription>
+          </Field>
 
           {!event && (
             <Field orientation="horizontal">

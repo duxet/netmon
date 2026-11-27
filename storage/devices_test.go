@@ -308,3 +308,50 @@ func TestPortTraffic(t *testing.T) {
 		t.Errorf("later records = %+v, want the second HTTPS round", records)
 	}
 }
+
+func TestGetComebacks(t *testing.T) {
+	db := openTestDB(t)
+	since := seedAt.Add(3 * time.Hour)
+	insert(t, db,
+		// Quiet from 20:15 until it is back at 23:20.
+		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 90, 70, seedAt},
+		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 90, 70, since.Add(5 * time.Minute)},
+		// Busy all along.
+		row{mustMAC(t, nasMAC), nil, mustIP("192.168.1.10"), mustIP("1.1.1.1"), 17, 53, 90, 70, since.Add(-10 * time.Minute)},
+		row{mustMAC(t, nasMAC), nil, mustIP("192.168.1.10"), mustIP("1.1.1.1"), 17, 53, 90, 70, since.Add(time.Minute)},
+	)
+
+	comebacks, err := GetComebacks(db, since, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comebacks) != 1 || comebacks[0].MACAddress.String() != laptopMAC || !comebacks[0].Back.Equal(since.Add(5*time.Minute)) {
+		t.Errorf("comebacks = %+v, want the laptop back at 23:20", comebacks)
+	}
+
+	// Quiet for 3 hours isn't quiet for 4.
+	if comebacks, _ := GetComebacks(db, since, 4*time.Hour); len(comebacks) != 0 {
+		t.Errorf("comebacks after 4 hours = %+v, want none", comebacks)
+	}
+
+	// Quiet since 20:15, for 3 hours, is quiet for 2 hours 20 minutes.
+	if comebacks, _ := GetComebacks(db, since, 2*time.Hour+20*time.Minute); len(comebacks) != 1 {
+		t.Errorf("comebacks after 2:20 = %+v, want the laptop", comebacks)
+	}
+
+	// Once rolled up, the 20:00 hour counts in full: the laptop may have had
+	// traffic until 21:00 then.
+	if _, err := Compact(db, since.Add(10*time.Minute), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	last, ok, err := LastTrafficBefore(db, mustMAC(t, laptopMAC), since)
+	if err != nil || !ok || !last.Equal(seedAt.Truncate(time.Hour).Add(time.Hour)) {
+		t.Errorf("last traffic = %v %v %v, want the end of the 20:00 hour", last, ok, err)
+	}
+	if comebacks, _ := GetComebacks(db, since, time.Hour+50*time.Minute); len(comebacks) != 1 {
+		t.Errorf("comebacks after rolling up = %+v, want the laptop still", comebacks)
+	}
+	if comebacks, _ := GetComebacks(db, since, 2*time.Hour+20*time.Minute); len(comebacks) != 0 {
+		t.Errorf("comebacks after 2:20 once rolled up = %+v, want none: the hour counts in full", comebacks)
+	}
+}

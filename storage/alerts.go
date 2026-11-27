@@ -36,6 +36,10 @@ type AlertRecord struct {
 	LastEvaluatedAt time.Time
 	LastNotifiedAt  *time.Time
 	ResolvedAt      *time.Time
+	// AcknowledgedAt is when someone said they know of the alert, which
+	// isn't sent again while it lasts then, and AcknowledgedBy who.
+	AcknowledgedAt *time.Time
+	AcknowledgedBy string
 }
 
 // DeliveryRecord is a notification sent, or not, about an alert.
@@ -45,7 +49,8 @@ type DeliveryRecord struct {
 	ChannelID int64
 	// Kind is firing, reminder or resolved.
 	Kind string
-	// Status is sent, failed or suppressed (by the rate limit).
+	// Status is sent, failed, suppressed (by the rate limit) or held (by a
+	// snooze or quiet hours).
 	Status   string
 	Attempts int
 	// Error explains a failure, with the channel's secrets redacted.
@@ -54,12 +59,13 @@ type DeliveryRecord struct {
 }
 
 const alertColumns = `id, rule_id, rule_name, subject, state, severity, value, title, body, labels,
-	started_at, last_evaluated_at, last_notified_at, resolved_at`
+	started_at, last_evaluated_at, last_notified_at, resolved_at, acknowledged_at, coalesce(acknowledged_by, '')`
 
 func scanAlert(row interface{ Scan(...any) error }, a *AlertRecord) error {
 	var labels string
 	err := row.Scan(&a.ID, &a.RuleID, &a.RuleName, &a.Subject, &a.State, &a.Severity, &a.Value,
-		&a.Title, &a.Body, &labels, &a.StartedAt, &a.LastEvaluatedAt, &a.LastNotifiedAt, &a.ResolvedAt)
+		&a.Title, &a.Body, &labels, &a.StartedAt, &a.LastEvaluatedAt, &a.LastNotifiedAt, &a.ResolvedAt,
+		&a.AcknowledgedAt, &a.AcknowledgedBy)
 	if err != nil {
 		return err
 	}
@@ -112,6 +118,23 @@ func UpdateAlert(db *sql.DB, a AlertRecord) error {
 		a.State, a.Value, a.Title, a.Body, labels, a.LastEvaluatedAt, a.LastNotifiedAt, a.ResolvedAt, a.ID)
 	if err != nil {
 		return fmt.Errorf("update alert %d: %w", a.ID, err)
+	}
+	return nil
+}
+
+// AcknowledgeAlert records that someone knows of an alert, or with a zero
+// time takes that back. It returns ErrNotFound when there is no such alert.
+func AcknowledgeAlert(db *sql.DB, id int64, at time.Time, by string) error {
+	var when, who any
+	if !at.IsZero() {
+		when, who = at, by
+	}
+	res, err := db.Exec(`UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?`, when, who, id)
+	if err != nil {
+		return fmt.Errorf("acknowledge alert %d: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("alert %d: %w", id, ErrNotFound)
 	}
 	return nil
 }

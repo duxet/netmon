@@ -298,3 +298,22 @@ func countryText(ruleName string, p CountryParams, d device, code, name, peer st
 		d.labelled(), formatBytes(float64(bytes)), peer, others(peers), name, code, reason)
 	return title, body
 }
+
+func onlineText(ruleName string, p OnlineParams, d device, back time.Time, quietFor time.Duration) (title, body string) {
+	title = d.label() + " is back online"
+	body = fmt.Sprintf("%s has traffic again since %s, after %s without. The rule “%s” watches for devices quiet for %s or more.",
+		d.labelled(), clock(back), formatDuration(quietFor), ruleName, formatDuration(time.Duration(p.InactiveSeconds)*time.Second))
+	return title, body
+}
+
+func destinationText(ruleName string, p DestinationParams, d device, key, name, peer string, peers int, bytes uint64) (title, body string) {
+	where := fmt.Sprintf("%s (%s)", name, key)
+	if p.Kind == ByASN {
+		where = fmt.Sprintf("%s %s", key, name)
+	}
+	title = fmt.Sprintf("%s exchanged traffic with %s for the first time", d.label(), map[string]string{ByCountry: name, ByASN: where}[p.Kind])
+	body = fmt.Sprintf("%s exchanged %s with %s%s in %s, which it hadn't in the %d days before. The rule “%s” alerts on new %s.",
+		d.labelled(), formatBytes(float64(bytes)), peer, others(peers), where, p.BaselineDays, ruleName,
+		map[string]string{ByCountry: "countries", ByASN: "networks"}[p.Kind])
+	return title, body
+}

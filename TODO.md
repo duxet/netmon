@@ -66,7 +66,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   item about local hostnames.
 - [ ] Add an alert rule for traffic with addresses on public blocklists, such as
   abuse.ch's Feodo Tracker or Spamhaus DROP, refreshed daily.
-- [ ] Make alerts easier to live with: acknowledge or snooze a firing alert, quiet
+- [x] Make alerts easier to live with: acknowledge or snooze a firing alert, quiet
   hours, and rules for a device that comes back online and for a device's first
   traffic with a new country or ASN.
 - [x] Manage devices: forget a device (there is no `DELETE /api/devices/:mac`), and

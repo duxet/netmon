@@ -29,7 +29,9 @@ import {
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { describeRule, PRESETS } from "@/lib/alerts"
+import { SnoozeRuleButton } from "@/components/snooze-rule"
+import { describeRule, isSnoozed, PRESETS } from "@/lib/alerts"
+import { formatDayTime } from "@/lib/format"
 import {
   deleteAlertRule,
   errorText,
@@ -113,6 +115,14 @@ function RuleRow({ rule, channels }: { rule: AlertRule; channels: NotificationCh
               <Badge variant="destructive">{rule.FiringAlerts} firing</Badge>
             </Link>
           )}
+          {isSnoozed(rule) && rule.SnoozedUntil && (
+            <Badge variant="outline">Snoozed until {formatDayTime(new Date(rule.SnoozedUntil))}</Badge>
+          )}
+          {rule.QuietFrom && rule.QuietTo && (
+            <Badge variant="outline">
+              Quiet {rule.QuietFrom}–{rule.QuietTo}
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">{describeRule(rule)}</p>
         <p className="text-xs text-muted-foreground">{channelNames(rule, channels)}</p>
@@ -133,6 +143,7 @@ function RuleRow({ rule, channels }: { rule: AlertRule; channels: NotificationCh
           />
           {enabled ? "On" : "Off"}
         </label>
+        <SnoozeRuleButton rule={rule} />
         <AlertRuleDialog rule={rule}>
           <Button
             variant="ghost"

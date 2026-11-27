@@ -279,3 +279,26 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestDispatchHolds(t *testing.T) {
+	db := openTestDB(t)
+	phone := addChannel(t, db, "phone", phoneURL, true)
+	fake := newFakeSend()
+	d := NewDispatcher(db, DispatcherOptions{Send: fake.send})
+
+	held := notification(1, "Large download", phone.ID)
+	held.Hold = "the rule is snoozed until 14:00"
+	d.Dispatch([]Notification{held, notification(2, "New device", phone.ID)})
+	d.Close(time.Second)
+
+	if got := fake.messages(phoneURL); len(got) != 1 || got[0].Title != "New device" {
+		t.Errorf("phone got %+v, want only the one that wasn't held", got)
+	}
+	got := deliveries(t, db, 1)[1]
+	if len(got) != 1 || got[0].Status != Held || got[0].Error == nil || *got[0].Error != held.Hold {
+		t.Errorf("deliveries of the held one = %+v, want it held, with why", got)
+	}
+	if counts := d.Deliveries(); counts[Held] != 1 || counts[Sent] != 1 {
+		t.Errorf("delivery counts = %v, want one held and one sent", counts)
+	}
+}

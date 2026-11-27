@@ -31,15 +31,29 @@ type RuleRecord struct {
 	LastEvaluatedAt *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	// SnoozedUntil holds back the rule's notifications until then.
+	SnoozedUntil *time.Time
+	// QuietFrom and QuietTo ("22:00", "07:00") hold back its notifications
+	// every day between them, in netmon's time zone; empty for none.
+	QuietFrom string
+	QuietTo   string
 }
 
 const ruleColumns = `id, name, type, params, severity, repeat_interval_s, notify_on_resolve, enabled,
 	(SELECT count(*) FROM alerts WHERE alerts.rule_id = alert_rules.id AND alerts.state = 'firing'),
-	last_evaluated_at, created_at, updated_at`
+	last_evaluated_at, created_at, updated_at, snoozed_until, coalesce(quiet_from, ''), coalesce(quiet_to, '')`
 
 func scanRule(row interface{ Scan(...any) error }, r *RuleRecord) error {
 	return row.Scan(&r.ID, &r.Name, &r.Type, &r.Params, &r.Severity, &r.RepeatIntervalSeconds,
-		&r.NotifyOnResolve, &r.Enabled, &r.FiringAlerts, &r.LastEvaluatedAt, &r.CreatedAt, &r.UpdatedAt)
+		&r.NotifyOnResolve, &r.Enabled, &r.FiringAlerts, &r.LastEvaluatedAt, &r.CreatedAt, &r.UpdatedAt,
+		&r.SnoozedUntil, &r.QuietFrom, &r.QuietTo)
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // ruleChannels returns the channel IDs of the given rules, or of all rules
@@ -131,10 +145,12 @@ func CreateRule(db *sql.DB, r RuleRecord, now time.Time) (RuleRecord, error) {
 
 	var id int64
 	err = tx.QueryRow(`
-		INSERT INTO alert_rules (name, type, params, severity, repeat_interval_s, notify_on_resolve, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO alert_rules (name, type, params, severity, repeat_interval_s, notify_on_resolve, enabled, created_at, updated_at,
+			quiet_from, quiet_to)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`,
 		r.Name, r.Type, r.Params, r.Severity, r.RepeatIntervalSeconds, r.NotifyOnResolve, r.Enabled, now, now,
+		nullIfEmpty(r.QuietFrom), nullIfEmpty(r.QuietTo),
 	).Scan(&id)
 	if err != nil {
 		return RuleRecord{}, fmt.Errorf("create alert rule: %w", err)
@@ -162,9 +178,11 @@ func UpdateRule(db *sql.DB, r RuleRecord, now time.Time, resolve bool) (RuleReco
 
 	res, err := tx.Exec(`
 		UPDATE alert_rules
-		SET name = ?, type = ?, params = ?, severity = ?, repeat_interval_s = ?, notify_on_resolve = ?, enabled = ?, updated_at = ?
+		SET name = ?, type = ?, params = ?, severity = ?, repeat_interval_s = ?, notify_on_resolve = ?, enabled = ?, updated_at = ?,
+			quiet_from = ?, quiet_to = ?
 		WHERE id = ?`,
-		r.Name, r.Type, r.Params, r.Severity, r.RepeatIntervalSeconds, r.NotifyOnResolve, r.Enabled, now, r.ID)
+		r.Name, r.Type, r.Params, r.Severity, r.RepeatIntervalSeconds, r.NotifyOnResolve, r.Enabled, now,
+		nullIfEmpty(r.QuietFrom), nullIfEmpty(r.QuietTo), r.ID)
 	if err != nil {
 		return RuleRecord{}, fmt.Errorf("update alert rule %d: %w", r.ID, err)
 	}
@@ -212,6 +230,19 @@ func DeleteRule(db *sql.DB, id int64, now time.Time) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("delete alert rule %d: %w", id, err)
+	}
+	return nil
+}
+
+// SnoozeRule holds back a rule's notifications until a time, or with nil no
+// longer. It returns ErrNotFound when there is no such rule.
+func SnoozeRule(db *sql.DB, id int64, until *time.Time) error {
+	res, err := db.Exec(`UPDATE alert_rules SET snoozed_until = ? WHERE id = ?`, until, id)
+	if err != nil {
+		return fmt.Errorf("snooze alert rule %d: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("alert rule %d: %w", id, ErrNotFound)
 	}
 	return nil
 }

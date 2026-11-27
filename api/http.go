@@ -422,9 +422,9 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	registerTokenRoutes(app, db)
 	alerts := options.Alerts
 	if alerts == nil {
-		alerts = alerting.NewEngine(db, nil, alerting.Options{Hostnames: hostnames, Countries: countries})
+		alerts = alerting.NewEngine(db, nil, alerting.Options{Hostnames: hostnames, Countries: countries, ASNs: asns})
 	}
-	registerAlertRoutes(app, db, alerts, countries)
+	registerAlertRoutes(app, db, alerts, countries, asns)
 
 	meter := options.Live
 	if meter == nil {

@@ -33,16 +33,23 @@ const (
 	// DestinationCountry fires when a device exchanges traffic with a
 	// country it shouldn't: one of a list, or one outside of it.
 	DestinationCountry = "destination_country"
+	// DeviceOnline fires when a device that was quiet for a while has
+	// traffic again.
+	DeviceOnline = "device_online"
+	// NewDestination fires when a device exchanges traffic with a country,
+	// or an autonomous system, it hasn't before.
+	NewDestination = "new_destination"
 )
 
 // Types lists the rule types.
-var Types = []string{NewDevice, TrafficThreshold, DeviceInactive, DestinationPort, DestinationCountry}
+var Types = []string{NewDevice, TrafficThreshold, DeviceInactive, DestinationPort, DestinationCountry, DeviceOnline, NewDestination}
 
 // IsEvent reports whether rules of a type are about events, whose alerts
 // are over as soon as they are raised, rather than conditions that hold for
 // a while.
 func IsEvent(ruleType string) bool {
-	return ruleType == NewDevice || ruleType == DestinationPort || ruleType == DestinationCountry
+	return ruleType == NewDevice || ruleType == DestinationPort || ruleType == DestinationCountry ||
+		ruleType == DeviceOnline || ruleType == NewDestination
 }
 
 // EventCooldown is how long an event rule stays quiet about a subject (a
@@ -142,6 +149,38 @@ type CountryParams struct {
 	MACs []string `json:"macs,omitempty"`
 }
 
+// OnlineParams are the settings of a device_online rule.
+type OnlineParams struct {
+	// InactiveSeconds is how long a device has to have been quiet.
+	InactiveSeconds int64 `json:"inactive_s"`
+	// MACs limits the rule to these devices; empty is every device.
+	MACs []string `json:"macs,omitempty"`
+}
+
+// What new_destination rules look at.
+const (
+	ByCountry = "country"
+	ByASN     = "asn"
+)
+
+// Bounds of the days a new_destination rule learns from.
+const (
+	MinBaselineDays     = 1
+	MaxBaselineDays     = 90
+	DefaultBaselineDays = 30
+)
+
+// DestinationParams are the settings of a new_destination rule.
+type DestinationParams struct {
+	// Kind is country or asn.
+	Kind string `json:"kind"`
+	// BaselineDays is how far back a device's traffic tells what it usually
+	// talks to.
+	BaselineDays int `json:"baseline_days"`
+	// MACs limits the rule to these devices; empty is every device.
+	MACs []string `json:"macs,omitempty"`
+}
+
 // ResolveFraction is how far under its threshold a device's traffic has to
 // fall to resolve an alert, so that traffic hovering around the threshold
 // doesn't fire and resolve it every minute.
@@ -221,6 +260,42 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if err := p.validate(); err != nil {
 			return "", err
 		}
+		params = p
+
+	case DeviceOnline:
+		var p OnlineParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		if p.InactiveSeconds < MinInactiveSeconds || p.InactiveSeconds > MaxInactiveSeconds {
+			return "", invalid("inactive_s must be between %d and %d seconds", MinInactiveSeconds, MaxInactiveSeconds)
+		}
+		macs, err := normalizeMACs(p.MACs)
+		if err != nil {
+			return "", err
+		}
+		p.MACs = macs
+		params = p
+
+	case NewDestination:
+		var p DestinationParams
+		if err := decodeStrict(raw, &p); err != nil {
+			return "", err
+		}
+		if p.Kind != ByCountry && p.Kind != ByASN {
+			return "", invalid("kind must be country or asn")
+		}
+		if p.BaselineDays == 0 {
+			p.BaselineDays = DefaultBaselineDays
+		}
+		if p.BaselineDays < MinBaselineDays || p.BaselineDays > MaxBaselineDays {
+			return "", invalid("baseline_days must be between %d and %d", MinBaselineDays, MaxBaselineDays)
+		}
+		macs, err := normalizeMACs(p.MACs)
+		if err != nil {
+			return "", err
+		}
+		p.MACs = macs
 		params = p
 
 	default:
@@ -365,6 +440,39 @@ func ValidateRepeat(seconds *int64) error {
 		return invalid("repeat_interval_s must be at least %d seconds, or null to send an alert once", MinRepeatSeconds)
 	}
 	return nil
+}
+
+// ValidateQuietHours checks the daily hours a rule holds back its
+// notifications: both or neither, as "HH:MM", and not the same.
+func ValidateQuietHours(from, to string) error {
+	if from == "" && to == "" {
+		return nil
+	}
+	f, fromErr := time.Parse("15:04", from)
+	t, toErr := time.Parse("15:04", to)
+	if fromErr != nil || toErr != nil {
+		return invalid("quiet_from and quiet_to must both be times such as 22:00 and 07:00, or both be empty")
+	}
+	if f.Equal(t) {
+		return invalid("quiet hours must end at another time than they start")
+	}
+	return nil
+}
+
+// inQuietHours reports whether t, in its own time zone, is within the quiet
+// hours from–to, which may run past midnight.
+func inQuietHours(from, to string, t time.Time) bool {
+	f, err1 := time.Parse("15:04", from)
+	e, err2 := time.Parse("15:04", to)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	minute := t.Hour()*60 + t.Minute()
+	start, end := f.Hour()*60+f.Minute(), e.Hour()*60+e.Minute()
+	if start < end {
+		return minute >= start && minute < end
+	}
+	return minute >= start || minute < end
 }
 
 // IsValidationError reports whether err says a rule is invalid.

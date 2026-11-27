@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { BanIcon, CircleCheckIcon, CircleXIcon } from "lucide-react"
 import type * as React from "react"
@@ -19,7 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { durationLabel, LABELS } from "@/lib/alerts"
-import { ApiError, type Alert, type Delivery } from "@/lib/api"
+import { acknowledgeAlert, ApiError, unacknowledgeAlert, type Alert, type Delivery } from "@/lib/api"
 import { formatBytes, formatDayTime } from "@/lib/format"
 import { alertQuery, alertRulesQuery, notificationChannelsQuery } from "@/lib/queries"
 
@@ -47,6 +47,15 @@ function StatusCell({ delivery }: { delivery: Delivery }) {
       return (
         <span className="flex items-center gap-1.5">
           <BanIcon className="size-4 text-muted-foreground" /> Held back by the rate limit
+        </span>
+      )
+    case "held":
+      return (
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-1.5">
+            <BanIcon className="size-4 text-muted-foreground" /> Not sent
+          </span>
+          {delivery.Error && <span className="text-xs text-muted-foreground">{delivery.Error}</span>}
         </span>
       )
     default:
@@ -83,6 +92,11 @@ function AlertPage() {
   const { alertId } = Route.useParams()
   const id = Number(alertId)
   const alert = useQuery({ ...alertQuery(id), enabled: Number.isInteger(id) && id > 0 })
+  const queryClient = useQueryClient()
+  const acknowledge = useMutation({
+    mutationFn: (on: boolean) => (on ? acknowledgeAlert(id) : unacknowledgeAlert(id)),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["alerts"] }),
+  })
   const rules = useQuery(alertRulesQuery())
   const channels = useQuery(notificationChannelsQuery())
 
@@ -126,9 +140,25 @@ function AlertPage() {
             ) : (
               <Badge variant="outline">{event ? "Event" : "Resolved"}</Badge>
             )}
+            {a.AcknowledgedAt && (
+              <Badge variant="outline">
+                Acknowledged{a.AcknowledgedBy ? ` by ${a.AcknowledgedBy}` : ""}{" "}
+                {formatDayTime(new Date(a.AcknowledgedAt))}
+              </Badge>
+            )}
           </div>
         }
       >
+        {a.State === "firing" && !event && (
+          <Button
+            variant={a.AcknowledgedAt ? "ghost" : "default"}
+            disabled={acknowledge.isPending}
+            onClick={() => acknowledge.mutate(!a.AcknowledgedAt)}
+            title={a.AcknowledgedAt ? undefined : "You know of it: it isn't sent again while it lasts."}
+          >
+            {a.AcknowledgedAt ? "Unacknowledge" : "Acknowledge"}
+          </Button>
+        )}
         <Button variant="outline" asChild>
           <Link to="/alerts">All alerts</Link>
         </Button>

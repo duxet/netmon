@@ -33,6 +33,12 @@ type CountryLookup interface {
 	Lookup(addr netip.Addr) (code, name string, ok bool)
 }
 
+// ASNLookup tells the autonomous system of an address; lookup.ASNs is one.
+type ASNLookup interface {
+	Available() bool
+	Lookup(addr netip.Addr) (number uint, organization string, ok bool)
+}
+
 // Options configures an Engine.
 type Options struct {
 	// Hostnames names devices in messages; without it, they have none.
@@ -40,6 +46,9 @@ type Options struct {
 	// Countries tells destination_country rules where traffic goes;
 	// without it, those rules find nothing.
 	Countries CountryLookup
+	// ASNs tells new_destination rules about networks which networks
+	// traffic goes to; without it, those rules find nothing.
+	ASNs ASNLookup
 	// Classifier recognizes apps for rules limited to one; default
 	// apps.Default().
 	Classifier *apps.Classifier
@@ -73,6 +82,10 @@ const (
 // none.
 var ErrNoGeoIP = errors.New("countries need GeoLite2-Country.mmdb next to the netmon binary")
 
+// ErrNoASNs is returned for rules about networks when there is no ASN
+// database.
+var ErrNoASNs = errors.New("networks need GeoLite2-ASN.mmdb next to the netmon binary")
+
 // Engine evaluates the alert rules when triggered, after every collection
 // round. Evaluations run one at a time, on Run's goroutine.
 type Engine struct {
@@ -87,6 +100,11 @@ type Engine struct {
 	started time.Time
 
 	noGeoIP sync.Once
+
+	// baselines are what each new_destination rule learned devices talk
+	// to, by rule ID.
+	baselinesMu sync.Mutex
+	baselines   map[int64]*baseline
 }
 
 // NewEngine returns an engine; Run starts evaluating.
@@ -157,14 +175,14 @@ func (e *Engine) Evaluate(ctx context.Context) {
 	for _, rule := range rules {
 		ns, err := e.evaluateRule(ctx, rule, devices, now)
 		switch {
-		case errors.Is(err, ErrNoGeoIP):
+		case errors.Is(err, ErrNoGeoIP), errors.Is(err, ErrNoASNs):
 			e.noGeoIP.Do(func() { slog.Warn("Alert rule can't run", "rule", rule.ID, "type", rule.Type, "err", err) })
 			continue
 		case err != nil:
 			slog.Error("Alert rule failed", "rule", rule.ID, "type", rule.Type, "err", err)
 			continue
 		}
-		notifications = append(notifications, ns...)
+		notifications = append(notifications, hold(rule, now, ns)...)
 
 		if err := storage.MarkRuleEvaluated(e.db, rule.ID, now); err != nil {
 			slog.Error("Failed to record that an alert rule ran", "rule", rule.ID, "err", err)
@@ -229,6 +247,24 @@ func (e *Engine) evaluateRule(ctx context.Context, rule storage.RuleRecord, devi
 	}
 }
 
+// hold marks the notifications of a rule that is snoozed, or in its quiet
+// hours, to be recorded rather than sent.
+func hold(rule storage.RuleRecord, now time.Time, ns []notify.Notification) []notify.Notification {
+	var reason string
+	switch {
+	case rule.SnoozedUntil != nil && now.Before(*rule.SnoozedUntil):
+		reason = "The rule is snoozed until " + rule.SnoozedUntil.Local().Format("Jan 2 15:04") + "."
+	case rule.QuietFrom != "" && inQuietHours(rule.QuietFrom, rule.QuietTo, now.Local()):
+		reason = "The rule is quiet from " + rule.QuietFrom + " to " + rule.QuietTo + "."
+	default:
+		return ns
+	}
+	for i := range ns {
+		ns[i].Hold = reason
+	}
+	return ns
+}
+
 // eventWindow returns since when an event rule looks for events, and since
 // when what it alerted about doesn't count again.
 func (e *Engine) eventWindow(rule storage.RuleRecord, now time.Time) (since, cooldown time.Time) {
@@ -247,6 +283,12 @@ func (e *Engine) eventWindow(rule storage.RuleRecord, now time.Time) (since, coo
 	}
 	if earliest := now.Add(-eventLookback); since.Before(earliest) {
 		since = earliest
+	}
+	// A device can only come back once it has been quiet that long again.
+	if rule.Type == DeviceOnline {
+		if p, err := parseParams[OnlineParams](rule.Params); err == nil {
+			return since, now.Add(-time.Duration(p.InactiveSeconds) * time.Second)
+		}
 	}
 	return since, now.Add(-EventCooldown)
 }
@@ -333,7 +375,8 @@ func (e *Engine) reconcile(
 		}
 
 		alert.Value, alert.Title, alert.Body, alert.Labels, alert.LastEvaluatedAt = c.value, c.title, c.body, c.labels, now
-		if repeat := rule.RepeatIntervalSeconds; repeat != nil &&
+		// An acknowledged alert isn't sent again while it lasts.
+		if repeat := rule.RepeatIntervalSeconds; repeat != nil && alert.AcknowledgedAt == nil &&
 			(alert.LastNotifiedAt == nil || now.Sub(*alert.LastNotifiedAt) >= time.Duration(*repeat)*time.Second) {
 			alert.LastNotifiedAt = &now
 			title, body := c.reminder(alert.StartedAt)

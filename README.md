@@ -317,6 +317,19 @@ port or country, and only about traffic after the rule was created:
   or either) of any address, such as telnet (23, 2323) from a smart plug.
 - **A device exchanges traffic with a country**: with any of a list of countries, or
   with any country not on it. This needs `GeoLite2-Country.mmdb` next to the binary.
+- **A device is back after a quiet while**: once a device that had no traffic for 15
+  minutes to a day has some again, such as a child's tablet in use at night or a camera
+  back after a power cut. A device first seen meanwhile is new rather than back.
+- **A device talks to a new country or network**: its first traffic with a country (or an
+  autonomous system, with `GeoLite2-ASN.mmdb`) it hadn't exchanged any with in the last 7,
+  30 or 90 days. Each device's own traffic is what is usual for it; devices known for less
+  than a day are left out, as everything is new to them.
+
+Every rule can have **quiet hours**, such as 22:00 to 07:00 in netmon's time zone (`TZ`),
+and can be **snoozed** for an hour to a week with the bell on the rules page: alerts are
+still recorded then, but their notifications aren't sent, which the alert's page shows. A
+firing alert can be **acknowledged** on its page, so that it isn't sent again while it
+lasts; it is still sent once it is over.
 
 The **Alerts** page shows what is firing now and the history; each alert has a page of
 its own, with what it was about and every message sent about it, or why it wasn't.
@@ -577,6 +590,10 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `GET /api/alert-rules/:id` | |
 | `PUT /api/alert-rules/:id` | body as for `POST` |
 | `PATCH /api/alert-rules/:id` | body `{"enabled": false}` |
+| `POST /api/alert-rules/:id/snooze` | body `{"for_s": 3600}` or `{"until": "..."}`, at most 30 days |
+| `DELETE /api/alert-rules/:id/snooze` | |
+| `POST /api/alerts/:id/acknowledge` | |
+| `DELETE /api/alerts/:id/acknowledge` | |
 | `DELETE /api/alert-rules/:id` | |
 | `GET /api/alerts` | `state` (`firing` or `resolved`), `rule_id`, `limit` (default 50, at most 500), `offset` |
 | `GET /api/alerts/:id` | |
@@ -667,7 +684,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 - The test endpoints send a test message, to a saved channel or to a URL that isn't saved
   yet, and answer 204. When the service fails, they answer 502 with its reason in `error`.
 - An alert rule is `{"name", "type", "params", "severity", "repeat_interval_s",
-  "notify_on_resolve", "enabled", "channel_ids"}`. `severity` is `info`, `warning`
+  "notify_on_resolve", "enabled", "channel_ids", "quiet_from", "quiet_to"}`, where the
+  quiet hours are both times such as `"22:00"` or both left out. Rules answer with
+  `SnoozedUntil`, `QuietFrom` and `QuietTo` too. `severity` is `info`, `warning`
   (default) or `critical`; `repeat_interval_s` is at least 900, or null to notify once.
   Changing what a rule checks, or turning it off, resolves its firing alerts without a
   notification. `type` and its `params` are one of these (`macs` limits a rule to some
@@ -680,6 +699,10 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   - `destination_port`: `{"ports": [23, ...], "protocol": "tcp" | "udp" | "any", "macs"}`
   - `destination_country`: `{"mode": "deny" | "allow", "countries": ["RU", ...], "macs"}`;
     `GeoIP` in `/api/alert-rule-options` tells whether netmon can look up countries
+  - `device_online`: `{"inactive_s" (300 to 604800), "macs"}`; it alerts about a device at
+    most once per `inactive_s`
+  - `new_destination`: `{"kind": "country" | "asn", "baseline_days" (1 to 90, default 30),
+    "macs"}`; `ASNs` in `/api/alert-rule-options` tells whether netmon can look up networks
 - A preview answers `{"Findings": [...], "Total", "Since"}`: the first 20 findings, each
   with a `Subject`, a `Label`, a `Value` (bytes, or seconds for quiet devices),
   `Fires`, and the `Title` and `Body` it would send. Rules about traffic and quiet
@@ -689,9 +712,10 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   port or country for those rules, or `network`), `State`, `Title`, `Body`, `Labels`
   about the device (`mac`, `ip`, `device_name`, `hostname`, `vendor`, and `port`,
   `protocol`, `country`, `country_name`, `peer` or `peers` where they apply; `scope`
-  is `network` for the whole network), times, and `Deliveries`: per channel and kind (`firing`, `reminder`,
-  `resolved`), whether it was `sent`, `failed` (with `Error`) or `suppressed` by the rate
-  limit. The number of matching alerts is in `X-Total-Count`.
+  is `network` for the whole network), times, `AcknowledgedAt` and `AcknowledgedBy` (null
+  unless someone acknowledged it), and `Deliveries`: per channel and kind (`firing`, `reminder`,
+  `resolved`), whether it was `sent`, `failed` (with `Error`), `suppressed` by the rate
+  limit, or `held` by a snooze or quiet hours (with why in `Error`). The number of matching alerts is in `X-Total-Count`.
 - Webhook channels get alerts as JSON with `title`, `message`, `level`, `event`
   (`alert.firing`, `alert.reminder` or `alert.resolved`), `alert_id`, `rule_id`,
   `rule_name`, `rule_type`, `severity`, `subject`, `state`, `value`, `started_at`,

@@ -18,12 +18,40 @@ export const RULE_TYPES: { value: AlertRuleType; label: string }[] = [
   { value: "device_inactive", label: "A device has no traffic for a while" },
   { value: "destination_port", label: "A device connects to a port" },
   { value: "destination_country", label: "A device exchanges traffic with a country" },
+  { value: "device_online", label: "A device is back after a quiet while" },
+  { value: "new_destination", label: "A device talks to a new country or network" },
 ]
 
 /** Rules about events alert once per event; the others while a condition lasts. */
 export function isEventRule(type: AlertRuleType): boolean {
-  return type === "new_device" || type === "destination_port" || type === "destination_country"
+  return (
+    type === "new_device" ||
+    type === "destination_port" ||
+    type === "destination_country" ||
+    type === "device_online" ||
+    type === "new_destination"
+  )
 }
+
+/** How long a new_destination rule learns from, in days. */
+export const BASELINES = [
+  { days: 7, label: "Last 7 days" },
+  { days: 30, label: "Last 30 days" },
+  { days: 90, label: "Last 90 days" },
+]
+
+/** Whether a rule is snoozed now. */
+export function isSnoozed(rule: AlertRule, now = Date.now()): boolean {
+  return rule.SnoozedUntil !== null && Date.parse(rule.SnoozedUntil) > now
+}
+
+/** How long to snooze a rule for, in seconds. */
+export const SNOOZES = [
+  { seconds: 3600, label: "1 hour" },
+  { seconds: 8 * 3600, label: "8 hours" },
+  { seconds: 24 * 3600, label: "1 day" },
+  { seconds: 7 * 24 * 3600, label: "1 week" },
+]
 
 /** How long a device may be quiet, in seconds. */
 export const INACTIVE_DURATIONS = [
@@ -107,6 +135,10 @@ export function describeRule(rule: AlertRule): string {
       const countries = (p.countries ?? []).join(", ")
       return `${p.mode === "allow" ? "Traffic outside" : "Traffic with"} ${countries}, ${devices(p.macs?.length ?? 0)}`
     }
+    case "device_online":
+      return `Back after ${durationLabel(p.inactive_s ?? 0)} or more without traffic, ${devices(p.macs?.length ?? 0)}`
+    case "new_destination":
+      return `First traffic with a ${p.kind === "asn" ? "network" : "country"} it hadn't in ${p.baseline_days ?? 30} days, ${devices(p.macs?.length ?? 0)}`
     default: {
       const direction = DIRECTIONS.find((d) => d.value === p.direction)?.label ?? "Traffic"
       const parts = [`${direction} over ${formatBytes(p.threshold_bytes ?? 0)} in ${windowLabel(p.window_s ?? 0)}`]
@@ -145,6 +177,11 @@ export interface RuleForm {
   countryMode: CountryParams["mode"]
   /** Country codes as typed, e.g. "RU, CN". */
   countries: string
+  destinationKind: "country" | "asn"
+  baselineDays: number
+  /** Quiet hours, such as "22:00" and "07:00"; both empty for none. */
+  quietFrom: string
+  quietTo: string
   severity: Severity
   repeatSeconds: number | null
   notifyOnResolve: boolean
@@ -168,6 +205,10 @@ export const DEFAULT_FORM: RuleForm = {
   protocol: "tcp",
   countryMode: "deny",
   countries: "",
+  destinationKind: "country",
+  baselineDays: 30,
+  quietFrom: "",
+  quietTo: "",
   severity: "warning",
   repeatSeconds: null,
   notifyOnResolve: true,
@@ -213,6 +254,10 @@ export function ruleToForm(rule: AlertRule): RuleForm {
     protocol: p.protocol ?? "tcp",
     countryMode: p.mode ?? "deny",
     countries: (p.countries ?? []).join(", "),
+    destinationKind: p.kind ?? "country",
+    baselineDays: p.baseline_days ?? 30,
+    quietFrom: rule.QuietFrom ?? "",
+    quietTo: rule.QuietTo ?? "",
     severity: rule.Severity,
     repeatSeconds: rule.RepeatIntervalSeconds,
     notifyOnResolve: rule.NotifyOnResolve,
@@ -247,6 +292,8 @@ function splitList(text: string): string[] {
 /** What keeps the form from being saved, or null. */
 export function formProblem(form: RuleForm): string | null {
   if (!form.name.trim()) return "Give the rule a name."
+  if ((form.quietFrom === "") !== (form.quietTo === "")) return "Set when the quiet hours start and end, or neither."
+  if (form.quietFrom && form.quietFrom === form.quietTo) return "Quiet hours have to end at another time than they start."
   switch (form.type) {
     case "traffic_threshold":
       return Number.isFinite(thresholdBytes(form)) ? null : "Enter the threshold as a number."
@@ -278,6 +325,10 @@ function paramsOf(form: RuleForm): AlertRuleInput["params"] {
       return { ports: parsePorts(form.ports), protocol: form.protocol, ...macs }
     case "destination_country":
       return { mode: form.countryMode, countries: parseCountries(form.countries), ...macs }
+    case "device_online":
+      return { inactive_s: form.inactiveSeconds, ...macs }
+    case "new_destination":
+      return { kind: form.destinationKind, baseline_days: form.baselineDays, ...macs }
     default:
       return {
         direction: form.direction,
@@ -301,6 +352,7 @@ export function formToInput(form: RuleForm): AlertRuleInput {
     channel_ids: form.channelIds,
     repeat_interval_s: event ? null : form.repeatSeconds,
     notify_on_resolve: event ? false : form.notifyOnResolve,
+    ...(form.quietFrom && form.quietTo ? { quiet_from: form.quietFrom, quiet_to: form.quietTo } : {}),
   }
 }
 
@@ -327,6 +379,9 @@ export const LABELS: { key: string; label: string }[] = [
   { key: "port", label: "Port" },
   { key: "protocol", label: "Protocol" },
   { key: "country_name", label: "Country" },
+  { key: "asn", label: "Network" },
+  { key: "organization", label: "Organization" },
+  { key: "back_at", label: "Back at" },
   { key: "peer", label: "Remote address" },
   { key: "peers", label: "Remote addresses" },
 ]

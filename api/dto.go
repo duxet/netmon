@@ -209,8 +209,10 @@ type AlertRuleOptionsDTO struct {
 	MaxWindowSeconds int64
 	MinRepeatSeconds int64
 	// GeoIP tells whether a GeoIP database is loaded, which country rules
-	// need.
+	// need, and ASNs whether the ASN database is, which rules about
+	// networks need.
 	GeoIP bool
+	ASNs  bool
 }
 
 // AlertRulePreviewDTO is what a rule would find now.
@@ -256,6 +258,13 @@ type AlertRuleDTO struct {
 	LastEvaluatedAt *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	// SnoozedUntil holds back the rule's notifications until then; null
+	// when it isn't snoozed.
+	SnoozedUntil *time.Time
+	// QuietFrom and QuietTo hold back its notifications every day between
+	// them, such as 22:00 and 07:00 in netmon's time zone; null for none.
+	QuietFrom *string
+	QuietTo   *string
 }
 
 // AlertDTO is an alert: a rule firing for a subject, usually a device.
@@ -276,7 +285,12 @@ type AlertDTO struct {
 	LastEvaluatedAt time.Time
 	LastNotifiedAt  *time.Time
 	ResolvedAt      *time.Time
-	Deliveries      []DeliveryDTO
+	// AcknowledgedAt is when someone said they know of the alert, which
+	// isn't sent again while it lasts, and AcknowledgedBy who; null when
+	// nobody has.
+	AcknowledgedAt *time.Time
+	AcknowledgedBy *string
+	Deliveries     []DeliveryDTO
 }
 
 // DeliveryDTO is a notification sent, or not, about an alert.

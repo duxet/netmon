@@ -35,12 +35,16 @@ export function Deliveries({ alert, channels }: { alert: Alert; channels: Notifi
             ? `Sent ${formatDayTime(new Date(d.CreatedAt))}`
             : d.Status === "suppressed"
               ? "Held back: too many notifications to this channel at once"
-              : `Failed after ${d.Attempts} attempts: ${d.Error ?? "unknown error"}`
+              : d.Status === "held"
+                ? `Not sent: ${d.Error ?? "the rule was snoozed"}`
+                : `Failed after ${d.Attempts} attempts: ${d.Error ?? "unknown error"}`
         return (
           <li key={index} className="flex items-center gap-1" title={detail}>
             {d.Status === "sent" && <CircleCheckIcon className="size-3.5 text-chart-3" aria-label="Sent" />}
             {d.Status === "failed" && <CircleXIcon className="size-3.5 text-destructive" aria-label="Failed" />}
-            {d.Status === "suppressed" && <BanIcon className="size-3.5 text-muted-foreground" aria-label="Held back" />}
+            {(d.Status === "suppressed" || d.Status === "held") && (
+              <BanIcon className="size-3.5 text-muted-foreground" aria-label="Held back" />
+            )}
             <span>{label}</span>
           </li>
         )
