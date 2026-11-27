@@ -83,6 +83,7 @@ export function windowLabel(seconds: number): string {
 export function knownDeviceLabel(device: KnownDevice): string {
   return (
     device.Name ??
+    (device.UniFi?.Name || null) ??
     cleanHostname(device.Hostname) ??
     (device.Vendor ? `${device.Vendor} device` : device.MACAddress)
   )

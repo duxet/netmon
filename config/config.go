@@ -29,6 +29,8 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/v2"
+
+	"github.com/duxet/netmon/unifi"
 )
 
 const (
@@ -88,6 +90,18 @@ type Config struct {
 	OIDCClientID     string `koanf:"oidc_client_id"`
 	OIDCClientSecret string `koanf:"oidc_client_secret"`
 
+	// UniFiURL turns on reading clients from a UniFi Network Application: the
+	// address of the console or of the self-hosted application, such as
+	// https://192.168.1.1. UniFiAPIKey is required with it, and is made in
+	// UniFi Network under Settings, Control Plane, Integrations. UniFiSite is
+	// the site's name or internal reference. UniFiFingerprint is the SHA-256
+	// fingerprint of the controller's certificate, to trust a self-signed one,
+	// as UniFi consoles have.
+	UniFiURL         string `koanf:"unifi_url"`
+	UniFiAPIKey      string `koanf:"unifi_api_key"`
+	UniFiSite        string `koanf:"unifi_site"`
+	UniFiFingerprint string `koanf:"unifi_fingerprint"`
+
 	// Interface is the network interface to capture on, on macOS. By default
 	// it is the one the default route goes through. Linux doesn't capture
 	// packets, so ignores it.
@@ -116,6 +130,7 @@ func Defaults() Config {
 		PublicDNS:          "8.8.8.8:53",
 		AlertRetentionDays: 30,
 		IgnoreLocalTraffic: true,
+		UniFiSite:          "default",
 	}
 }
 
@@ -153,6 +168,39 @@ func (c Config) BaseURL() string {
 // provider.
 func (c Config) OIDCEnabled() bool {
 	return c.OIDCIssuer != ""
+}
+
+// UniFiEnabled reports whether clients are read from a UniFi Network
+// Application.
+func (c Config) UniFiEnabled() bool {
+	return c.UniFiURL != ""
+}
+
+// validateUniFi checks the UniFi settings.
+func (c Config) validateUniFi() error {
+	if !c.UniFiEnabled() {
+		if c.UniFiAPIKey != "" || c.UniFiFingerprint != "" {
+			return keyErrorf("unifi_url", "unifi_api_key and unifi_fingerprint have no effect without unifi_url: "+
+				"set the URL to read clients from UniFi, or remove them")
+		}
+		return nil
+	}
+	if _, err := unifi.ParseURL(c.UniFiURL); err != nil {
+		return keyErrorf("unifi_url", "unifi_url must be an https:// URL, such as https://192.168.1.1: %q", c.UniFiURL)
+	}
+	if c.UniFiAPIKey == "" {
+		return keyErrorf("unifi_api_key", "unifi_api_key is required with unifi_url: make one in UniFi Network under "+
+			"Settings, Control Plane, Integrations")
+	}
+	if c.UniFiSite == "" {
+		return keyErrorf("unifi_site", "unifi_site must be the name of a site, such as default")
+	}
+	if c.UniFiFingerprint != "" {
+		if _, err := unifi.ParseFingerprint(c.UniFiFingerprint); err != nil {
+			return keyErrorf("unifi_fingerprint", "%w", err)
+		}
+	}
+	return nil
 }
 
 // validateOIDC checks the single sign-on settings. A half-configured setup is
@@ -266,6 +314,9 @@ func (c Config) validate() error {
 	}
 	if c.AlertRetentionDays < 0 {
 		return keyErrorf("alert_retention_days", "alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
+	}
+	if err := c.validateUniFi(); err != nil {
+		return err
 	}
 	return c.validateOIDC()
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/duxet/netmon/networks"
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/unifi"
 	"io/fs"
 	"log"
 	"os"
@@ -191,8 +192,26 @@ func main() {
 		}()
 	}
 
+	// Clients are read from UniFi in the background; a controller that can't be
+	// reached is logged, and devices go without UniFi details meanwhile.
+	var unifiSource *unifi.Source
+	if cfg.UniFiEnabled() {
+		unifiSource, err = unifi.New(unifi.Options{
+			URL:         cfg.UniFiURL,
+			APIKey:      cfg.UniFiAPIKey,
+			Site:        cfg.UniFiSite,
+			Fingerprint: cfg.UniFiFingerprint,
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Reading clients from UniFi at %s, site %s", cfg.UniFiURL, cfg.UniFiSite)
+		go unifiSource.Run(ctx)
+	}
+
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
+		UniFi: unifiSource,
 	})
 
 	go func() {

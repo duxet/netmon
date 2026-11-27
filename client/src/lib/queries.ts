@@ -11,6 +11,7 @@ import {
   fetchFlowsPage,
   fetchFlowSummary,
   fetchHostnames,
+  fetchUniFiStatus,
   fetchKnownDevices,
   fetchNetworks,
   fetchNetworkSuggestions,
@@ -197,6 +198,11 @@ export function networkSuggestionsQuery() {
  * netmon's settings. They only change when someone saves them, so they aren't
  * fetched every minute; the page keeps unsaved edits apart from them anyway.
  */
+/** How reading clients from UniFi goes, for the configuration page. */
+export function unifiStatusQuery() {
+  return queryOptions({ queryKey: ["unifi"], queryFn: fetchUniFiStatus })
+}
+
 export function configQuery() {
   return queryOptions({ queryKey: ["config"], queryFn: fetchConfig, refetchInterval: false })
 }
