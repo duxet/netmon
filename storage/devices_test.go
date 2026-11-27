@@ -50,6 +50,58 @@ func TestDeviceNames(t *testing.T) {
 	}
 }
 
+func TestDeviceIcons(t *testing.T) {
+	db := openTestDB(t)
+	laptop, _ := net.ParseMAC(laptopMAC)
+	nas, _ := net.ParseMAC(nasMAC)
+
+	icons, err := GetDeviceIcons(db)
+	if err != nil || len(icons) != 0 {
+		t.Fatalf("icons = %v, %v; want none", icons, err)
+	}
+
+	if err := SetDeviceIcon(db, laptop, "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetDeviceIcon(db, nas, "nas"); err != nil {
+		t.Fatal(err)
+	}
+	// Setting an icon again replaces it.
+	if err := SetDeviceIcon(db, laptop, "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	// Icons are kept apart from names: naming a device leaves its icon.
+	if err := SetDeviceName(db, nas, "NAS"); err != nil {
+		t.Fatal(err)
+	}
+
+	icons, err = GetDeviceIcons(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(icons) != 2 || icons[laptopMAC] != "laptop" || icons[nasMAC] != "nas" {
+		t.Errorf("icons = %v", icons)
+	}
+
+	if err := DeleteDeviceIcon(db, laptop); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteDeviceIcon(db, laptop); err != nil {
+		t.Errorf("deleting a missing icon: %v", err)
+	}
+	icons, _ = GetDeviceIcons(db)
+	if len(icons) != 1 || icons[nasMAC] != "nas" {
+		t.Errorf("after delete, icons = %v; want only the NAS", icons)
+	}
+	// And removing the name leaves the icon.
+	if err := DeleteDeviceName(db, nas); err != nil {
+		t.Fatal(err)
+	}
+	if icons, _ = GetDeviceIcons(db); icons[nasMAC] != "nas" {
+		t.Errorf("after removing the name, icons = %v; want the NAS's", icons)
+	}
+}
+
 // deviceList returns the devices by MAC address, failing the test on errors.
 func deviceList(t *testing.T, db *sql.DB) map[string]DeviceRecord {
 	t.Helper()
@@ -127,17 +179,21 @@ func TestSyncDevices(t *testing.T) {
 	}
 	checkDevice(t, deviceList(t, db), laptopMAC, "192.168.1.23", seedAt, later)
 
-	// Most recently seen first, with names.
+	// Most recently seen first, with names and icons, each set on its own.
 	if err := SetDeviceName(db, nas, "NAS"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetDeviceIcon(db, laptop, "laptop"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := GetDevices(db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 2 || list[0].MACAddress.String() != laptopMAC || list[0].Name != nil ||
-		list[1].Name == nil || *list[1].Name != "NAS" {
-		t.Errorf("devices = %+v, want the laptop first and the NAS named", list)
+	if len(list) != 2 || list[0].MACAddress.String() != laptopMAC ||
+		list[0].Name != nil || list[0].Icon == nil || *list[0].Icon != "laptop" ||
+		list[1].Name == nil || *list[1].Name != "NAS" || list[1].Icon != nil {
+		t.Errorf("devices = %+v, want the laptop first with its icon and the NAS named", list)
 	}
 }
 

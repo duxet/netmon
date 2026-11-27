@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router"
 
 import { Sparkline } from "@/components/charts/sparkline"
+import { DeviceIcon } from "@/components/device-icon"
 import { DeviceVendor } from "@/components/device-vendor"
 import { DeviceNetworks } from "@/components/network-badge"
 import {
@@ -77,22 +78,25 @@ export function LiveDevices({
           return (
             <TableRow key={device.mac} className={cn(!device.active && "text-muted-foreground")}>
               <TableCell>
-                <div className="flex min-w-0 flex-col">
-                  <Link
-                    to="/clients/$clientId"
-                    params={{ clientId: device.mac }}
-                    className={cn(
-                      "truncate font-medium hover:underline",
-                      device.active && "text-foreground"
-                    )}
-                  >
-                    {label}
-                  </Link>
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                    {device.ip && label !== device.ip && <span className="font-mono">{device.ip}</span>}
-                    <DeviceVendor device={info ?? { mac: device.mac, vendor: null }} />
-                    {info && <DeviceNetworks ids={info.networks} />}
-                  </span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <DeviceIcon icon={info?.icon} />
+                  <div className="flex min-w-0 flex-col">
+                    <Link
+                      to="/clients/$clientId"
+                      params={{ clientId: device.mac }}
+                      className={cn(
+                        "truncate font-medium hover:underline",
+                        device.active && "text-foreground"
+                      )}
+                    >
+                      {label}
+                    </Link>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      {device.ip && label !== device.ip && <span className="font-mono">{device.ip}</span>}
+                      <DeviceVendor device={info ?? { mac: device.mac, vendor: null }} />
+                      {info && <DeviceNetworks ids={info.networks} />}
+                    </span>
+                  </div>
                 </div>
               </TableCell>
               <RateCell value={device.download} active={device.active} />

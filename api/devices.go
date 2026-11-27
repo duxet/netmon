@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/netip"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -38,6 +39,24 @@ func parseName(name, emptyMessage string) (string, error) {
 	return name, nil
 }
 
+// DeviceIcons are the icons a device can be shown with, for the kind of
+// device it is. The web UI has a picture for each, in the same order.
+var DeviceIcons = []string{
+	"desktop", "laptop", "tablet", "smartphone", "watch",
+	"tv", "media_player", "game_console", "speaker",
+	"router", "access_point", "switch", "server", "nas",
+	"printer", "camera", "light", "plug", "thermostat", "appliance",
+	"iot", "phone", "car",
+}
+
+// parseDeviceIcon checks an icon is one of DeviceIcons.
+func parseDeviceIcon(icon string) (string, error) {
+	if !slices.Contains(DeviceIcons, icon) {
+		return "", badRequest("icon must be one of " + strings.Join(DeviceIcons, ", ") + "; DELETE the icon to remove it")
+	}
+	return icon, nil
+}
+
 func parseDeviceMAC(c fiber.Ctx) (*common.MACAddress, error) {
 	mac, err := common.ParseMACAddress(c.Params("mac"))
 	if err != nil {
@@ -46,10 +65,14 @@ func parseDeviceMAC(c fiber.Ctx) (*common.MACAddress, error) {
 	return mac, nil
 }
 
-// registerDeviceRoutes adds the endpoints for listing and naming devices.
+// registerDeviceRoutes adds the endpoints for listing devices, and for
+// naming them and picking their icons.
 func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames) {
 	type nameBody struct {
 		Name string `json:"name"`
+	}
+	type iconBody struct {
+		Icon string `json:"icon"`
 	}
 
 	// Every device ever seen, most recently seen first.
@@ -90,6 +113,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 				MACAddress: record.MACAddress,
 				IPAddress:  record.IPAddress,
 				Name:       record.Name,
+				Icon:       record.Icon,
 				Hostname:   hostname,
 				Vendor:     vendor,
 				NetworkID:  networkIDOf(matcher, record.IPAddress),
@@ -135,6 +159,44 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 			return err
 		}
 		log.Printf("Removed the name of device %s", mac)
+
+		return c.SendStatus(fiber.StatusNoContent)
+	})
+
+	app.Put("/api/devices/:mac/icon", func(c fiber.Ctx) error {
+		mac, err := parseDeviceMAC(c)
+		if err != nil {
+			return err
+		}
+
+		body := new(iconBody)
+		if err := c.Bind().Body(body); err != nil {
+			return badRequest("invalid request body: " + err.Error())
+		}
+
+		icon, err := parseDeviceIcon(body.Icon)
+		if err != nil {
+			return err
+		}
+
+		if err := storage.SetDeviceIcon(db, mac.HardwareAddr, icon); err != nil {
+			return err
+		}
+		log.Printf("Gave device %s the icon %q", mac, icon)
+
+		return c.JSON(DeviceIconDTO{MACAddress: mac.String(), Icon: icon})
+	})
+
+	app.Delete("/api/devices/:mac/icon", func(c fiber.Ctx) error {
+		mac, err := parseDeviceMAC(c)
+		if err != nil {
+			return err
+		}
+
+		if err := storage.DeleteDeviceIcon(db, mac.HardwareAddr); err != nil {
+			return err
+		}
+		log.Printf("Removed the icon of device %s", mac)
 
 		return c.SendStatus(fiber.StatusNoContent)
 	})

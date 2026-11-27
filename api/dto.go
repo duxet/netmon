@@ -33,6 +33,9 @@ type TrafficDTO struct {
 type ClientDTO struct {
 	// Name is the name the user gave the device, if any.
 	Name *string
+	// Icon is the icon the user picked for the device, one of DeviceIcons,
+	// if any.
+	Icon *string
 	// Hostname is from reverse DNS, with the trailing dot.
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
@@ -50,6 +53,9 @@ type DeviceDTO struct {
 	IPAddress common.IPAddress
 	// Name is the name the user gave the device, if any.
 	Name *string
+	// Icon is the icon the user picked for the device, one of DeviceIcons,
+	// if any.
+	Icon *string
 	// Hostname is from reverse DNS of IPAddress, with the trailing dot.
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
@@ -66,6 +72,12 @@ type DeviceDTO struct {
 type DeviceNameDTO struct {
 	MACAddress string
 	Name       string
+}
+
+// DeviceIconDTO is the icon the user picked for a device.
+type DeviceIconDTO struct {
+	MACAddress string
+	Icon       string
 }
 
 type FlowDTO struct {

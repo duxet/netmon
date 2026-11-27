@@ -68,6 +68,7 @@ import {
   type Severity,
   type TrafficDirection,
 } from "@/lib/api"
+import { deviceIconInfo, isDeviceIcon } from "@/lib/device-icons"
 import { formatBytes } from "@/lib/format"
 import { countryName } from "@/lib/network"
 import {
@@ -82,6 +83,12 @@ const ONCE = "once"
 const PREVIEW_NAME = "New rule"
 
 type SetField = <K extends keyof RuleForm>(key: K, value: RuleForm[K]) => void
+
+/** The picture of a device in the list to pick from. */
+function KnownDeviceIcon({ icon }: { icon: string | null }) {
+  const { Icon } = deviceIconInfo(isDeviceIcon(icon) ? icon : null)
+  return <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+}
 
 function DevicePicker({
   id,
@@ -116,6 +123,7 @@ function DevicePicker({
               onCheckedChange={(checked) => onToggle(device.MACAddress, checked === true)}
             />
             <FieldLabel htmlFor={`${id}-mac-${device.MACAddress}`} className="min-w-0 font-normal">
+              <KnownDeviceIcon icon={device.Icon} />
               <span className="truncate">{knownDeviceLabel(device)}</span>
               <span className="shrink-0 font-mono text-xs text-muted-foreground">{device.MACAddress}</span>
             </FieldLabel>

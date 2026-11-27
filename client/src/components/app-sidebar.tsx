@@ -31,6 +31,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useRange } from "@/hooks/use-range"
+import { deviceIconInfo } from "@/lib/device-icons"
 import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
 import { alertsQuery, devicesQuery, networksQuery } from "@/lib/queries"
@@ -151,6 +152,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                 ))}
               {devices?.slice(0, 5).map((device) => {
                 const href = `/clients/${device.mac}`
+                const { Icon } = deviceIconInfo(device.icon)
                 return (
                   <SidebarMenuItem key={device.mac}>
                     <SidebarMenuButton asChild size="sm" isActive={pathname === href}>
@@ -159,6 +161,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                         params={{ clientId: device.mac }}
                         onClick={closeOnMobile}
                       >
+                        <Icon aria-hidden className={device.icon ? undefined : "text-muted-foreground"} />
                         <span className="truncate">{deviceLabel(device)}</span>
                       </Link>
                     </SidebarMenuButton>

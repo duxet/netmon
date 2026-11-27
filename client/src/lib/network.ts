@@ -1,4 +1,5 @@
-import type { Client, Endpoint, Flow, Traffic } from "@/lib/api"
+import type { Client, DeviceIconName, Endpoint, Flow, Traffic } from "@/lib/api"
+import { isDeviceIcon } from "@/lib/device-icons"
 
 export const EMPTY_TRAFFIC: Traffic = {
   InBytes: 0,
@@ -58,6 +59,8 @@ export interface Device {
   mac: string
   /** The name the user gave the device. */
   name: string | null
+  /** The icon the user picked for the device; null for none, or one this version doesn't know. */
+  icon: DeviceIconName | null
   /** First reverse-DNS name found across the device's addresses. */
   hostname: string | null
   /** Manufacturer of the network interface, from its MAC address. */
@@ -85,6 +88,7 @@ export function groupDevices(clients: Client[]): Device[] {
       device = {
         mac,
         name: client.Name,
+        icon: isDeviceIcon(client.Icon) ? client.Icon : null,
         hostname: null,
         vendor: client.Vendor,
         addresses: [],
