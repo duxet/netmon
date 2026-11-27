@@ -16,6 +16,7 @@ export const SETTING_LABELS: Record<string, string> = {
   oidc_client_secret: "Client secret",
   interface: "Capture interface",
   ignore_local_traffic: "Ignore local traffic",
+  log_level: "Log level",
 }
 
 /** Settings that are numbers of days. */
@@ -23,6 +24,16 @@ export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days"
 
 /** Settings that are on or off. */
 export const BOOLEAN_SETTINGS = new Set(["ignore_local_traffic"])
+
+/** Settings that are one of a few values, with what each means. */
+export const CHOICE_SETTINGS: Record<string, { value: string; label: string }[]> = {
+  log_level: [
+    { value: "debug", label: "Debug: also every request" },
+    { value: "info", label: "Info: also what netmon does" },
+    { value: "warn", label: "Warn: problems only" },
+    { value: "error", label: "Error: failures only" },
+  ],
+}
 
 /** The settings the OpenWrt package's service always sets from /etc/config/netmon. */
 export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days"])
@@ -53,6 +64,16 @@ export function isOn(setting: ConfigSetting, text: string): boolean {
  */
 export function switchedText(setting: ConfigSetting, on: boolean): string {
   return isOn(setting, savedText(setting)) === on ? savedText(setting) : String(on)
+}
+
+/**
+ * The text to put in a choice setting's field when a value is picked: none,
+ * which is no change, when that is what the file already makes it.
+ */
+export function chosenText(setting: ConfigSetting, value: string): string {
+  const saved = savedText(setting)
+  const current = saved.trim() === "" ? String(setting.Default) : saved.trim()
+  return current === value ? saved : value
 }
 
 export function isWholeNumber(text: string): boolean {

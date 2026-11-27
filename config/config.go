@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/duxet/netmon/logging"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/v2"
@@ -100,6 +101,10 @@ type Config struct {
 	// in the blocks of the networks set up in the web UI.
 	IgnoreLocalTraffic bool `koanf:"ignore_local_traffic"`
 
+	// LogLevel is the least severe kind of message that is logged: debug,
+	// info, warn or error. At debug, every request is logged.
+	LogLevel string `koanf:"log_level"`
+
 	// File is the YAML file the configuration was read from, empty when there
 	// was none.
 	File string `koanf:"-"`
@@ -116,6 +121,7 @@ func Defaults() Config {
 		PublicDNS:          "8.8.8.8:53",
 		AlertRetentionDays: 30,
 		IgnoreLocalTraffic: true,
+		LogLevel:           "info",
 	}
 }
 
@@ -266,6 +272,9 @@ func (c Config) validate() error {
 	}
 	if c.AlertRetentionDays < 0 {
 		return keyErrorf("alert_retention_days", "alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
+	}
+	if _, ok := logging.Parse(c.LogLevel); !ok {
+		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)
 	}
 	return c.validateOIDC()
 }

@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -103,7 +103,7 @@ func CollectTraffic(db *sql.DB, meter *live.Meter, opts Options) (*Collector, er
 
 func (c *pcapCollector) flush() {
 	if err := c.table.flushTo(c.db); err != nil {
-		log.Println("Failed to store flows:", err)
+		slog.Error("Failed to store flows", "err", err)
 		return
 	}
 	c.opts.flushed(time.Now())
@@ -154,11 +154,11 @@ func (c *pcapCollector) open() (*pcap.Handle, error) {
 
 	prefixes, err := localPrefixes(name)
 	if err != nil {
-		log.Printf("Failed to look up the networks of %s, hosts will have no MAC address: %v", name, err)
+		slog.Warn("Failed to look up the networks of the interface, hosts will have no MAC address", "interface", name, "err", err)
 	}
 	c.table.SetLocalPrefixes(prefixes)
 
-	log.Printf("Capturing packets on %s...", name)
+	slog.Info("Capturing packets", "interface", name)
 
 	return handle, nil
 }
@@ -190,7 +190,7 @@ func (c *pcapCollector) captureLoop(ctx context.Context, handle *pcap.Handle) {
 			return
 		}
 
-		log.Printf("Capture on %s stopped: %v", c.interfaceName(), err)
+		slog.Error("Capture stopped", "interface", c.interfaceName(), "err", err)
 
 		if handle = c.reopen(ctx); handle == nil {
 			return
@@ -213,7 +213,7 @@ func (c *pcapCollector) reopen(ctx context.Context) *pcap.Handle {
 			return handle
 		}
 
-		log.Println("Failed to restart capture:", err)
+		slog.Error("Failed to restart capture", "err", err)
 	}
 }
 

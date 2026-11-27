@@ -4,7 +4,7 @@ package collector
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/netip"
 	"sync"
 	"time"
@@ -83,7 +83,7 @@ func (s *liveSampler) run(ctx context.Context) {
 			// every second.
 			err := s.sample(now)
 			if err != nil && !failing {
-				log.Println("Failed to sample live traffic:", err)
+				slog.Error("Failed to sample live traffic", "err", err)
 			}
 			failing = err != nil
 		}

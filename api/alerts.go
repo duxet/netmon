@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -238,7 +238,7 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 		if err != nil {
 			return err
 		}
-		log.Printf("Added alert rule %d (%s)", created.ID, created.Type)
+		slog.Info("Added alert rule", "id", created.ID, "type", created.Type)
 		return c.Status(fiber.StatusCreated).JSON(toRuleDTO(created))
 	})
 
@@ -263,7 +263,7 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 		if err != nil {
 			return ruleNotFound(err)
 		}
-		log.Printf("Updated alert rule %d (%s)", updated.ID, updated.Type)
+		slog.Info("Updated alert rule", "id", updated.ID, "type", updated.Type)
 		return c.JSON(toRuleDTO(updated))
 	}
 
@@ -322,7 +322,7 @@ func registerAlertRoutes(app *fiber.App, db *sql.DB, alerts *alerting.Engine, co
 		if err := storage.DeleteRule(db, id, time.Now()); err != nil {
 			return ruleNotFound(err)
 		}
-		log.Printf("Removed alert rule %d", id)
+		slog.Info("Removed alert rule", "id", id)
 		return c.SendStatus(fiber.StatusNoContent)
 	})
 

@@ -1,7 +1,7 @@
 package lookup
 
 import (
-	"log"
+	"log/slog"
 	"net/netip"
 
 	"github.com/oschwald/geoip2-golang/v2"
@@ -23,7 +23,7 @@ func OpenASNs(path string) *ASNs {
 
 	db, err := geoip2.Open(path)
 	if err != nil {
-		log.Printf("ASN database %s not available, networks will not be shown: %v", path, err)
+		slog.Warn("ASN database not available, networks will not be shown", "path", path, "err", err)
 		return &ASNs{}
 	}
 
@@ -45,7 +45,7 @@ func (l *ASNs) Lookup(addr netip.Addr) (number uint, organization string, ok boo
 
 	asn, err := l.db.ASN(addr.Unmap())
 	if err != nil {
-		log.Printf("ASN lookup for %s failed: %v", addr, err)
+		slog.Debug("ASN lookup failed", "addr", addr, "err", err)
 		return 0, "", false
 	}
 	if asn.AutonomousSystemNumber == 0 {

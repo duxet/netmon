@@ -40,6 +40,7 @@ var infos = map[string]info{
 	"oidc_client_secret":   {locked: ssoLocked, secret: true},
 	"interface":            {},
 	"ignore_local_traffic": {live: true},
+	"log_level":            {live: true},
 }
 
 // InvalidError is a change the editor refuses, such as a value of the wrong

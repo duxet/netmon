@@ -3,7 +3,7 @@ package lookup
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/netip"
 	"sync"
@@ -137,7 +137,7 @@ func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 	case err == nil, errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		ttl = notFoundTTL
 	default:
-		log.Printf("Reverse DNS lookup for %s failed: %v", addr, err)
+		slog.Debug("Reverse DNS lookup failed", "addr", addr, "err", err)
 		ttl = failureTTL
 	}
 

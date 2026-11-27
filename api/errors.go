@@ -2,7 +2,7 @@ package api
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -23,7 +23,7 @@ func errorHandler(c fiber.Ctx, err error) error {
 		status = fiberErr.Code
 		message = fiberErr.Message
 	} else {
-		log.Printf("%s %s failed: %v", c.Method(), c.OriginalURL(), err)
+		slog.Error("Request failed", "method", c.Method(), "url", c.OriginalURL(), "err", err)
 	}
 
 	return c.Status(status).JSON(ErrorDTO{Error: message})

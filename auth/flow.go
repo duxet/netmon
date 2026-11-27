@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -98,7 +98,7 @@ func (a *Authenticator) login(c fiber.Ctx) error {
 
 	p, err := a.discover()
 	if err != nil {
-		log.Printf("Sign-in is unavailable, as the OpenID Connect provider can't be reached: %v", err)
+		slog.Error("Sign-in is unavailable, as the OpenID Connect provider can't be reached", "err", err)
 		return a.page(c, fiber.StatusServiceUnavailable, "Sign-in is unavailable",
 			"netmon can't reach the identity provider right now. Try again in a moment.", "Try again", loginURL(next))
 	}
@@ -136,7 +136,7 @@ func (a *Authenticator) callback(c fiber.Ctx) error {
 	}
 
 	if code := c.Query("error"); code != "" {
-		log.Printf("The OpenID Connect provider refused the sign-in: %q: %q", code, c.Query("error_description"))
+		slog.Warn("The OpenID Connect provider refused the sign-in", "error", code, "description", c.Query("error_description"))
 		// What the provider says is not shown: anyone can send someone a
 		// link to this page with a message of their choosing in it.
 		return a.page(c, fiber.StatusForbidden, "Sign-in was refused",
@@ -152,7 +152,7 @@ func (a *Authenticator) callback(c fiber.Ctx) error {
 
 	p, err := a.discover()
 	if err != nil {
-		log.Printf("Sign-in is unavailable, as the OpenID Connect provider can't be reached: %v", err)
+		slog.Error("Sign-in is unavailable, as the OpenID Connect provider can't be reached", "err", err)
 		return a.page(c, fiber.StatusServiceUnavailable, "Sign-in is unavailable",
 			"netmon can't reach the identity provider right now. Try again in a moment.", "Try again", retry)
 	}
@@ -162,27 +162,27 @@ func (a *Authenticator) callback(c fiber.Ctx) error {
 
 	token, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(attempt.Verifier))
 	if err != nil {
-		log.Printf("Exchanging the sign-in code failed: %v", err)
+		slog.Error("Exchanging the sign-in code failed", "err", err)
 		return a.page(c, fiber.StatusBadGateway, "Sign-in failed",
 			"The identity provider didn't accept the sign-in. Try again.", "Try again", retry)
 	}
 
 	user, err := a.verify(ctx, p, token, attempt.Nonce)
 	if err != nil {
-		log.Printf("The ID token was rejected: %v", err)
+		slog.Warn("The ID token was rejected", "err", err)
 		return a.page(c, fiber.StatusUnauthorized, "Sign-in failed",
 			"The identity provider's answer couldn't be trusted. Try again.", "Try again", retry)
 	}
 
 	// Whoever had this browser before is signed out of it.
 	if err := a.endSession(c); err != nil {
-		log.Printf("Ending the previous session failed: %v", err)
+		slog.Error("Ending the previous session failed", "err", err)
 	}
 	if err := a.startSession(c, *user); err != nil {
 		return err
 	}
 
-	log.Printf("Signed in %s", user.Subject)
+	slog.Info("Signed in", "subject", user.Subject)
 	return c.Redirect().Status(fiber.StatusFound).To(attempt.Next)
 }
 

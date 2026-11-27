@@ -3,7 +3,7 @@ package auth
 import (
 	"bytes"
 	"html/template"
-	"log"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -41,7 +41,7 @@ func (a *Authenticator) page(c fiber.Ctx, status int, title, message, label, hre
 	var body bytes.Buffer
 	err := pageTemplate.Execute(&body, struct{ Title, Message, Label, Href string }{title, message, label, href})
 	if err != nil {
-		log.Printf("Rendering the %q page failed: %v", title, err)
+		slog.Error("Rendering a page failed", "page", title, "err", err)
 		return err
 	}
 

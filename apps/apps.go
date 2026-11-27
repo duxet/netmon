@@ -13,7 +13,7 @@
 package apps
 
 import (
-	"log"
+	"log/slog"
 	"net/netip"
 	"sync"
 
@@ -152,7 +152,7 @@ func NewClassifierWithASNs(apps []App, asnDB *lookup.ASNs) *Classifier {
 		for _, p := range app.Prefixes {
 			prefix, err := netip.ParsePrefix(p)
 			if err != nil {
-				log.Printf("Invalid prefix %q for app %s: %v", p, app.Name, err)
+				slog.Error("Invalid prefix for app", "prefix", p, "app", app.Name, "err", err)
 				continue
 			}
 			c.prefixes = append(c.prefixes, prefixEntry{prefix.Masked(), app.Name})

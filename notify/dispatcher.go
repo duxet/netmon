@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -153,7 +153,7 @@ func (d *Dispatcher) Dispatch(notifications []Notification) {
 
 	channels, err := storage.ListChannels(d.db)
 	if err != nil {
-		log.Println("Failed to load notification channels:", err)
+		slog.Error("Failed to load notification channels", "err", err)
 		return
 	}
 
@@ -232,7 +232,7 @@ func (d *Dispatcher) enqueue(j job) {
 	if closed {
 		reason = "netmon was shutting down"
 	}
-	log.Printf("Not sending to notification channel %d: %s", j.channel.ID, reason)
+	slog.Info("Not sending to notification channel", "channel", j.channel.ID, "reason", reason)
 	d.record(j, Failed, 0, reason)
 }
 
@@ -307,7 +307,7 @@ func (d *Dispatcher) deliver(j job) {
 	}
 
 	if err != nil {
-		log.Printf("Failed to notify channel %d (%s) after %d attempts: %v", j.channel.ID, j.channel.Service, attempts, err)
+		slog.Error("Failed to notify channel", "channel", j.channel.ID, "service", j.channel.Service, "attempts", attempts, "err", err)
 		d.record(j, Failed, attempts, err.Error())
 		return
 	}
@@ -333,7 +333,7 @@ func (d *Dispatcher) record(j job, status string, attempts int, reason string) {
 			CreatedAt: now,
 		})
 		if err != nil {
-			log.Println("Failed to record a notification:", err)
+			slog.Error("Failed to record a notification", "err", err)
 		}
 	}
 }

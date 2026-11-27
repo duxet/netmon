@@ -3,7 +3,7 @@ package collector
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/netip"
 	"sync"
 
@@ -321,7 +321,7 @@ func (t *flowTable) flushTo(db *sql.DB) error {
 	rows, dropped := t.Flush()
 
 	if dropped > 0 {
-		log.Printf("Flow table is full, ignored %d packets of new flows", dropped)
+		slog.Warn("Flow table is full, ignored the packets of new flows", "packets", dropped)
 	}
 
 	return insertFlows(db, rows)

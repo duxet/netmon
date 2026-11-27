@@ -21,12 +21,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { ApiError, errorText, updateConfig, type ConfigSetting, type Configuration } from "@/lib/api"
 import {
   BOOLEAN_SETTINGS,
   changesOf,
+  CHOICE_SETTINGS,
+  chosenText,
   formatDays,
   isOn,
   isWholeNumber,
@@ -136,6 +139,52 @@ function SwitchField({
         <SettingNotes setting={setting} edited={edited} />
         {error && <FieldError>{error}</FieldError>}
       </FieldContent>
+    </Field>
+  )
+}
+
+function ChoiceField({
+  setting,
+  description,
+  draft,
+  onChange,
+  error,
+}: Omit<FieldProps, "placeholder" | "unit">) {
+  const id = React.useId()
+  const editable = !setting.Env && !setting.Locked
+  const text = editable ? (draft ?? savedText(setting)) : String(setting.Value)
+  const edited = draft !== undefined && draft.trim() !== savedText(setting).trim()
+  const value = text.trim() === "" ? String(setting.Default) : text.trim()
+
+  return (
+    <Field data-invalid={error ? true : undefined}>
+      <div className="flex flex-wrap items-center gap-2">
+        <FieldLabel htmlFor={id}>{settingLabel(setting.Key)}</FieldLabel>
+        <code className="text-xs text-muted-foreground">{setting.Key}</code>
+        <span className="ml-auto flex items-center gap-1">
+          {edited && <Badge variant="outline">Unsaved</Badge>}
+          <SourceBadge setting={setting} />
+        </span>
+      </div>
+      <Select
+        value={value}
+        disabled={!editable}
+        onValueChange={(chosen) => onChange(setting.Key, chosenText(setting, chosen))}
+      >
+        <SelectTrigger id={id} className="w-full max-w-72" aria-invalid={error ? true : undefined}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper">
+          {CHOICE_SETTINGS[setting.Key].map((choice) => (
+            <SelectItem key={choice.value} value={choice.value}>
+              {choice.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FieldDescription>{description}</FieldDescription>
+      <SettingNotes setting={setting} edited={edited} />
+      {error && <FieldError>{error}</FieldError>}
     </Field>
   )
 }
@@ -320,6 +369,17 @@ function ConfigurationForm({ config }: { config: Configuration }) {
   const field = (key: string, props: Omit<FieldProps, "setting" | "draft" | "onChange" | "error">) => {
     const setting = byKey(key)
     if (!setting) return null
+    if (CHOICE_SETTINGS[key]) {
+      return (
+        <ChoiceField
+          setting={setting}
+          draft={drafts[key]}
+          onChange={edit}
+          error={fieldError === key ? errorText(save.error) : undefined}
+          description={props.description}
+        />
+      )
+    }
     if (BOOLEAN_SETTINGS.has(key)) {
       return (
         <SwitchField
@@ -417,6 +477,12 @@ function ConfigurationForm({ config }: { config: Configuration }) {
         {field("public_url", {
           description: "The address people open netmon at, which messages link to.",
           placeholder: config.DefaultPublicURL ? `Default: ${config.DefaultPublicURL}` : undefined,
+        })}
+      </Section>
+
+      <Section title="Logging" description="What netmon writes to its log, on standard error.">
+        {field("log_level", {
+          description: "The least severe messages that are logged. Debug also logs every request to the API and web UI.",
         })}
       </Section>
 

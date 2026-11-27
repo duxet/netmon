@@ -360,8 +360,22 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
+	}
+}
+
+func TestLogLevel(t *testing.T) {
+	for _, level := range []string{"debug", "info", "WARN", "error"} {
+		t.Setenv("NETMON_LOG_LEVEL", level)
+		if cfg, err := parse("", nil, false); err != nil || cfg.LogLevel != level {
+			t.Errorf("log_level %s: %v, %+v", level, err, cfg)
+		}
+	}
+
+	t.Setenv("NETMON_LOG_LEVEL", "verbose")
+	if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "log_level") {
+		t.Errorf("log_level verbose: %v, want an error about log_level", err)
 	}
 }

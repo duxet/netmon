@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http/httptest"
 	"net/netip"
@@ -206,5 +208,25 @@ func TestWebUIRoutes(t *testing.T) {
 		if status != tc.status || !strings.Contains(body, tc.body) {
 			t.Errorf("GET %s = %d %q, want %d containing %q", tc.path, status, body, tc.status, tc.body)
 		}
+	}
+}
+
+func TestRequestsAreLoggedAtDebugLevel(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	var logged bytes.Buffer
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	get(t, app, "/api/stats", nil)
+	if logged.Len() != 0 {
+		t.Errorf("logged %q at info level, want nothing", logged.String())
+	}
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	get(t, app, "/api/stats", nil)
+	if line := logged.String(); !strings.Contains(line, "msg=Request") || !strings.Contains(line, "url=/api/stats") || !strings.Contains(line, "status=200") {
+		t.Errorf("logged %q at debug level, want the request", line)
 	}
 }

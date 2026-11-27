@@ -31,7 +31,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   (no `CAP_NET_ADMIN`, say) or `nf_conntrack_acct` is 0, netmon only logs it and
   shows an empty UI. Show a banner with the reason and the time of the last round
   that was recorded.
-- [ ] Log less. There are about 80 `log.Print` calls, among them one per API
+- [x] Log less. There are about 80 `log.Print` calls, among them one per API
   request ("Returning list of flows") and one per failed reverse DNS lookup
   (`lookup/hostnames.go`), which flood `logd` on OpenWrt. Switch to `log/slog`,
   with a `log_level` setting.

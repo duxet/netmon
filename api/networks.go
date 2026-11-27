@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -215,7 +215,7 @@ func registerNetworkRoutes(app *fiber.App, db *sql.DB) {
 		if err != nil {
 			return err
 		}
-		log.Printf("Added network %d (%s)", record.ID, record.Name)
+		slog.Info("Added network", "id", record.ID, "name", record.Name)
 
 		return c.Status(fiber.StatusCreated).JSON(toNetworkDTO(record))
 	})
@@ -314,7 +314,7 @@ func registerNetworkRoutes(app *fiber.App, db *sql.DB) {
 		if err != nil {
 			return networkNotFound(err)
 		}
-		log.Printf("Updated network %d (%s)", record.ID, record.Name)
+		slog.Info("Updated network", "id", record.ID, "name", record.Name)
 
 		return c.JSON(toNetworkDTO(record))
 	})
@@ -328,7 +328,7 @@ func registerNetworkRoutes(app *fiber.App, db *sql.DB) {
 		if err := storage.DeleteNetwork(db, id); err != nil {
 			return networkNotFound(err)
 		}
-		log.Printf("Removed network %d", id)
+		slog.Info("Removed network", "id", id)
 
 		return c.SendStatus(fiber.StatusNoContent)
 	})

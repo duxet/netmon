@@ -13,12 +13,13 @@ import (
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/live"
+	"github.com/duxet/netmon/logging"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/networks"
 	"github.com/duxet/netmon/notify"
 	"github.com/duxet/netmon/storage"
 	"io/fs"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -44,10 +45,11 @@ func main() {
 
 	cfg, err := config.Load(*configFile)
 	if err != nil {
-		log.Fatal(err)
+		fatal("Can't start", err)
 	}
+	logging.Setup(cfg.LogLevel)
 	if cfg.File != "" {
-		log.Printf("Read configuration from %s", cfg.File)
+		slog.Info("Read configuration", "file", cfg.File)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,13 +61,13 @@ func main() {
 		for _, query := range bootQueries {
 			_, err := execer.ExecContext(context.Background(), query, nil)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		log.Fatal(err)
+		fatal("Can't open the database", err)
 	}
 
 	// db, err := sql.Open("duckdb", cfg.Database)
@@ -79,14 +81,16 @@ func main() {
 
 	n, err := migrate.Exec(db, "sqlite3", migrations, migrate.Up)
 	if err != nil {
-		log.Fatal(err)
+		fatal("Can't update the database", err)
 	}
-	log.Printf("Applied %d migrations", n)
+	if n > 0 {
+		slog.Info("Updated the database", "migrations", n)
+	}
 
 	// Catch up on devices in flows written before a crash, before compaction
 	// rolls those rows up.
 	if err := storage.SyncDevices(db, time.Time{}); err != nil {
-		log.Println("Failed to update devices:", err)
+		slog.Error("Failed to update devices", "err", err)
 	}
 
 	countries := lookup.OpenCountries(cfg.GeoIPCountry)
@@ -122,7 +126,7 @@ func main() {
 	readNetworks := func() {
 		matcher, err := storage.NetworkMatcher(db)
 		if err != nil {
-			log.Println("Failed to read networks:", err)
+			slog.Error("Failed to read networks", "err", err)
 			return
 		}
 		localTraffic.SetMatcher(matcher)
@@ -134,6 +138,7 @@ func main() {
 	var compactNow func()
 	applied := *cfg
 	editor := config.NewEditor(*configFile, *cfg, func(next config.Config) {
+		logging.SetLevel(next.LogLevel)
 		hostnames.SetServers(next.LocalDNS, next.PublicDNS)
 		engine.SetPublicURL(next.BaseURL())
 		localTraffic.SetIgnored(next.IgnoreLocalTraffic)
@@ -158,12 +163,12 @@ func main() {
 		Ignore:    localTraffic.Ignored,
 	})
 	if err != nil {
-		log.Println("Collector failed to start:", err)
+		slog.Error("Collector failed to start", "err", err)
 	}
 
 	assets, err := fs.Sub(clientAssets, "client/dist")
 	if err != nil {
-		log.Fatal(err)
+		fatal("Can't serve the web UI", err)
 	}
 
 	// With an OpenID Connect provider configured, the API and web UI need a
@@ -177,16 +182,16 @@ func main() {
 			BaseURL:      cfg.BaseURL(),
 		})
 		if err != nil {
-			log.Fatal(err)
+			fatal("Can't set up single sign-on", err)
 		}
-		log.Printf("Signing in with %s; the provider sends people back to %s/auth/callback", cfg.OIDCIssuer, cfg.BaseURL())
+		slog.Info("Signing in with OpenID Connect", "issuer", cfg.OIDCIssuer, "callback", cfg.BaseURL()+"/auth/callback")
 
 		// Not having reached the provider is no reason not to start: flows are
 		// recorded all the same, and people can sign in once it is there. Say so
 		// now, though, instead of when someone tries.
 		go func() {
 			if err := authn.Check(); err != nil {
-				log.Printf("Can't reach the OpenID Connect provider, so nobody can sign in until it is: %v", err)
+				slog.Warn("Can't reach the OpenID Connect provider, so nobody can sign in until it is", "err", err)
 			}
 		}()
 	}
@@ -197,7 +202,7 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		log.Println("Shutting down gracefully")
+		slog.Info("Shutting down gracefully")
 
 		if coll != nil {
 			coll.Shutdown()
@@ -210,9 +215,9 @@ func main() {
 	}()
 
 	// Listen returns nil after a graceful shutdown; returning normally (rather
-	// than log.Fatal) lets the deferred db.Close run.
+	// than exiting) lets the deferred db.Close run.
 	if err := app.Listen(cfg.Listen); err != nil {
-		log.Fatal(err)
+		fatal("Can't serve the API and web UI", err)
 	}
 
 	<-compactionDone
@@ -234,22 +239,21 @@ func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.
 		now := time.Now()
 		result, err := storage.Compact(db, now, retention)
 		if err != nil {
-			log.Println("Failed to compact flows:", err)
+			slog.Error("Failed to compact flows", "err", err)
 		} else if result != (storage.CompactResult{}) {
-			log.Printf("Compacted flows: %d rows rolled up into %d hourly rows, %d expired",
-				result.Removed, result.RolledUp, result.Expired)
+			slog.Info("Compacted flows", "rows", result.Removed, "hourly_rows", result.RolledUp, "expired", result.Expired)
 		}
 
 		expired, err := storage.ExpireAlerts(db, now, alertRetention)
 		if err != nil {
-			log.Println("Failed to expire alerts:", err)
+			slog.Error("Failed to expire alerts", "err", err)
 		} else if expired > 0 {
-			log.Printf("Expired %d resolved alerts", expired)
+			slog.Info("Expired resolved alerts", "alerts", expired)
 		}
 
 		// Expired sessions don't work anymore either way; this only tidies up.
 		if _, err := storage.ExpireSessions(db, now); err != nil {
-			log.Println("Failed to expire sessions:", err)
+			slog.Error("Failed to expire sessions", "err", err)
 		}
 	}
 
@@ -277,4 +281,10 @@ func compactPeriodically(ctx context.Context, db *sql.DB, current func() config.
 		default:
 		}
 	}
+}
+
+// fatal logs why netmon can't go on, and exits.
+func fatal(msg string, err error) {
+	slog.Error(msg, "err", err)
+	os.Exit(1)
 }

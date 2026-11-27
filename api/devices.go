@@ -2,7 +2,7 @@ package api
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"net/netip"
 	"slices"
 	"strings"
@@ -77,8 +77,6 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 
 	// Every device ever seen, most recently seen first.
 	app.Get("/api/devices", func(c fiber.Ctx) error {
-		log.Println("Returning list of devices")
-
 		records, err := storage.GetDevices(db)
 		if err != nil {
 			return err
@@ -144,7 +142,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		if err := storage.SetDeviceName(db, mac.HardwareAddr, name); err != nil {
 			return err
 		}
-		log.Printf("Named device %s %q", mac, name)
+		slog.Info("Named device", "mac", mac, "name", name)
 
 		return c.JSON(DeviceNameDTO{MACAddress: mac.String(), Name: name})
 	})
@@ -158,7 +156,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		if err := storage.DeleteDeviceName(db, mac.HardwareAddr); err != nil {
 			return err
 		}
-		log.Printf("Removed the name of device %s", mac)
+		slog.Info("Removed the name of device", "mac", mac)
 
 		return c.SendStatus(fiber.StatusNoContent)
 	})
@@ -182,7 +180,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		if err := storage.SetDeviceIcon(db, mac.HardwareAddr, icon); err != nil {
 			return err
 		}
-		log.Printf("Gave device %s the icon %q", mac, icon)
+		slog.Info("Gave device an icon", "mac", mac, "icon", icon)
 
 		return c.JSON(DeviceIconDTO{MACAddress: mac.String(), Icon: icon})
 	})
@@ -196,7 +194,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		if err := storage.DeleteDeviceIcon(db, mac.HardwareAddr); err != nil {
 			return err
 		}
-		log.Printf("Removed the icon of device %s", mac)
+		slog.Info("Removed the icon of device", "mac", mac)
 
 		return c.SendStatus(fiber.StatusNoContent)
 	})

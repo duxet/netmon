@@ -343,6 +343,7 @@ a typo doesn't go unnoticed.
 | `oidc_client_secret`   | `NETMON_OIDC_CLIENT_SECRET`   | none                     | Client secret; leave out for a public client                       |
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
+| `log_level`            | `NETMON_LOG_LEVEL`            | `info`                   | The least severe messages logged: `debug`, `info`, `warn` or `error` |
 
 For example, in `netmon.yaml`:
 
@@ -372,6 +373,10 @@ their notifications are deleted after `NETMON_ALERT_RETENTION_DAYS` (0 keeps the
 alerts still firing are kept. `NETMON_PUBLIC_URL` is where notifications link to,
 e.g. `http://router.lan:2137`.
 
+netmon logs to standard error, one line per message with its details as `key=value`
+pairs. `info` logs what netmon does, such as settings saved or devices renamed, and
+problems; `debug` also logs every request, and lookups that failed.
+
 ### Local traffic
 
 By default netmon only records traffic to and from the internet, and leaves out
@@ -395,8 +400,8 @@ touched, so comments, blank lines and the rest of the file stay as they are; a s
 taken back to its default is taken out of the file. A change is checked as netmon would
 check the file when starting, and nothing is saved when it fails.
 
-- The DNS servers, the retention of flows and alerts, the public URL and ignoring local
-  traffic apply right away.
+- The DNS servers, the retention of flows and alerts, the public URL, ignoring local
+  traffic and the log level apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
   database and the capture interface apply when netmon starts again, which the page
   reminds you of.

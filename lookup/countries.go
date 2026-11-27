@@ -4,7 +4,7 @@
 package lookup
 
 import (
-	"log"
+	"log/slog"
 	"net/netip"
 
 	"github.com/duxet/netmon/common"
@@ -26,7 +26,7 @@ func OpenCountries(path string) *Countries {
 
 	db, err := geoip2.Open(path)
 	if err != nil {
-		log.Printf("GeoIP database %s not available, countries will not be shown: %v", path, err)
+		slog.Warn("GeoIP database not available, countries will not be shown", "path", path, "err", err)
 		return &Countries{}
 	}
 
@@ -42,7 +42,7 @@ func (l *Countries) Country(ipAddress common.IPAddress) *string {
 
 	country, err := l.db.Country(ipAddress.Unmap())
 	if err != nil {
-		log.Printf("GeoIP lookup for %s failed: %v", ipAddress, err)
+		slog.Debug("GeoIP lookup failed", "addr", ipAddress, "err", err)
 		return nil
 	}
 
@@ -67,7 +67,7 @@ func (l *Countries) Lookup(addr netip.Addr) (code, name string, ok bool) {
 
 	country, err := l.db.Country(addr.Unmap())
 	if err != nil {
-		log.Printf("GeoIP lookup for %s failed: %v", addr, err)
+		slog.Debug("GeoIP lookup failed", "addr", addr, "err", err)
 		return "", "", false
 	}
 	if country.Country.ISOCode == "" {

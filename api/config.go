@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"runtime"
 	"slices"
 	"strings"
@@ -99,7 +99,7 @@ func registerConfigRoutes(app *fiber.App, editor *config.Editor) {
 		case errors.As(err, &invalid):
 			return c.Status(fiber.StatusBadRequest).JSON(ConfigErrorDTO{Error: invalid.Error(), Setting: invalid.Key})
 		case err != nil:
-			log.Printf("Saving the configuration failed: %v", err)
+			slog.Error("Saving the configuration failed", "err", err)
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
@@ -108,7 +108,7 @@ func registerConfigRoutes(app *fiber.App, editor *config.Editor) {
 			keys = append(keys, key)
 		}
 		slices.Sort(keys)
-		log.Printf("Saved %s to %s", strings.Join(keys, ", "), state.File)
+		slog.Info("Saved settings", "settings", strings.Join(keys, ", "), "file", state.File)
 
 		return c.JSON(toConfigDTO(state))
 	})

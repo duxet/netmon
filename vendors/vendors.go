@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	_ "embed"
-	"log"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -33,7 +33,7 @@ var load = sync.OnceValue(func() table {
 
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		log.Printf("MAC vendor data is unreadable: %v", err)
+		slog.Error("MAC vendor data is unreadable", "err", err)
 		return t
 	}
 	scanner := bufio.NewScanner(zr)
@@ -46,7 +46,7 @@ var load = sync.OnceValue(func() table {
 		t.byDigits[len(prefix)][value] = name
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("MAC vendor data is unreadable: %v", err)
+		slog.Error("MAC vendor data is unreadable", "err", err)
 	}
 	return t
 })

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -102,10 +102,10 @@ func sendTest(c fiber.Ctx, url, name, what string) error {
 		if errors.Is(err, notify.ErrInvalidURL) {
 			return badRequest(err.Error())
 		}
-		log.Printf("Test notification %s failed: %v", what, err)
+		slog.Warn("Test notification failed", "to", what, "err", err)
 		return fiber.NewError(fiber.StatusBadGateway, "sending the test message failed: "+err.Error())
 	}
-	log.Printf("Sent a test notification %s", what)
+	slog.Info("Sent a test notification", "to", what)
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
@@ -158,7 +158,7 @@ func registerNotificationRoutes(app *fiber.App, db *sql.DB) {
 		if err != nil {
 			return err
 		}
-		log.Printf("Added notification channel %d (%s)", record.ID, record.Service)
+		slog.Info("Added notification channel", "id", record.ID, "service", record.Service)
 
 		return c.Status(fiber.StatusCreated).JSON(toChannelDTO(record))
 	})
@@ -226,7 +226,7 @@ func registerNotificationRoutes(app *fiber.App, db *sql.DB) {
 		if err != nil {
 			return channelNotFound(err)
 		}
-		log.Printf("Updated notification channel %d (%s)", record.ID, record.Service)
+		slog.Info("Updated notification channel", "id", record.ID, "service", record.Service)
 
 		return c.JSON(toChannelDTO(record))
 	})
@@ -240,7 +240,7 @@ func registerNotificationRoutes(app *fiber.App, db *sql.DB) {
 		if err := storage.DeleteChannel(db, id); err != nil {
 			return channelNotFound(err)
 		}
-		log.Printf("Removed notification channel %d", id)
+		slog.Info("Removed notification channel", "id", id)
 
 		return c.SendStatus(fiber.StatusNoContent)
 	})

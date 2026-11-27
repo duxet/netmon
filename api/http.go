@@ -3,11 +3,12 @@ package api
 import (
 	"database/sql"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/netip"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/apps"
@@ -97,7 +98,7 @@ func toFlowDTOs(flows []orientedFlow, countries *lookup.Countries, asns *lookup.
 func spaFallback(assets fs.FS) fiber.Handler {
 	index, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
-		log.Printf("Web UI not available (build it with `npm run build` in client/): %v", err)
+		slog.Warn("Web UI not available (build it with `npm run build` in client/)", "err", err)
 	}
 
 	return func(c fiber.Ctx) error {
@@ -107,6 +108,22 @@ func spaFallback(assets fs.FS) fiber.Handler {
 		c.Type("html")
 		return c.Status(fiber.StatusOK).Send(index)
 	}
+}
+
+// logRequests logs every request, at the debug level.
+func logRequests(c fiber.Ctx) error {
+	if !slog.Default().Enabled(c.Context(), slog.LevelDebug) {
+		return c.Next()
+	}
+
+	start := time.Now()
+	err := c.Next()
+	attrs := []any{"method", c.Method(), "url", c.OriginalURL(), "status", c.Response().StatusCode(), "duration", time.Since(start)}
+	if err != nil {
+		attrs = append(attrs, "err", err)
+	}
+	slog.Debug("Request", attrs...)
+	return err
 }
 
 // CreateHTTPApp serves the API and the web UI, whose built files assets holds
@@ -126,6 +143,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: errorHandler})
 
 	app.Use(cors.New(cors.Config{ExposeHeaders: []string{totalCountHeader}}))
+	app.Use(logRequests)
 
 	// Everything registered after this needs a session.
 	if options.Auth != nil {
@@ -152,8 +170,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	}
 
 	app.Get("/api/flows", func(c fiber.Ctx) error {
-		log.Println("Returning list of flows")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -165,8 +181,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	// Totals and the largest remote hosts, services and countries of the
 	// flows matching the filter, seen from the filtered client.
 	app.Get("/api/flows/summary", func(c fiber.Ctx) error {
-		log.Println("Returning flow summary")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -186,8 +200,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	app.Get("/api/stats", func(c fiber.Ctx) error {
-		log.Println("Returning stats")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -206,8 +218,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	app.Get("/api/apps", func(c fiber.Ctx) error {
-		log.Println("Returning traffic per app")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -224,8 +234,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	// Traffic per hour. With mac or ip it is counted from that client's
 	// side; with app, only traffic to that app is counted.
 	app.Get("/api/traffic-measurements", func(c fiber.Ctx) error {
-		log.Println("Returning traffic measurements")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -262,8 +270,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 
 	app.Get("/api/clients", func(c fiber.Ctx) error {
-		log.Println("Returning list of clients")
-
 		filter, err := parseFlowsFilter(c, db)
 		if err != nil {
 			return err
@@ -340,8 +346,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 	// Same as /api/flows, for a client identified by MAC or IP address.
 	app.Get("/api/clients/:clientId/flows", func(c fiber.Ctx) error {
-		log.Println("Returning list of client flows")
-
 		filter, err := parseClientFilter(c, c.Params("clientId"))
 		if err != nil {
 			return err
@@ -374,8 +378,6 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	}
 
 	app.Post("/api/hostnames", func(c fiber.Ctx) error {
-		log.Println("Returning hostnames")
-
 		r := new(HostnamesBody)
 		if err := c.Bind().Body(r); err != nil {
 			return badRequest("invalid request body: " + err.Error())

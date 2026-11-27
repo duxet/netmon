@@ -11,7 +11,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
-	"log"
+	"log/slog"
 	"maps"
 	"net"
 	"net/netip"
@@ -273,7 +273,7 @@ func listenDestroyed() (*destroyListener, error) {
 	}
 
 	if err := conn.SetReadBuffer(eventReadBuffer); err != nil {
-		log.Println("Failed to enlarge the buffer for Netfilter events:", err)
+		slog.Warn("Failed to enlarge the buffer for Netfilter events", "err", err)
 	}
 
 	events := make(chan conntrack.Event, eventQueue)
@@ -463,7 +463,7 @@ func (n *netfilterCollector) record() error {
 // round records the traffic since the last round, and reports it.
 func (n *netfilterCollector) round() {
 	if err := n.record(); err != nil {
-		log.Println("Failed to process flows:", err)
+		slog.Error("Failed to process flows", "err", err)
 		return
 	}
 	n.opts.flushed(time.Now())
@@ -485,7 +485,7 @@ func (n *netfilterCollector) listenUntilDone(ctx context.Context, l *destroyList
 
 		failures++
 		if now := time.Now(); now.Sub(lastReport) >= listenFailureReport {
-			log.Printf("Lost Netfilter events about connections closing, so some of their traffic isn't recorded (failures since last reported: %d); listening again: %v", failures, err)
+			slog.Warn("Lost Netfilter events about connections closing, so some of their traffic isn't recorded; listening again", "failures", failures, "err", err)
 			lastReport, failures = now, 0
 		}
 
@@ -494,7 +494,7 @@ func (n *netfilterCollector) listenUntilDone(ctx context.Context, l *destroyList
 			if l, err = n.listen(); err == nil {
 				break
 			}
-			log.Printf("Failed to listen for Netfilter events, trying again in %s: %v", retry, err)
+			slog.Error("Failed to listen for Netfilter events", "retry_in", retry, "err", err)
 
 			select {
 			case <-ctx.Done():
@@ -528,7 +528,7 @@ func (n *netfilterCollector) start(l *destroyListener) (*Collector, error) {
 		defer close(listening)
 		n.listenUntilDone(listenCtx, l)
 	}()
-	log.Println("Listening for Netfilter events...")
+	slog.Info("Listening for Netfilter events")
 
 	sampleCtx, stopSampling := context.WithCancel(context.Background())
 	go n.sampler.run(sampleCtx)

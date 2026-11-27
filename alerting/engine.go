@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -134,12 +134,12 @@ func (e *Engine) Evaluate(ctx context.Context) {
 	now := e.opts.Now()
 
 	if err := storage.SyncDevices(e.db, now.Add(-deviceSyncWindow)); err != nil {
-		log.Println("Failed to update devices:", err)
+		slog.Error("Failed to update devices", "err", err)
 	}
 
 	rules, err := storage.ListRules(e.db)
 	if err != nil {
-		log.Println("Failed to load alert rules:", err)
+		slog.Error("Failed to load alert rules", "err", err)
 		return
 	}
 	rules = slices.DeleteFunc(rules, func(r storage.RuleRecord) bool { return !r.Enabled })
@@ -149,7 +149,7 @@ func (e *Engine) Evaluate(ctx context.Context) {
 
 	devices, err := e.devices()
 	if err != nil {
-		log.Println("Failed to load devices:", err)
+		slog.Error("Failed to load devices", "err", err)
 		return
 	}
 
@@ -158,16 +158,16 @@ func (e *Engine) Evaluate(ctx context.Context) {
 		ns, err := e.evaluateRule(ctx, rule, devices, now)
 		switch {
 		case errors.Is(err, ErrNoGeoIP):
-			e.noGeoIP.Do(func() { log.Printf("Alert rule %d (%s) can't run: %v", rule.ID, rule.Type, err) })
+			e.noGeoIP.Do(func() { slog.Warn("Alert rule can't run", "rule", rule.ID, "type", rule.Type, "err", err) })
 			continue
 		case err != nil:
-			log.Printf("Alert rule %d (%s) failed: %v", rule.ID, rule.Type, err)
+			slog.Error("Alert rule failed", "rule", rule.ID, "type", rule.Type, "err", err)
 			continue
 		}
 		notifications = append(notifications, ns...)
 
 		if err := storage.MarkRuleEvaluated(e.db, rule.ID, now); err != nil {
-			log.Println(err)
+			slog.Error("Failed to record that an alert rule ran", "rule", rule.ID, "err", err)
 		}
 	}
 
