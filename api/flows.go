@@ -186,23 +186,30 @@ func pageFlows(flows []orientedFlow, page FlowsPage, hasClient bool) ([]oriented
 	return matching[start:end], total
 }
 
-// groupFlows sums oriented flows per key (skipping flows whose key is "")
-// and returns the top largest groups plus the sum of the rest.
-func groupFlows(flows []orientedFlow, top int, keyOf func(orientedFlow) string) GroupsDTO {
+// groupTraffic is traffic to add to a group.
+type groupTraffic struct {
+	key         string
+	download    uint64
+	upload      uint64
+	connections uint64
+}
+
+// topGroups sums traffic per key (skipping the key "") and returns the top
+// largest groups plus the sum of the rest.
+func topGroups(items []groupTraffic, top int) GroupsDTO {
 	byKey := map[string]*GroupDTO{}
-	for _, flow := range flows {
-		key := keyOf(flow)
-		if key == "" {
+	for _, item := range items {
+		if item.key == "" {
 			continue
 		}
-		group, ok := byKey[key]
+		group, ok := byKey[item.key]
 		if !ok {
-			group = &GroupDTO{Key: key}
-			byKey[key] = group
+			group = &GroupDTO{Key: item.key}
+			byKey[item.key] = group
 		}
-		group.Download += flow.download
-		group.Upload += flow.upload
-		group.Connections++
+		group.Download += item.download
+		group.Upload += item.upload
+		group.Connections += item.connections
 	}
 
 	groups := make([]GroupDTO, 0, len(byKey))
@@ -251,54 +258,53 @@ func asnOf(asns *lookup.ASNs, ip common.IPAddress) *ASNDTO {
 	return &ASNDTO{Number: number, Organization: organization}
 }
 
-// summarizeFlows totals all flows and groups them by remote host, service,
-// country and autonomous system. Countries and systems are looked up once per
-// remote host.
-func summarizeFlows(flows []orientedFlow, top int, countries *lookup.Countries, asns *lookup.ASNs) FlowSummaryDTO {
-	summary := FlowSummaryDTO{Connections: uint64(len(flows))}
-
-	peerCountries := map[string]string{}
+// summarizeFlows totals the traffic and groups it by remote host, service,
+// country and autonomous system, from the traffic per remote host and per
+// service. Countries and systems are looked up once per remote host.
+func summarizeFlows(peers []storage.PeerTraffic, services []storage.ServiceTraffic, top int, countries *lookup.Countries, asns *lookup.ASNs) FlowSummaryDTO {
+	var summary FlowSummaryDTO
+	var byPeer, byCountry, byASN []groupTraffic
 	peerASNs := map[string]*ASNDTO{}
-	for _, flow := range flows {
-		summary.Download += flow.download
-		summary.Upload += flow.upload
-		summary.Packets += flow.packets
 
-		if flow.peer.Addr == nil {
+	for _, p := range peers {
+		summary.Download += p.Download
+		summary.Upload += p.Upload
+		summary.Packets += p.Packets
+		summary.Connections += p.Flows
+
+		if p.Peer.Addr == nil {
 			continue
 		}
-		peer := flow.peer.Unmap().String()
-		if _, ok := peerCountries[peer]; !ok {
-			country := ""
-			if code := countries.Country(flow.peer); code != nil {
-				country = *code
-			}
-			peerCountries[peer] = country
-			peerASNs[peer] = asnOf(asns, flow.peer)
+		peer := p.Peer.Unmap().String()
+		traffic := groupTraffic{key: peer, download: p.Download, upload: p.Upload, connections: p.Flows}
+		byPeer = append(byPeer, traffic)
+
+		if _, ok := peerASNs[peer]; !ok {
+			peerASNs[peer] = asnOf(asns, p.Peer)
+		}
+		if code := countries.Country(p.Peer); code != nil {
+			traffic.key = *code
+			byCountry = append(byCountry, traffic)
+		}
+		if asn := peerASNs[peer]; asn != nil {
+			traffic.key = strconv.FormatUint(uint64(asn.Number), 10)
+			byASN = append(byASN, traffic)
 		}
 	}
-	summary.Peers = uint64(len(peerCountries))
+	summary.Peers = uint64(len(peerASNs))
 
-	peerKey := func(flow orientedFlow) string {
-		if flow.peer.Addr == nil {
-			return ""
-		}
-		return flow.peer.Unmap().String()
+	var byService []groupTraffic
+	for _, s := range services {
+		byService = append(byService, groupTraffic{
+			key:      strconv.Itoa(int(s.IPProto)) + "/" + strconv.Itoa(int(s.Port)),
+			download: s.Download, upload: s.Upload, connections: s.Flows,
+		})
 	}
 
-	summary.TopPeers = groupFlows(flows, top, peerKey)
-	summary.Services = groupFlows(flows, top, func(flow orientedFlow) string {
-		return strconv.Itoa(int(flow.record.IPProto)) + "/" + strconv.Itoa(int(flow.record.Port))
-	})
-	summary.Countries = groupFlows(flows, top, func(flow orientedFlow) string {
-		return peerCountries[peerKey(flow)]
-	})
-	summary.ASNs = groupFlows(flows, top, func(flow orientedFlow) string {
-		if asn := peerASNs[peerKey(flow)]; asn != nil {
-			return strconv.FormatUint(uint64(asn.Number), 10)
-		}
-		return ""
-	})
+	summary.TopPeers = topGroups(byPeer, top)
+	summary.Services = topGroups(byService, top)
+	summary.Countries = topGroups(byCountry, top)
+	summary.ASNs = topGroups(byASN, top)
 	// Systems of one organization are different keys, so label each group
 	// with the name its AS number is registered under.
 	labelASNs(&summary.ASNs, peerASNs)

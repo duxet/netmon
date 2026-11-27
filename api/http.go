@@ -172,6 +172,19 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
+		if page.Query == "" {
+			records, total, err := storage.GetFlowsPage(db, filter, storage.FlowOrder{
+				Sort: page.Sort, Asc: page.Asc, Limit: page.Limit, Offset: page.Offset,
+			})
+			if err != nil {
+				return err
+			}
+			c.Set(totalCountHeader, strconv.Itoa(total))
+			return c.JSON(toFlowDTOs(orientFlows(records, filter), countries, asns))
+		}
+
+		// A search matches what only netmon knows, such as how an address is
+		// written, so it goes through every flow.
 		records, err := storage.GetFlows(db, filter)
 		if err != nil {
 			return err
@@ -205,12 +218,16 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
-		records, err := storage.GetFlows(db, filter)
+		peers, err := storage.GetPeerTraffic(db, filter)
+		if err != nil {
+			return err
+		}
+		services, err := storage.GetServiceTraffic(db, filter)
 		if err != nil {
 			return err
 		}
 
-		return c.JSON(summarizeFlows(orientFlows(records, filter), top, countries, asns))
+		return c.JSON(summarizeFlows(peers, services, top, countries, asns))
 	})
 
 	app.Get("/api/stats", func(c fiber.Ctx) error {

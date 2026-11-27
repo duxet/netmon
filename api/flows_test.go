@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -270,9 +271,9 @@ func TestSummaryHasNoASNsWithoutADatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flows := []orientedFlow{{peer: *addr, download: 10, upload: 5}}
+	peers := []storage.PeerTraffic{{Peer: *addr, Download: 10, Upload: 5, Flows: 1}}
 
-	summary := summarizeFlows(flows, 5, nil, nil)
+	summary := summarizeFlows(peers, nil, 5, nil, nil)
 	if len(summary.ASNs.Items) != 0 || summary.ASNs.Rest.Connections != 0 {
 		t.Errorf("ASNs = %+v, want none without a database", summary.ASNs)
 	}

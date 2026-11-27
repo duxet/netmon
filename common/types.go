@@ -60,7 +60,10 @@ func (ipAddress *IPAddress) Scan(value interface{}) error {
 
 		*ipAddress = IPAddress{&addr}
 		return nil
+	case nil:
+		*ipAddress = IPAddress{}
+		return nil
 	}
 
-	return errors.New("invalid IP address (must be []byte)")
+	return errors.New("invalid IP address (must be []byte or nil)")
 }

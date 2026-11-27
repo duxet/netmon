@@ -12,7 +12,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 
 ## Performance and resources
 
-- [ ] Page and sort flows in SQL. `/api/flows` and `/api/flows/summary` load every
+- [x] Page and sort flows in SQL. `/api/flows` and `/api/flows/summary` load every
   flow in the range, then filter, sort, page and look up countries and ASNs in Go
   (`pageFlows` and `summarizeFlows` in `api/flows.go`), on every refresh of every
   open tab. Move `ORDER BY`, `LIMIT`/`OFFSET` and the top-N groups into the query.
