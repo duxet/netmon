@@ -59,7 +59,9 @@ type DeviceRecord struct {
 	// IPAddress is the address the device used last.
 	IPAddress common.IPAddress
 	// Name is the name the user gave the device, if any.
-	Name      *string
+	Name *string
+	// Icon is the icon the user picked for the device, if any.
+	Icon      *string
 	FirstSeen time.Time
 	LastSeen  time.Time
 }

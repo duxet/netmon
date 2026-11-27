@@ -5,11 +5,12 @@ import * as React from "react"
 
 import { DataTable } from "@/components/data-table"
 import { Page, PageHeader } from "@/components/page-header"
+import { DeviceIcon } from "@/components/device-icon"
 import { DeviceVendor } from "@/components/device-vendor"
+import { EditDeviceButton } from "@/components/edit-device"
 import { DeviceNetworks, NetworkDot } from "@/components/network-badge"
 import { ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
-import { RenameDeviceButton } from "@/components/rename-device"
 import { ShareBar } from "@/components/share-bar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -100,24 +101,27 @@ function useColumns(totalTraffic: number, networks: Map<number, Network>) {
           cell: ({ row }) => {
             const device = row.original
             return (
-              <div className="flex min-w-0 flex-col">
-                <Link
-                  to="/clients/$clientId"
-                  params={{ clientId: device.mac }}
-                  className="truncate font-medium hover:underline"
-                >
-                  {device.name ?? device.hostname ?? "Unknown device"}
-                </Link>
-                <span className="truncate text-xs text-muted-foreground">
-                  {device.name && device.hostname && `${device.hostname} · `}
-                  <span className="font-mono">{device.mac}</span>
-                  {(device.vendor || isRandomizedMac(device.mac)) && (
-                    <>
-                      {" · "}
-                      <DeviceVendor device={device} />
-                    </>
-                  )}
-                </span>
+              <div className="flex min-w-0 items-center gap-3">
+                <DeviceIcon icon={device.icon} />
+                <div className="flex min-w-0 flex-col">
+                  <Link
+                    to="/clients/$clientId"
+                    params={{ clientId: device.mac }}
+                    className="truncate font-medium hover:underline"
+                  >
+                    {device.name ?? device.hostname ?? "Unknown device"}
+                  </Link>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {device.name && device.hostname && `${device.hostname} · `}
+                    <span className="font-mono">{device.mac}</span>
+                    {(device.vendor || isRandomizedMac(device.mac)) && (
+                      <>
+                        {" · "}
+                        <DeviceVendor device={device} />
+                      </>
+                    )}
+                  </span>
+                </div>
               </div>
             )
           },
@@ -174,7 +178,7 @@ function useColumns(totalTraffic: number, networks: Map<number, Network>) {
         column.display({
           id: "actions",
           header: () => <span className="sr-only">Actions</span>,
-          cell: ({ row }) => <RenameDeviceButton device={row.original} />,
+          cell: ({ row }) => <EditDeviceButton device={row.original} />,
           meta: { className: "w-10" },
         }),
       ]),

@@ -429,6 +429,8 @@ rounded to whole hours.
 | `GET /api/devices` | |
 | `PUT /api/devices/:mac/name` | body `{"name": "..."}`, 1 to 64 characters |
 | `DELETE /api/devices/:mac/name` | |
+| `PUT /api/devices/:mac/icon` | body `{"icon": "laptop"}`, see below |
+| `DELETE /api/devices/:mac/icon` | |
 | `GET /api/networks` | |
 | `POST /api/networks` | body `{"name": "...", "prefixes": ["192.168.20.0/24", ...], "vlan": 20, "color": "orange"}` |
 | `GET /api/networks/summary` | `from`, `to` |
@@ -475,6 +477,12 @@ rounded to whole hours.
 - Device names are keyed by MAC address and returned by `/api/clients` as
   `Name`, next to the reverse-DNS `Hostname` and the `Vendor` of the MAC
   address (null when unknown or randomized).
+- A device's icon shows what kind of device it is. It is kept apart from its name, so
+  a device can have either, and is returned by `/api/clients` and `/api/devices` as
+  `Icon`, or null without one. It is one of `desktop`, `laptop`, `tablet`, `smartphone`,
+  `watch`, `tv`, `media_player`, `game_console`, `speaker`, `router`, `access_point`,
+  `switch`, `server`, `nas`, `printer`, `camera`, `light`, `plug`, `thermostat`,
+  `appliance`, `iot`, `phone` or `car`.
 - `/api/live` returns the current bandwidth of devices, one sample per second for the last two
   minutes, oldest first: `[{"Time": "...", "Devices": [{"MACAddress", "IPAddress", "Download",
   "Upload"}]}]` with rates in bytes per second. Quiet devices are left out, so a second without
@@ -483,7 +491,7 @@ rounded to whole hours.
   measure (see [Live view](#live-view)), so don't poll it while nobody is looking.
 - `/api/devices` lists every MAC address ever seen on either side of a flow,
   most recently seen first, with the `IPAddress` it used last, `FirstSeen`,
-  `LastSeen`, and `Name`, `Hostname` and `Vendor` as for clients. Unlike
+  `LastSeen`, and `Name`, `Icon`, `Hostname` and `Vendor` as for clients. Unlike
   `/api/clients` it has no time range and includes devices that only
   received connections, such as a NAS.
 - Clients and devices have the `NetworkID` of the network their IP address belongs to,
@@ -576,6 +584,7 @@ the file; settings it leaves out stay. It answers like `GET`, or with a 400 and
 
 ### Devices
 - [x] Let users rename devices, stored in the database
+- [x] Let users pick an icon for each device (desktop, laptop, smartphone, TV, gaming console, access point, IP camera, ...)
 - [x] Show the device manufacturer from an offline MAC vendor (OUI) database
 - [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
 

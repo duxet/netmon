@@ -20,12 +20,13 @@ import { ChartCard } from "@/components/chart-card"
 import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
 import { TrafficChart, TrafficTable } from "@/components/charts/traffic-chart"
 import { DataTable } from "@/components/data-table"
+import { DeviceIcon } from "@/components/device-icon"
 import { DeviceVendor } from "@/components/device-vendor"
+import { EditDeviceButton } from "@/components/edit-device"
 import { DeviceNetworks } from "@/components/network-badge"
 import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
-import { RenameDeviceButton } from "@/components/rename-device"
 import { ShareBar } from "@/components/share-bar"
 import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
@@ -319,8 +320,9 @@ function ClientDetail() {
       <PageHeader
         title={
           <span className="flex items-center gap-1">
+            {device && <DeviceIcon icon={device.icon} className="mr-1.5 size-9 [&_svg]:size-5" />}
             <span className="break-all">{title}</span>
-            {device && <RenameDeviceButton device={device} />}
+            {device && <EditDeviceButton device={device} />}
           </span>
         }
         description={

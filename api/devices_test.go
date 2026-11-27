@@ -92,6 +92,93 @@ func TestDeviceNameValidation(t *testing.T) {
 	}
 }
 
+func clientIcon(t *testing.T, app *fiber.App, mac string) *string {
+	t.Helper()
+	var clients []struct {
+		Icon     *string
+		Endpoint struct{ MACAddress string }
+	}
+	if status, _ := get(t, app, "/api/clients", &clients); status != fiber.StatusOK {
+		t.Fatalf("GET /api/clients = %d", status)
+	}
+	for _, client := range clients {
+		if client.Endpoint.MACAddress == mac {
+			return client.Icon
+		}
+	}
+	t.Fatalf("client %s not listed", mac)
+	return nil
+}
+
+func TestSetDeviceIcon(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	if icon := clientIcon(t, app, testNASMAC); icon != nil {
+		t.Fatalf("icon before picking one = %q, want none", *icon)
+	}
+
+	status, body := do(t, app, "PUT", "/api/devices/00-11-32-9B-C4-01/icon", `{"icon": "nas"}`)
+	if status != fiber.StatusOK {
+		t.Fatalf("PUT icon = %d: %s", status, body)
+	}
+	var dto DeviceIconDTO
+	if err := json.Unmarshal([]byte(body), &dto); err != nil || dto.MACAddress != testNASMAC || dto.Icon != "nas" {
+		t.Errorf("response = %s, want the canonical MAC and the icon", body)
+	}
+	if icon := clientIcon(t, app, testNASMAC); icon == nil || *icon != "nas" {
+		t.Errorf("listed icon = %v, want nas", icon)
+	}
+
+	// Picking another replaces it, and leaves the name alone.
+	do(t, app, "PUT", "/api/devices/"+testNASMAC+"/name", `{"name": "NAS"}`)
+	do(t, app, "PUT", "/api/devices/"+testNASMAC+"/icon", `{"icon": "server"}`)
+	if icon := clientIcon(t, app, testNASMAC); icon == nil || *icon != "server" {
+		t.Errorf("listed icon = %v, want server", icon)
+	}
+
+	if status, _ := do(t, app, "DELETE", "/api/devices/"+testNASMAC+"/icon", ""); status != fiber.StatusNoContent {
+		t.Errorf("DELETE icon = %d, want 204", status)
+	}
+	if icon := clientIcon(t, app, testNASMAC); icon != nil {
+		t.Errorf("icon after reset = %q, want none", *icon)
+	}
+	if name := clientName(t, app, testNASMAC); name == nil || *name != "NAS" {
+		t.Errorf("name after removing the icon = %v, want NAS", name)
+	}
+}
+
+func TestDeviceIconValidation(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	for _, tc := range []struct {
+		method, path, body string
+	}{
+		{"PUT", "/api/devices/not-a-mac/icon", `{"icon": "nas"}`},
+		{"DELETE", "/api/devices/not-a-mac/icon", ""},
+		{"PUT", "/api/devices/" + testNASMAC + "/icon", `{"icon": ""}`},
+		{"PUT", "/api/devices/" + testNASMAC + "/icon", `{"icon": "toaster"}`},
+		// Icons are matched exactly.
+		{"PUT", "/api/devices/" + testNASMAC + "/icon", `{"icon": "NAS"}`},
+		{"PUT", "/api/devices/" + testNASMAC + "/icon", `{"icon": `},
+	} {
+		status, body := do(t, app, tc.method, tc.path, tc.body)
+		if status != fiber.StatusBadRequest {
+			t.Errorf("%s %s %s = %d, want 400", tc.method, tc.path, tc.body, status)
+			continue
+		}
+		if msg := errorMessage(t, body); msg == "" {
+			t.Errorf("%s %s: empty error message", tc.method, tc.path)
+		}
+	}
+
+	// Every icon is accepted.
+	for _, icon := range DeviceIcons {
+		if status, body := do(t, app, "PUT", "/api/devices/"+testNASMAC+"/icon", `{"icon": "`+icon+`"}`); status != fiber.StatusOK {
+			t.Errorf("icon %s = %d: %s", icon, status, body)
+		}
+	}
+}
+
 func TestClientsHaveVendors(t *testing.T) {
 	app, _ := newTestApp(t)
 
@@ -110,7 +197,7 @@ func TestListDevices(t *testing.T) {
 
 	type device struct {
 		MACAddress, IPAddress string
-		Name, Vendor          *string
+		Name, Icon, Vendor    *string
 		FirstSeen, LastSeen   time.Time
 	}
 
@@ -124,6 +211,7 @@ func TestListDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	do(t, app, "PUT", "/api/devices/"+testNASMAC+"/name", `{"name": "NAS"}`)
+	do(t, app, "PUT", "/api/devices/"+testNASMAC+"/icon", `{"icon": "nas"}`)
 
 	var devices []device
 	if status, _ := get(t, app, "/api/devices", &devices); status != fiber.StatusOK || len(devices) != 1 {
@@ -131,9 +219,10 @@ func TestListDevices(t *testing.T) {
 	}
 	nas := devices[0]
 	if nas.MACAddress != testNASMAC || nas.IPAddress != "192.168.1.10" ||
-		nas.Name == nil || *nas.Name != "NAS" || nas.Vendor == nil || *nas.Vendor != "Synology" ||
+		nas.Name == nil || *nas.Name != "NAS" || nas.Icon == nil || *nas.Icon != "nas" ||
+		nas.Vendor == nil || *nas.Vendor != "Synology" ||
 		nas.FirstSeen.IsZero() || nas.LastSeen.Before(nas.FirstSeen) {
-		t.Errorf("device = %+v, want the named Synology NAS at 192.168.1.10", nas)
+		t.Errorf("device = %+v, want the named Synology NAS at 192.168.1.10, with its icon", nas)
 	}
 
 	// A failing query answers with a 500.

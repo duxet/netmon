@@ -278,6 +278,10 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		if err != nil {
 			return err
 		}
+		deviceIcons, err := storage.GetDeviceIcons(db)
+		if err != nil {
+			return err
+		}
 
 		matcher, err := storage.NetworkMatcher(db)
 		if err != nil {
@@ -299,9 +303,12 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				hostname = names[record.IPAddress.Unmap()]
 			}
 
-			var name *string
+			var name, icon *string
 			if n, ok := deviceNames[record.MACAddress.String()]; ok {
 				name = &n
+			}
+			if i, ok := deviceIcons[record.MACAddress.String()]; ok {
+				icon = &i
 			}
 
 			var vendor *string
@@ -311,6 +318,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 
 			clients = append(clients, ClientDTO{
 				Name:      name,
+				Icon:      icon,
 				Hostname:  hostname,
 				Vendor:    vendor,
 				NetworkID: networkIDOf(matcher, record.IPAddress),

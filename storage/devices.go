@@ -53,6 +53,50 @@ func DeleteDeviceName(db *sql.DB, mac net.HardwareAddr) error {
 	return nil
 }
 
+// GetDeviceIcons returns the icons users picked for their devices, by MAC
+// address in its canonical form (net.HardwareAddr.String).
+func GetDeviceIcons(db *sql.DB) (map[string]string, error) {
+	rows, err := db.Query(`SELECT mac, icon FROM device_icons`)
+	type entry struct {
+		mac  []byte
+		icon string
+	}
+	entries, err := collect(rows, err, func(rows *sql.Rows, e *entry) error {
+		return rows.Scan(&e.mac, &e.icon)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query device icons: %w", err)
+	}
+
+	icons := make(map[string]string, len(entries))
+	for _, e := range entries {
+		icons[net.HardwareAddr(e.mac).String()] = e.icon
+	}
+	return icons, nil
+}
+
+// SetDeviceIcon gives the device with the given MAC address an icon,
+// replacing any earlier one. Callers check the icon is a known one.
+func SetDeviceIcon(db *sql.DB, mac net.HardwareAddr, icon string) error {
+	_, err := db.Exec(`
+		INSERT INTO device_icons (mac, icon, updated_at) VALUES (?, ?, current_timestamp)
+		ON CONFLICT (mac) DO UPDATE SET icon = excluded.icon, updated_at = excluded.updated_at
+	`, []byte(mac), icon)
+	if err != nil {
+		return fmt.Errorf("set device icon: %w", err)
+	}
+	return nil
+}
+
+// DeleteDeviceIcon removes a device's icon; deleting an icon that isn't set
+// is not an error.
+func DeleteDeviceIcon(db *sql.DB, mac net.HardwareAddr) error {
+	if _, err := db.Exec(`DELETE FROM device_icons WHERE mac = ?`, []byte(mac)); err != nil {
+		return fmt.Errorf("delete device icon: %w", err)
+	}
+	return nil
+}
+
 // SyncDevices records the devices seen in per-minute flows written at or
 // after since: new MAC addresses are added, and known ones get the IP
 // address they used last and the time they were last seen. It never moves
@@ -85,16 +129,17 @@ func SyncDevices(db *sql.DB, since time.Time) error {
 }
 
 // GetDevices returns every device seen in flows, most recently seen first,
-// with the names users gave them.
+// with the names and icons users gave them.
 func GetDevices(db *sql.DB) ([]DeviceRecord, error) {
 	rows, err := db.Query(`
-		SELECT d.mac, d.last_ip, n.name, d.first_seen, d.last_seen
+		SELECT d.mac, d.last_ip, n.name, i.icon, d.first_seen, d.last_seen
 		FROM devices d
 		LEFT JOIN device_names n ON n.mac = d.mac
+		LEFT JOIN device_icons i ON i.mac = d.mac
 		ORDER BY d.last_seen DESC, d.mac
 	`)
 	devices, err := collect(rows, err, func(rows *sql.Rows, d *DeviceRecord) error {
-		return rows.Scan(&d.MACAddress, &d.IPAddress, &d.Name, &d.FirstSeen, &d.LastSeen)
+		return rows.Scan(&d.MACAddress, &d.IPAddress, &d.Name, &d.Icon, &d.FirstSeen, &d.LastSeen)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query devices: %w", err)

@@ -24,9 +24,39 @@ export interface Traffic {
   OutPackets: number
 }
 
+/** The icons a device can be shown with, as the API names them, in the order the picker offers them. */
+export const DEVICE_ICONS = [
+  "desktop",
+  "laptop",
+  "tablet",
+  "smartphone",
+  "watch",
+  "tv",
+  "media_player",
+  "game_console",
+  "speaker",
+  "router",
+  "access_point",
+  "switch",
+  "server",
+  "nas",
+  "printer",
+  "camera",
+  "light",
+  "plug",
+  "thermostat",
+  "appliance",
+  "iot",
+  "phone",
+  "car",
+] as const
+export type DeviceIconName = (typeof DEVICE_ICONS)[number]
+
 export interface Client {
   /** The name the user gave the device, if any. */
   Name: string | null
+  /** The icon the user picked for the device, one of DEVICE_ICONS, if any. */
+  Icon: string | null
   /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
   Hostname: string | null
   /** Manufacturer the MAC address was assigned to, if known. */
@@ -318,6 +348,18 @@ export async function resetDeviceName(mac: string) {
   await send(`/api/devices/${mac}/name`, { method: "DELETE" })
 }
 
+export async function setDeviceIcon(mac: string, icon: DeviceIconName) {
+  return request<{ MACAddress: string; Icon: DeviceIconName }>(`/api/devices/${mac}/icon`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ icon }),
+  })
+}
+
+export async function resetDeviceIcon(mac: string) {
+  await send(`/api/devices/${mac}/icon`, { method: "DELETE" })
+}
+
 /** A service notification channels can use, from shoutrrr. */
 export interface NotificationService {
   /** URL scheme, e.g. "telegram". */
@@ -388,6 +430,8 @@ export interface KnownDevice {
   /** The address the device used last. */
   IPAddress: string
   Name: string | null
+  /** One of DEVICE_ICONS, if the user picked one. */
+  Icon: string | null
   /** Reverse-DNS name, with the trailing dot of a fully qualified name. */
   Hostname: string | null
   Vendor: string | null
