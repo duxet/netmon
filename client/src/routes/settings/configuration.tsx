@@ -209,7 +209,9 @@ function SettingField({ setting, description, draft, onChange, placeholder, unit
   const text = editable ? (draft ?? savedText(setting)) : display(setting)
   const edited = draft !== undefined && draft.trim() !== savedText(setting).trim()
   const number = NUMBER_SETTINGS.has(setting.Key)
-  const invalid = error ?? (number && editable && text.trim() !== "" && !isWholeNumber(text) ? "A whole number of days." : undefined)
+  const invalid =
+    error ??
+    (number && editable && text.trim() !== "" && !isWholeNumber(text) ? `A whole number of ${unit ?? "days"}.` : undefined)
   const fallback = placeholder ?? (setting.Default === null || setting.Default === "" ? "" : `Default: ${setting.Default}`)
 
   const inputProps = {
@@ -477,6 +479,26 @@ function ConfigurationForm({ config }: { config: Configuration }) {
         {field("public_url", {
           description: "The address people open netmon at, which messages link to.",
           placeholder: config.DefaultPublicURL ? `Default: ${config.DefaultPublicURL}` : undefined,
+        })}
+      </Section>
+
+      <Section
+        title="Database"
+        description="How much of the machine the database may use. Lower limits suit a small router; queries over long ranges then take longer."
+      >
+        {field("memory_limit", {
+          description: (
+            <>
+              An amount such as <code>256MB</code> or <code>1GiB</code>, or a share of the memory such as{" "}
+              <code>50%</code>. Queries that need more spill to disk, or fail.
+            </>
+          ),
+          placeholder: "Default: 80% of the memory",
+        })}
+        {field("threads", {
+          description: "How many threads queries run on.",
+          unit: "threads",
+          placeholder: "Default: one per core",
         })}
       </Section>
 

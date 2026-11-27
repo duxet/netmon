@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -73,13 +74,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The limits apply to the whole database, but the configuration page can
+	// change them, so new connections set the current ones.
+	var limits atomic.Pointer[storage.Limits]
+	limits.Store(&storage.Limits{Memory: cfg.MemoryLimit, Threads: cfg.Threads})
 	connector, err := duckdb.NewConnector(cfg.Database, func(execer driver.ExecerContext) error {
-		var bootQueries []string
-
-		for _, query := range bootQueries {
-			_, err := execer.ExecContext(context.Background(), query, nil)
-			if err != nil {
-				return err
+		for _, query := range limits.Load().Statements() {
+			if _, err := execer.ExecContext(context.Background(), query, nil); err != nil {
+				return fmt.Errorf("%s: %w", query, err)
 			}
 		}
 		return nil
@@ -162,6 +164,15 @@ func main() {
 		localTraffic.SetIgnored(next.IgnoreLocalTraffic)
 		if next.Retention() != applied.Retention() || next.AlertRetention() != applied.AlertRetention() {
 			compactNow()
+		}
+		if next.MemoryLimit != applied.MemoryLimit || next.Threads != applied.Threads {
+			l := storage.Limits{Memory: next.MemoryLimit, Threads: next.Threads}
+			limits.Store(&l)
+			for _, query := range l.Statements() {
+				if _, err := db.Exec(query); err != nil {
+					slog.Error("Failed to change the database's limits", "query", query, "err", err)
+				}
+			}
 		}
 		applied = next
 	})

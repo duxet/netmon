@@ -54,7 +54,7 @@ func TestGetConfig(t *testing.T) {
 	if status, _ := get(t, app, "/api/config", &dto); status != fiber.StatusOK {
 		t.Fatalf("GET /api/config = %d", status)
 	}
-	if dto.File != path || !dto.Exists || dto.OS == "" || len(dto.Settings) != 15 {
+	if dto.File != path || !dto.Exists || dto.OS == "" || len(dto.Settings) != 17 {
 		t.Errorf("config = %+v", dto)
 	}
 	if s := settingOf(t, dto, "local_dns"); s.Value != "system" || s.File != "system" || !s.InFile || !s.Live {

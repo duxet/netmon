@@ -105,6 +105,14 @@ type Config struct {
 	// info, warn or error. At debug, every request is logged.
 	LogLevel string `koanf:"log_level"`
 
+	// MemoryLimit bounds the memory the database uses, such as 256MB, 1GiB
+	// or 50% (of the machine's). Empty is DuckDB's default, 80%.
+	MemoryLimit string `koanf:"memory_limit"`
+
+	// Threads is how many threads the database runs queries on, with 0
+	// using every core.
+	Threads int `koanf:"threads"`
+
 	// File is the YAML file the configuration was read from, empty when there
 	// was none.
 	File string `koanf:"-"`
@@ -218,6 +226,10 @@ func keyErrorf(key, format string, args ...any) error {
 	return &keyError{key: key, err: fmt.Errorf(format, args...)}
 }
 
+// memoryLimitPattern matches the amounts of memory DuckDB takes, such as
+// 256MB, 1.5 GiB or 50%.
+var memoryLimitPattern = regexp.MustCompile(`(?i)^\s*\d+(\.\d+)?\s*(b|kb|mb|gb|tb|kib|mib|gib|tib|%)\s*$`)
+
 // hostnamePattern matches DNS names such as dns.lan or router.
 var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$`)
 
@@ -272,6 +284,12 @@ func (c Config) validate() error {
 	}
 	if c.AlertRetentionDays < 0 {
 		return keyErrorf("alert_retention_days", "alert_retention_days must be a number of days, with 0 keeping everything: %d", c.AlertRetentionDays)
+	}
+	if c.MemoryLimit != "" && !memoryLimitPattern.MatchString(c.MemoryLimit) {
+		return keyErrorf("memory_limit", "memory_limit must be an amount such as 256MB or 1GiB, or a share of the memory such as 50%%: %q", c.MemoryLimit)
+	}
+	if c.Threads < 0 {
+		return keyErrorf("threads", "threads must be a number of threads, with 0 using every core: %d", c.Threads)
 	}
 	if _, ok := logging.Parse(c.LogLevel); !ok {
 		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)

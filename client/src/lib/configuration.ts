@@ -17,10 +17,15 @@ export const SETTING_LABELS: Record<string, string> = {
   interface: "Capture interface",
   ignore_local_traffic: "Ignore local traffic",
   log_level: "Log level",
+  memory_limit: "Memory limit",
+  threads: "Threads",
 }
 
-/** Settings that are numbers of days. */
-export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days"])
+/** Settings that are whole numbers. */
+export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days", "threads"])
+
+/** Settings that are how many days to keep something for, with 0 keeping it forever. */
+const RETENTION_SETTINGS = ["retention_days", "alert_retention_days"]
 
 /** Settings that are on or off. */
 export const BOOLEAN_SETTINGS = new Set(["ignore_local_traffic"])
@@ -36,7 +41,7 @@ export const CHOICE_SETTINGS: Record<string, { value: string; label: string }[]>
 }
 
 /** The settings the OpenWrt package's service always sets from /etc/config/netmon. */
-export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days"])
+export const OPENWRT_SETTINGS = new Set(["local_dns", "public_dns", "retention_days", "memory_limit", "threads"])
 
 export function settingLabel(key: string): string {
   return SETTING_LABELS[key] ?? key
@@ -114,7 +119,7 @@ export function retentionCuts(
   changes: Record<string, SettingValue | null>
 ): RetentionCut[] {
   const cuts: RetentionCut[] = []
-  for (const key of NUMBER_SETTINGS) {
+  for (const key of RETENTION_SETTINGS) {
     if (!(key in changes)) continue
     const setting = settings.find((s) => s.Key === key)
     if (!setting) continue

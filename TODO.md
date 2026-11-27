@@ -16,7 +16,7 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
   flow in the range, then filter, sort, page and look up countries and ASNs in Go
   (`pageFlows` and `summarizeFlows` in `api/flows.go`), on every refresh of every
   open tab. Move `ORDER BY`, `LIMIT`/`OFFSET` and the top-N groups into the query.
-- [ ] Limit DuckDB's memory and threads. `bootQueries` in `main.go` is empty, so
+- [x] Limit DuckDB's memory and threads. `bootQueries` in `main.go` is empty, so
   DuckDB takes its defaults, about 80% of RAM and every core, which is a lot on a
   router. Add `memory_limit` and `threads` settings, with low defaults in the
   OpenWrt package.

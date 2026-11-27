@@ -111,6 +111,8 @@ It is configured in `/etc/config/netmon`:
 | `local_dns`      | `127.0.0.1:53`   | `NETMON_LOCAL_DNS`, dnsmasq knows your DHCP names     |
 | `public_dns`     | `8.8.8.8:53`     | `NETMON_PUBLIC_DNS`                                   |
 | `retention_days` | `0` (keep all)   | `NETMON_RETENTION_DAYS`                               |
+| `memory_limit`   | `256MB`          | `NETMON_MEMORY_LIMIT`, empty for DuckDB's default     |
+| `threads`        | `2`              | `NETMON_THREADS`, empty for one per core              |
 
 ```sh
 uci set netmon.main.data_dir=/mnt/sda1/netmon
@@ -125,14 +127,17 @@ Things to know:
   empty database on x86-64. That doesn't fit the flash of most routers. Use
   an x86 box, or a device with extroot or enough free storage, and keep
   `data_dir` on external storage, as the database is written every minute.
+- The package limits the database to 256 MB of memory and 2 threads, so that a query
+  over a long range can't take over the router. Raise `memory_limit` if pages showing
+  30 days of a busy network fail or are slow.
 - There are no packages for 32-bit targets (ARM, MIPS), as the DuckDB libraries
   netmon uses are only built for 64-bit platforms.
 - netmon has no authentication unless you turn on [single sign-on](#single-sign-on).
   The default firewall keeps the WAN away from port 2137; don't open it there.
   The service starts in `data_dir`, so put the single sign-on settings in a
   `netmon.yaml` there (see [Configuration](#configuration)).
-- The service passes `local_dns`, `public_dns` and `retention_days` to netmon as
-  environment variables, which override the YAML file, so **Settings → Configuration**
+- The service passes `local_dns`, `public_dns`, `retention_days`, `memory_limit` and
+  `threads` to netmon as environment variables, which override the YAML file, so **Settings → Configuration**
   shows them but leaves them to `/etc/config/netmon`. The other settings it changes in
   `netmon.yaml` in `data_dir`.
 
@@ -393,6 +398,8 @@ a typo doesn't go unnoticed.
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
 | `log_level`            | `NETMON_LOG_LEVEL`            | `info`                   | The least severe messages logged: `debug`, `info`, `warn` or `error` |
+| `memory_limit`         | `NETMON_MEMORY_LIMIT`         | 80% of the memory        | Memory the database may use: `256MB`, `1GiB`, or a share such as `50%` |
+| `threads`              | `NETMON_THREADS`              | `0` (one per core)       | Threads the database runs queries on                               |
 
 For example, in `netmon.yaml`:
 
@@ -450,7 +457,7 @@ taken back to its default is taken out of the file. A change is checked as netmo
 check the file when starting, and nothing is saved when it fails.
 
 - The DNS servers, the retention of flows and alerts, the public URL, ignoring local
-  traffic and the log level apply right away.
+  traffic, the log level and the database's memory limit and threads apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
   database and the capture interface apply when netmon starts again, which the page
   reminds you of.

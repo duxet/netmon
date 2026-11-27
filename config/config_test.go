@@ -360,7 +360,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days public_url oidc_issuer oidc_client_id oidc_client_secret interface ignore_local_traffic log_level memory_limit threads"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}
@@ -377,5 +377,26 @@ func TestLogLevel(t *testing.T) {
 	t.Setenv("NETMON_LOG_LEVEL", "verbose")
 	if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "log_level") {
 		t.Errorf("log_level verbose: %v, want an error about log_level", err)
+	}
+}
+
+func TestDatabaseLimits(t *testing.T) {
+	for _, limit := range []string{"256MB", "1.5 GiB", "50%", "2gb"} {
+		t.Setenv("NETMON_MEMORY_LIMIT", limit)
+		if cfg, err := parse("", nil, false); err != nil || cfg.MemoryLimit != limit {
+			t.Errorf("memory_limit %s: %v, %+v", limit, err, cfg)
+		}
+	}
+	for _, limit := range []string{"lots", "256", "-1GB", "1GB'; DROP TABLE flows; --"} {
+		t.Setenv("NETMON_MEMORY_LIMIT", limit)
+		if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "memory_limit") {
+			t.Errorf("memory_limit %q: %v, want an error about memory_limit", limit, err)
+		}
+	}
+	t.Setenv("NETMON_MEMORY_LIMIT", "")
+
+	t.Setenv("NETMON_THREADS", "-1")
+	if _, err := parse("", nil, false); err == nil || !strings.Contains(err.Error(), "threads") {
+		t.Errorf("threads -1: %v, want an error about threads", err)
 	}
 }
