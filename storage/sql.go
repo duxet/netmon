@@ -130,6 +130,27 @@ func collect[T any](rows *sql.Rows, queryErr error, scan func(*sql.Rows, *T) err
 // its UTC offset.
 const hourBucket = "time_bucket(INTERVAL '1 hour', created_at)"
 
+// minuteBucket groups TIMESTAMPTZ values by minute. Only the last hour or
+// two are stored per minute; older traffic lands on the start of its hour.
+const minuteBucket = "time_bucket(INTERVAL '1 minute', created_at)"
+
+// Interval is how finely traffic over time is grouped.
+type Interval int
+
+const (
+	// Hourly groups traffic per hour, the default.
+	Hourly Interval = iota
+	// Minutely groups traffic per minute, for the last hour.
+	Minutely
+)
+
+func (i Interval) bucket() string {
+	if i == Minutely {
+		return minuteBucket
+	}
+	return hourBucket
+}
+
 // dayBucket groups TIMESTAMPTZ values by UTC day, whatever the session's
 // time zone.
 const dayBucket = "time_bucket(INTERVAL '1 day', created_at)"
@@ -242,14 +263,14 @@ func GetClients(db *sql.DB, filter FlowsFilter) ([]ClientRecord, error) {
 // GetTrafficMeasurements returns traffic per hour, oldest first. With a
 // client filter, it is counted from that client's side: what it received is
 // InBytes even when the other host opened the connection.
-func GetTrafficMeasurements(db *sql.DB, filter FlowsFilter) ([]TrafficMeasurementRecord, error) {
+func GetTrafficMeasurements(db *sql.DB, filter FlowsFilter, interval Interval) ([]TrafficMeasurementRecord, error) {
 	outbound, args := filter.outbound()
 
 	query := filter.apply(sq.
 		Select().
 		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN in_bytes ELSE out_bytes END)::INT64", args...)).
 		Column(sq.Expr("sum(CASE WHEN "+outbound+" THEN out_bytes ELSE in_bytes END)::INT64", args...)).
-		Column(hourBucket + " AS bucket").
+		Column(interval.bucket() + " AS bucket").
 		Column("max(hours)").
 		From("all_flows").
 		GroupBy("bucket").
@@ -301,10 +322,10 @@ func GetEndpointPairTraffic(db *sql.DB, filter FlowsFilter) ([]EndpointPairTraff
 }
 
 // GetEndpointPairTrafficByHour is GetEndpointPairTraffic per hour, oldest first.
-func GetEndpointPairTrafficByHour(db *sql.DB, filter FlowsFilter) ([]EndpointPairTrafficRecord, error) {
+func GetEndpointPairTrafficByHour(db *sql.DB, filter FlowsFilter, interval Interval) ([]EndpointPairTrafficRecord, error) {
 	query := filter.apply(sq.
 		Select("src_ip", "dst_ip", "sum(in_bytes)::INT64", "sum(in_packets)::INT64", "sum(out_bytes)::INT64", "sum(out_packets)::INT64").
-		Column(hourBucket+" AS bucket").
+		Column(interval.bucket()+" AS bucket").
 		Column("max(hours)").
 		From("all_flows").
 		GroupBy("src_ip", "dst_ip", "bucket").

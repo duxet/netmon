@@ -277,12 +277,21 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return err
 		}
 
+		interval := storage.Hourly
+		switch c.Query("interval", "hour") {
+		case "hour":
+		case "minute":
+			interval = storage.Minutely
+		default:
+			return badRequest("interval must be hour or minute")
+		}
+
 		if app := c.Query("app"); app != "" {
 			if !isAppName(app) {
 				return badRequest("unknown app: " + app)
 			}
 
-			records, err := storage.GetEndpointPairTrafficByHour(db, filter)
+			records, err := storage.GetEndpointPairTrafficByHour(db, filter, interval)
 			if err != nil {
 				return err
 			}
@@ -290,7 +299,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 			return c.JSON(appTrafficByHour(classifier, records, app))
 		}
 
-		records, err := storage.GetTrafficMeasurements(db, filter)
+		records, err := storage.GetTrafficMeasurements(db, filter, interval)
 		if err != nil {
 			return err
 		}

@@ -62,7 +62,7 @@ function AppTrafficSheet({
             <TrafficChart
               buckets={series.buckets}
               granularity={series.granularity}
-              spansDays={range !== "24h"}
+              spansDays={series.spansDays}
             />
           ) : (
             <EmptyChart icon={<AppWindowIcon />} title="No traffic in this period" className="h-64" />

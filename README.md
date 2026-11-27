@@ -188,6 +188,16 @@ the traffic of each.
   network applies to past traffic too.
 - IPv6 blocks your provider delegates can change; update the network when they do.
 
+## Time ranges
+
+Every page shows the last hour, 24 hours, 7 days, 30 days or all time, kept as you go
+from page to page, or a range of your own: pick its start and end with the calendar
+button, or drag across a traffic chart to zoom into part of it, and go back with your
+browser's Back button. The last hour is drawn per minute, ranges up to 7 days per hour,
+and longer ones per day. A range is part of the page's address (`?range=24h`, or the
+start and end in seconds since 1970 such as `?range=1795644000-1795748400`), so it can be
+bookmarked or shared.
+
 ## Live view
 
 The Live page (`/live`) shows what each device is using right now: download and upload
@@ -530,7 +540,7 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `GET /api/stats` | `network`, `from`, `to` |
 | `GET /api/clients` | `network`, `from`, `to` |
 | `GET /api/apps` | `mac`, `ip` or `network`, `from`, `to` |
-| `GET /api/traffic-measurements` | `mac`, `ip` or `network`, `app`, `from`, `to` |
+| `GET /api/traffic-measurements` | `mac`, `ip` or `network`, `app`, `from`, `to`, `interval` |
 | `GET /api/flows` | `mac`, `ip` or `network`, `from`, `to`, `q`, `sort`, `order`, `limit`, `offset` |
 | `GET /api/clients/:mac-or-ip/flows` | as `/api/flows` |
 | `GET /api/flows/summary` | `mac`, `ip` or `network`, `from`, `to`, `top` |
@@ -577,7 +587,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 
 - `/api/traffic-measurements` returns `[{"InBytes", "OutBytes", "Date", "Hours"}]`, oldest
   first, where `Hours` is how long a measurement covers from `Date`: 1 for an hour, or 24
-  for a day older than `hourly_days`, whose hours were rolled up.
+  for a day older than `hourly_days`, whose hours were rolled up. `interval=minute` groups
+  traffic per minute instead of per hour, which only the last hour or two are stored at;
+  older traffic lands on the start of its hour.
 - With `mac` or `ip`, traffic is counted from that client's side: what it
   received is download (`InBytes`), whichever side opened the connection.
 - With `network` (a network's `ID`), traffic is that of flows with either side in the

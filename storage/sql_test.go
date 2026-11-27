@@ -159,7 +159,7 @@ func TestQueries(t *testing.T) {
 		t.Errorf("stats = %+v, want 1 client and 3670 bytes", stats)
 	}
 
-	measurements, err := GetTrafficMeasurements(db, FlowsFilter{})
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{}, Hourly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestMeasurementsFromClientSide(t *testing.T) {
 
 	// The NAS is the destination of the SMB flow: it uploaded the 20 reply
 	// bytes and downloaded the 2000 the laptop sent.
-	measurements, err := GetTrafficMeasurements(db, FlowsFilter{MAC: mac(t, nasMAC)})
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{MAC: mac(t, nasMAC)}, Hourly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestMeasurementsFromClientSide(t *testing.T) {
 		t.Errorf("NAS measurements = %+v, want 2000 down and 20 up", measurements)
 	}
 
-	measurements, err = GetTrafficMeasurements(db, FlowsFilter{IP: ip(t, "192.168.1.23")})
+	measurements, err = GetTrafficMeasurements(db, FlowsFilter{IP: ip(t, "192.168.1.23")}, Hourly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestHourBucketsIgnoreServerTimeZone(t *testing.T) {
 			}
 		}
 
-		measurements, err := GetTrafficMeasurements(db, FlowsFilter{})
+		measurements, err := GetTrafficMeasurements(db, FlowsFilter{}, Hourly)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -290,10 +290,10 @@ func take(t *testing.T, db *sql.DB) snapshot {
 	if s.Stats, err = GetStats(db, FlowsFilter{}); err != nil {
 		t.Fatal(err)
 	}
-	if s.Measurements, err = GetTrafficMeasurements(db, FlowsFilter{}); err != nil {
+	if s.Measurements, err = GetTrafficMeasurements(db, FlowsFilter{}, Hourly); err != nil {
 		t.Fatal(err)
 	}
-	if s.Pairs, err = GetEndpointPairTrafficByHour(db, FlowsFilter{}); err != nil {
+	if s.Pairs, err = GetEndpointPairTrafficByHour(db, FlowsFilter{}, Hourly); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -420,13 +420,13 @@ func TestQueriesReturnErrors(t *testing.T) {
 	if _, err := GetClients(db, FlowsFilter{}); err == nil {
 		t.Error("GetClients: want an error")
 	}
-	if _, err := GetTrafficMeasurements(db, FlowsFilter{}); err == nil {
+	if _, err := GetTrafficMeasurements(db, FlowsFilter{}, Hourly); err == nil {
 		t.Error("GetTrafficMeasurements: want an error")
 	}
 	if _, err := GetEndpointPairTraffic(db, FlowsFilter{}); err == nil {
 		t.Error("GetEndpointPairTraffic: want an error")
 	}
-	if _, err := GetEndpointPairTrafficByHour(db, FlowsFilter{}); err == nil {
+	if _, err := GetEndpointPairTrafficByHour(db, FlowsFilter{}, Hourly); err == nil {
 		t.Error("GetEndpointPairTrafficByHour: want an error")
 	}
 }
@@ -468,7 +468,7 @@ func TestCompactRollsUpDays(t *testing.T) {
 		t.Errorf("stats = %+v after rolling up, want %+v as before", after, before)
 	}
 
-	measurements, err := GetTrafficMeasurements(db, FlowsFilter{})
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{}, Hourly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,5 +484,23 @@ func TestCompactRollsUpDays(t *testing.T) {
 	}
 	if result.Expired != 3 || count(t, db, "flows_daily") != 0 {
 		t.Errorf("result = %+v, want the 3 daily rows expired", result)
+	}
+}
+
+func TestTrafficMeasurementsPerMinute(t *testing.T) {
+	db := openTestDB(t)
+	insert(t, db,
+		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 90, 70, seedAt},
+		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 10, 30, seedAt.Add(30 * time.Second)},
+		row{mustMAC(t, laptopMAC), nil, mustIP("192.168.1.23"), mustIP("1.1.1.1"), 17, 53, 5, 5, seedAt.Add(2 * time.Minute)},
+	)
+
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{}, Minutely)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements) != 2 || !measurements[0].Date.Equal(seedAt.Truncate(time.Minute)) || measurements[0].InBytes != 100 ||
+		!measurements[1].Date.Equal(seedAt.Add(2*time.Minute).Truncate(time.Minute)) {
+		t.Errorf("measurements = %+v, want 100 bytes in at 20:15 and 5 at 20:17", measurements)
 	}
 }

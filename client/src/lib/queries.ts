@@ -26,7 +26,7 @@ import {
   type FlowsPageRequest,
 } from "@/lib/api"
 import { cleanHostname, groupDevices } from "@/lib/network"
-import { rangeStart, rangeStartWithPrevious, type RangeKey } from "@/lib/timeseries"
+import { rangeEnd, rangeFilter, rangeInterval, rangeStartWithPrevious, type RangeKey } from "@/lib/timeseries"
 
 export const REFRESH_INTERVAL = 60_000
 
@@ -73,7 +73,7 @@ export function sessionQuery() {
 export function statsQuery(range: RangeKey) {
   return queryOptions({
     queryKey: ["stats", range],
-    queryFn: () => fetchStats({ from: rangeStart(range, Date.now()) }),
+    queryFn: () => fetchStats(rangeFilter(range, Date.now())),
   })
 }
 
@@ -81,8 +81,14 @@ export function statsQuery(range: RangeKey) {
 export function trafficQuery(range: RangeKey, client: ClientFilter = {}, app?: string) {
   return queryOptions({
     queryKey: ["traffic-measurements", range, client, app ?? null],
-    queryFn: () =>
-      fetchTrafficMeasurements({ ...client, from: rangeStartWithPrevious(range, Date.now()) }, app),
+    queryFn: () => {
+      const now = Date.now()
+      return fetchTrafficMeasurements(
+        { ...client, from: rangeStartWithPrevious(range, now), to: rangeEnd(range) },
+        app,
+        rangeInterval(range, now)
+      )
+    },
   })
 }
 
@@ -90,7 +96,7 @@ export function trafficQuery(range: RangeKey, client: ClientFilter = {}, app?: s
 export function devicesQuery(range: RangeKey, scope: Pick<ClientFilter, "network"> = {}) {
   return queryOptions({
     queryKey: ["clients", range, scope],
-    queryFn: () => fetchClients({ ...scope, from: rangeStart(range, Date.now()) }),
+    queryFn: () => fetchClients({ ...scope, ...rangeFilter(range, Date.now()) }),
     select: groupDevices,
   })
 }
@@ -98,21 +104,21 @@ export function devicesQuery(range: RangeKey, scope: Pick<ClientFilter, "network
 export function appsQuery(range: RangeKey, client: ClientFilter = {}) {
   return queryOptions({
     queryKey: ["apps", range, client],
-    queryFn: () => fetchAppTraffic({ ...client, from: rangeStart(range, Date.now()) }),
+    queryFn: () => fetchAppTraffic({ ...client, ...rangeFilter(range, Date.now()) }),
   })
 }
 
 export function flowSummaryQuery(range: RangeKey, client: ClientFilter, top: number) {
   return queryOptions({
     queryKey: ["flow-summary", range, client, top],
-    queryFn: () => fetchFlowSummary({ ...client, from: rangeStart(range, Date.now()) }, top),
+    queryFn: () => fetchFlowSummary({ ...client, ...rangeFilter(range, Date.now()) }, top),
   })
 }
 
 export function flowsPageQuery(range: RangeKey, client: ClientFilter, page: FlowsPageRequest) {
   return queryOptions({
     queryKey: ["flows", range, client, page],
-    queryFn: () => fetchFlowsPage({ ...client, from: rangeStart(range, Date.now()) }, page),
+    queryFn: () => fetchFlowsPage({ ...client, ...rangeFilter(range, Date.now()) }, page),
     // Keep showing the current page while the next one loads.
     placeholderData: keepPreviousData,
   })
@@ -202,7 +208,7 @@ export function networksQuery() {
 export function networkSummaryQuery(range: RangeKey) {
   return queryOptions({
     queryKey: ["network-summary", range],
-    queryFn: () => fetchNetworkSummary({ from: rangeStart(range, Date.now()) }),
+    queryFn: () => fetchNetworkSummary(rangeFilter(range, Date.now())),
   })
 }
 

@@ -151,7 +151,7 @@ func TestFlowsInNetwork(t *testing.T) {
 	}
 
 	// Counted from IoT's side: the TV downloaded 5000 and was sent 30 by the laptop.
-	measurements, err := GetTrafficMeasurements(db, FlowsFilter{Network: &iot})
+	measurements, err := GetTrafficMeasurements(db, FlowsFilter{Network: &iot}, Hourly)
 	if err != nil {
 		t.Fatal(err)
 	}

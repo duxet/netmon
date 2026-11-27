@@ -1,5 +1,6 @@
 import * as React from "react"
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, ReferenceArea, XAxis, YAxis } from "recharts"
+import type { MouseHandlerDataParam } from "recharts/types/synchronisation/types"
 
 import { DIRECTION_CONFIG } from "@/components/charts/config"
 import {
@@ -24,17 +25,38 @@ function labelFor(time: number, granularity: TrafficSeries["granularity"]) {
   return granularity === "day" ? formatLongDay(new Date(time)) : formatDayTime(new Date(time))
 }
 
+const BUCKET_LENGTH = { minute: 60 * 1000, hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 }
+
+/** The bucket a chart event is over, if any. */
+function bucketAt(buckets: Bucket[], state: MouseHandlerDataParam | undefined): number | null {
+  const index = Number(state?.activeTooltipIndex)
+  return Number.isInteger(index) && buckets[index] ? buckets[index].time : null
+}
+
 export function TrafficChart({
   buckets,
   granularity,
   spansDays,
+  onZoom,
 }: {
   buckets: Bucket[]
   granularity: TrafficSeries["granularity"]
   /** Whether hourly ticks should show dates instead of clock times. */
   spansDays: boolean
+  /** Called with the start and end of the buckets dragged across, to show only them. */
+  onZoom?: (from: number, to: number) => void
 }) {
   const id = React.useId().replace(/:/g, "")
+  // The buckets being dragged across, from the one the drag started on.
+  const [selection, setSelection] = React.useState<{ from: number; to: number } | null>(null)
+  const finishZoom = () => {
+    if (selection && onZoom && selection.from !== selection.to) {
+      const from = Math.min(selection.from, selection.to)
+      const to = Math.max(selection.from, selection.to) + BUCKET_LENGTH[granularity]
+      onZoom(from, to)
+    }
+    setSelection(null)
+  }
   // Hourly data over several days: one tick per local midnight, so each
   // date appears once.
   const ticks = React.useMemo(
@@ -51,7 +73,21 @@ export function TrafficChart({
 
   return (
     <ChartContainer config={DIRECTION_CONFIG} className="aspect-auto h-64 w-full sm:h-72">
-      <AreaChart data={buckets} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart
+        data={buckets}
+        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        className={onZoom ? "cursor-crosshair select-none" : undefined}
+        onMouseDown={(state) => {
+          const time = onZoom ? bucketAt(buckets, state) : null
+          if (time !== null) setSelection({ from: time, to: time })
+        }}
+        onMouseMove={(state) => {
+          const time = bucketAt(buckets, state)
+          if (selection && time !== null && time !== selection.to) setSelection({ ...selection, to: time })
+        }}
+        onMouseUp={finishZoom}
+        onMouseLeave={() => setSelection(null)}
+      >
         <defs>
           {(["download", "upload"] as const).map((key) => (
             <linearGradient key={key} id={`${id}-${key}`} x1="0" y1="0" x2="0" y2="1">
@@ -69,9 +105,7 @@ export function TrafficChart({
           minTickGap={40}
           ticks={ticks}
           tickFormatter={(value: number) =>
-            granularity === "hour" && !spansDays
-              ? formatTime(new Date(value))
-              : formatDay(new Date(value))
+            granularity !== "day" && !spansDays ? formatTime(new Date(value)) : formatDay(new Date(value))
           }
         />
         <YAxis
@@ -107,6 +141,15 @@ export function TrafficChart({
             isAnimationActive={false}
           />
         ))}
+        {selection && selection.from !== selection.to && (
+          <ReferenceArea
+            x1={Math.min(selection.from, selection.to)}
+            x2={Math.max(selection.from, selection.to)}
+            strokeOpacity={0}
+            fill="var(--foreground)"
+            fillOpacity={0.08}
+          />
+        )}
         <ChartLegend content={<ChartLegendContent />} />
       </AreaChart>
     </ChartContainer>
@@ -125,7 +168,7 @@ export function TrafficTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{granularity === "day" ? "Day" : "Hour"}</TableHead>
+          <TableHead>{granularity === "day" ? "Day" : granularity === "minute" ? "Minute" : "Hour"}</TableHead>
           <TableHead className="text-right">Download</TableHead>
           <TableHead className="text-right">Upload</TableHead>
         </TableRow>

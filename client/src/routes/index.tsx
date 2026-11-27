@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRange } from "@/hooks/use-range"
+import { useZoom } from "@/hooks/use-zoom"
 import {
   formatBitrate,
   formatBytes,
@@ -26,7 +27,7 @@ import {
 import { deviceLabel } from "@/lib/network"
 import { useNetworks } from "@/lib/networks"
 import { devicesQuery, networkSummaryQuery, statsQuery, trafficQuery } from "@/lib/queries"
-import { buildTrafficSeries, DEFAULT_RANGE, rangeInfo, rangePhrase } from "@/lib/timeseries"
+import { buildTrafficSeries, DEFAULT_RANGE, rangeInfo, rangePhrase, granularityLabel } from "@/lib/timeseries"
 
 export const Route = createFileRoute("/")({
   staticData: { breadcrumb: "Dashboard" },
@@ -92,6 +93,7 @@ function NetworkTrafficCard({ className }: { className?: string }) {
 
 function Dashboard() {
   const range = useRange()
+  const zoom = useZoom()
   const navigate = useNavigate()
   const info = rangeInfo(range)
 
@@ -123,7 +125,9 @@ function Dashboard() {
   const addressCount = devices.data?.reduce((sum, device) => sum + device.addresses.length, 0)
   const loadingSeries = traffic.isPending
   const delta = (current: number, previous: number | undefined) =>
-    previous ? { ratio: (current - previous) / previous, period: info.label.replace("Last ", "") } : null
+    previous
+      ? { ratio: (current - previous) / previous, period: info.short === "Custom" ? "period" : info.label.replace("Last ", "") }
+      : null
   const peakHour = series?.hourOfDay.reduce(
     (best, hour) => (hour.average > best.average ? hour : best),
     { hour: 0, average: 0 }
@@ -153,7 +157,7 @@ function Dashboard() {
           footer={series && `Avg ${formatBitrate(series.totals.upload, series.coveredSeconds)}`}
         />
         <StatCard
-          label="Busiest hour"
+          label={series?.granularity === "minute" ? "Busiest minute" : "Busiest hour"}
           icon={GaugeIcon}
           loading={loadingSeries}
           value={series?.peak ? formatBytes(series.peak.total) : "—"}
@@ -181,7 +185,7 @@ function Dashboard() {
         title="Traffic"
         description={
           series
-            ? `${series.granularity === "day" ? "Daily" : "Hourly"} download and upload · ${rangePhrase(range)}`
+            ? `${granularityLabel(series.granularity)} download and upload · ${rangePhrase(range)}`
             : "Download and upload over time"
         }
         table={
@@ -198,7 +202,8 @@ function Dashboard() {
           <TrafficChart
             buckets={series.buckets}
             granularity={series.granularity}
-            spansDays={range !== "24h"}
+            spansDays={series.spansDays}
+              onZoom={zoom}
           />
         ) : (
           <EmptyChart

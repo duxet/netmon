@@ -289,9 +289,9 @@ export function fetchStats(filter: FlowsFilter = {}) {
   return request<Stats>(withQuery("/api/stats", filterParams(filter)))
 }
 
-export function fetchTrafficMeasurements(filter: FlowsFilter = {}, app?: string) {
+export function fetchTrafficMeasurements(filter: FlowsFilter = {}, app?: string, interval?: "minute" | "hour") {
   return requestList<TrafficMeasurement>(
-    withQuery("/api/traffic-measurements", { ...filterParams(filter), app })
+    withQuery("/api/traffic-measurements", { ...filterParams(filter), app, interval })
   )
 }
 

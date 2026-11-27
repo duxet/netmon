@@ -25,12 +25,13 @@ import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRange } from "@/hooks/use-range"
+import { useZoom } from "@/hooks/use-zoom"
 import { formatBytes, formatNumber } from "@/lib/format"
 import { asnLabel, countryFlag, countryName, deviceLabel, deviceLabelsByIp, parseServiceKey, serviceLabel } from "@/lib/network"
 import { useNetworks } from "@/lib/networks"
 import { devicesQuery, flowSummaryQuery, networksQuery, trafficQuery, useHostnames } from "@/lib/queries"
 import { OTHER_KEY, toRanked } from "@/lib/ranked"
-import { buildTrafficSeries, DEFAULT_RANGE, rangePhrase } from "@/lib/timeseries"
+import { buildTrafficSeries, DEFAULT_RANGE, rangePhrase, granularityLabel } from "@/lib/timeseries"
 
 /** Bars per ranked chart: the largest groups, then "Other". */
 const TOP_GROUPS = 7
@@ -87,6 +88,7 @@ function NetworkDetail() {
 
 function NetworkPage({ id }: { id: number }) {
   const range = useRange()
+  const zoom = useZoom()
   const navigate = useNavigate()
   const network = useNetworks().byId.get(id)
   const scope = React.useMemo(() => ({ network: id }), [id])
@@ -217,7 +219,7 @@ function NetworkPage({ id }: { id: number }) {
             title="Traffic"
             description={
               series
-                ? `${series.granularity === "day" ? "Daily" : "Hourly"} download and upload · ${period}`
+                ? `${granularityLabel(series.granularity)} download and upload · ${period}`
                 : "Download and upload over time"
             }
             table={series?.hasData && <TrafficTable buckets={series.buckets} granularity={series.granularity} />}
@@ -227,7 +229,8 @@ function NetworkPage({ id }: { id: number }) {
             ) : !series ? (
               <Skeleton className="h-64 w-full sm:h-72" />
             ) : series.hasData ? (
-              <TrafficChart buckets={series.buckets} granularity={series.granularity} spansDays={range !== "24h"} />
+              <TrafficChart buckets={series.buckets} granularity={series.granularity} spansDays={series.spansDays}
+              onZoom={zoom} />
             ) : (
               <EmptyChart
                 icon={<ActivityIcon />}
