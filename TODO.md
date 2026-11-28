@@ -7,8 +7,10 @@ Improvements that aren't in the TODO list of the [README](README.md#todo).
 - [x] Bound what the Linux collector keeps while recording fails. The connections
   closed since the last round stay in memory until a round is written, so a
   database that keeps failing makes them grow without limit.
-- [ ] Try the Linux collector on a busy router: watch the log for "Lost Netfilter
-  events", and compare netmon's totals with the router's interface counters.
+- [x] Try the Linux collector on a busy router: watch the log for "Lost Netfilter
+  events", and compare netmon's totals with the router's interface counters. Done on
+  a simulated router, see [`loadtest/`](loadtest/README.md), which found and fixed
+  three problems; a real router is still worth a try.
 
 ## Performance and resources
 

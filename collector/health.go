@@ -35,8 +35,13 @@ type HealthStatus struct {
 	// connections closing, which the Linux collector then misses some of.
 	EventOverflows uint64
 	// DroppedConnections counts the closed connections the Linux collector
-	// left out because it held too many already, while recording failed.
+	// left out because it held too many already, while it couldn't read
+	// conntrack.
 	DroppedConnections uint64
+	// DroppedFlows counts the flows whose traffic the Linux collector left
+	// out because it held too many already, while writing to the database
+	// failed.
+	DroppedFlows uint64
 	// Warnings are problems that keep traffic from being recorded in full,
 	// such as connection tracking not counting bytes.
 	Warnings []string
@@ -104,6 +109,10 @@ func (h *Health) eventsOverflowed() {
 
 func (h *Health) droppedConnections(n int) {
 	h.update(func(s *HealthStatus) { s.DroppedConnections += uint64(n) })
+}
+
+func (h *Health) droppedFlows(n int) {
+	h.update(func(s *HealthStatus) { s.DroppedFlows += uint64(n) })
 }
 
 // warn sets the warning about something, or with an empty message takes it

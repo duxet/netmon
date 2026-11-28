@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/duxet/netmon/live"
-	"github.com/ti-mo/conntrack"
 	"github.com/vishvananda/netlink"
 )
 
@@ -22,8 +21,9 @@ import (
 
 // liveSource is where the live sampler gets its data from.
 type liveSource interface {
-	// Flows returns the connections being tracked, with their counters.
-	Flows() ([]conntrack.Flow, error)
+	// Connections returns the connections being tracked, with their
+	// counters.
+	Connections() ([]tracked, error)
 
 	// Neighbors returns the MAC addresses of the hosts on the local network.
 	Neighbors() (map[netip.Addr]live.MAC, error)
@@ -48,9 +48,9 @@ type liveSampler struct {
 	// first sample only records them.
 	sampling bool
 
-	// previous holds the connections as of the last sample, to work out how
-	// much they carried since then.
-	previous map[uint32]conntrack.Flow
+	// previous holds what the connections had carried as of the last
+	// sample, to work out how much they carried since then.
+	previous map[connID]carried
 
 	// macs are the local hosts found at the last sample.
 	macs map[netip.Addr]live.MAC
@@ -107,7 +107,7 @@ func (s *liveSampler) sample(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	flows, err := s.source.Flows()
+	connections, err := s.source.Connections()
 	if err != nil {
 		return err
 	}
@@ -127,14 +127,14 @@ func (s *liveSampler) sample(now time.Time) error {
 
 	s.sampling = true
 	s.macs = macs
-	s.previous = make(map[uint32]conntrack.Flow, len(flows))
+	s.previous = make(map[connID]carried, len(connections))
 
-	for _, flow := range flows {
-		s.previous[flow.ID] = flow
+	for _, t := range connections {
+		s.previous[t.id] = t.counters
 
 		if !baseline {
-			old, seen := previous[flow.ID]
-			s.record(flow, old, seen)
+			old, seen := previous[t.id]
+			s.record(t.connection, old, seen)
 		}
 	}
 
@@ -146,7 +146,7 @@ func (s *liveSampler) sample(now time.Time) error {
 // destroyed accounts for the last traffic of a connection that has been closed,
 // which the next sample won't find any more. Without it, connections that last
 // less than a second, such as most DNS lookups, would never be seen.
-func (s *liveSampler) destroyed(flow conntrack.Flow) {
+func (s *liveSampler) destroyed(t tracked) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -154,24 +154,24 @@ func (s *liveSampler) destroyed(flow conntrack.Flow) {
 		return
 	}
 
-	old, seen := s.previous[flow.ID]
-	delete(s.previous, flow.ID)
+	old, seen := s.previous[t.id]
+	delete(s.previous, t.id)
 
-	s.record(flow, old, seen)
+	s.record(t.connection, old, seen)
 }
 
-// record adds what a connection carried since old, its state at the previous
-// sample, to the devices it is between. The caller holds s.mu.
-func (s *liveSampler) record(flow conntrack.Flow, old conntrack.Flow, seen bool) {
-	// Conntrack calls what the originator sent "orig" and the replies
-	// "reply", so the originator downloaded the latter.
-	reply, _, orig, _ := flowDelta(flow, old, seen)
+// record adds what a connection carried since old, what it had carried at
+// the previous sample, to the devices it is between. The caller holds s.mu.
+func (s *liveSampler) record(c connection, old carried, seen bool) {
+	// The originator downloaded what the responder sent.
+	delta := c.counters.since(old, seen)
+	reply, orig := delta.inBytes, delta.outBytes
 	if reply == 0 && orig == 0 {
 		return
 	}
 
-	src := flow.TupleOrig.IP.SourceAddress
-	dst, _ := destination(flow, func(addr netip.Addr) bool {
+	src := c.src
+	dst, _ := c.destination(func(addr netip.Addr) bool {
 		_, ok := s.macs[addr.Unmap()]
 		return ok
 	})
@@ -197,28 +197,10 @@ func (s *liveSampler) record(flow conntrack.Flow, old conntrack.Flow, seen bool)
 }
 
 // netfilterSource reads from the kernel.
-type netfilterSource struct {
-	conn *conntrack.Conn
-}
+type netfilterSource struct{}
 
-func (n *netfilterSource) Flows() ([]conntrack.Flow, error) {
-	// One socket is kept for as long as the live view is watched, instead of
-	// a new one every second.
-	if n.conn == nil {
-		conn, err := conntrack.Dial(nil)
-		if err != nil {
-			return nil, err
-		}
-		n.conn = conn
-	}
-
-	flows, err := n.conn.Dump(nil)
-	if err != nil {
-		n.Close()
-		return nil, err
-	}
-
-	return flows, nil
+func (n *netfilterSource) Connections() ([]tracked, error) {
+	return dumpConnections()
 }
 
 func (n *netfilterSource) Neighbors() (map[netip.Addr]live.MAC, error) {
@@ -264,9 +246,5 @@ func neighborMACs(neighbors []netlink.Neigh) map[netip.Addr]live.MAC {
 	return macs
 }
 
-func (n *netfilterSource) Close() {
-	if n.conn != nil {
-		_ = n.conn.Close()
-		n.conn = nil
-	}
-}
+// Close does nothing: every dump has a socket of its own.
+func (n *netfilterSource) Close() {}

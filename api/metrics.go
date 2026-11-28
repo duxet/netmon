@@ -83,7 +83,8 @@ func registerMetricsRoutes(app *fiber.App, db *sql.DB, m metrics) {
 			w.counter("netmon_collector_failed_rounds_total", "Rounds of recording traffic that failed.", s.FailedRounds)
 			w.counter("netmon_collector_flows_written_total", "Flows written to the database.", s.Rows)
 			w.counter("netmon_collector_event_overflows_total", "Times the kernel dropped events about connections closing.", s.EventOverflows)
-			w.counter("netmon_collector_dropped_connections_total", "Closed connections left out while recording failed.", s.DroppedConnections)
+			w.counter("netmon_collector_dropped_connections_total", "Closed connections left out while conntrack couldn't be read.", s.DroppedConnections)
+			w.counter("netmon_collector_dropped_flows_total", "Flows whose traffic was left out while writing to the database failed.", s.DroppedFlows)
 			w.gauge("netmon_collector_warnings", "Problems that keep traffic from being recorded in full.", float64(len(s.Warnings)))
 			if !s.LastRecorded.IsZero() {
 				w.gauge("netmon_collector_last_recorded_timestamp_seconds", "When traffic was last written to the database.",

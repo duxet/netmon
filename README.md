@@ -69,10 +69,13 @@ machine for its own traffic. It needs:
 - root (or `CAP_NET_ADMIN`),
 - the `nf_conntrack` and `nf_conntrack_netlink` kernel modules,
 - connection tracking accounting, as the kernel only keeps byte and packet
-  counters when it is on:
+  counters when it is on,
+- and, better, connection tracking timestamps, which tell apart connections that
+  reuse the ports of one that just closed, as the kernel gives them the same ID:
 
 ```sh
 sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+sudo sysctl -w net.netfilter.nf_conntrack_timestamp=1
 sudo ./netmon
 ```
 
@@ -82,8 +85,19 @@ device's traffic, though they were sent to the router's address.
 The web UI says so at the top of every page when netmon isn't recording traffic: when
 the collector couldn't start (without root, say), recording fails or seems stuck, or
 connection tracking doesn't count traffic because accounting is off. If writing to the
-database keeps failing, netmon keeps the traffic of up to 65,536 closed connections for
-when it works again, and leaves out the rest.
+database fails, netmon keeps what it recorded, summed up per flow (a device's traffic
+with one address and port), for when it works again: up to 65,536 flows, and it leaves
+out the rest.
+
+Once a minute netmon reads every connection conntrack tracks, and in between conntrack
+tells it about the connections that close, whose last traffic it would miss otherwise.
+When these events come faster than netmon reads them, the kernel drops some: netmon then
+logs "Lost Netfilter events" and counts it in `netmon_collector_event_overflows_total`.
+[`loadtest/`](loadtest) simulates a busy router on a Linux machine and compares what
+netmon records with what went through it. With up to 6,100 new connections a second and
+213,000 tracked at once, netmon recorded every byte, lost no events, and used up to
+360 MB of memory, most of it for a moment while reading conntrack; at 600 a second,
+140 MB.
 
 ## Running in Docker
 
@@ -114,6 +128,7 @@ services:
 
 ```sh
 sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+sudo sysctl -w net.netfilter.nf_conntrack_timestamp=1
 docker compose up -d
 ```
 
@@ -148,7 +163,7 @@ apk add --allow-untrusted ./netmon_<version>_openwrt-25.12_<architecture>.apk  #
 ```
 
 This installs the `kmod-nf-conntrack-netlink` kernel module package, enables
-connection tracking accounting and sets up the `netmon` service, which starts
+connection tracking accounting and timestamps and sets up the `netmon` service, which starts
 at boot (start it now with `service netmon start`). The UI is then at
 `http://<router>:2137`.
 
@@ -360,7 +375,8 @@ with 0 when it is healthy and 1 when it isn't; the Docker image uses it as its
 | `netmon_collector_flows_written_total` | Flows written to the database |
 | `netmon_collector_last_recorded_timestamp_seconds` | When traffic was last recorded |
 | `netmon_collector_event_overflows_total` | Times the kernel dropped events about connections closing (Linux) |
-| `netmon_collector_dropped_connections_total` | Closed connections left out while recording failed (Linux) |
+| `netmon_collector_dropped_connections_total` | Closed connections left out while conntrack couldn't be read (Linux) |
+| `netmon_collector_dropped_flows_total` | Flows whose traffic was left out while writing to the database failed (Linux) |
 | `netmon_collector_warnings` | Problems that keep traffic from being recorded in full, such as accounting being off |
 | `netmon_database_size_bytes` | Size of `flows.db`, with its write-ahead log |
 | `netmon_alerts_firing` | Alerts firing now |

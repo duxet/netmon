@@ -44,11 +44,11 @@ func (f *fakeSource) set(flows ...conntrack.Flow) {
 	f.flows = flows
 }
 
-func (f *fakeSource) Flows() ([]conntrack.Flow, error) {
+func (f *fakeSource) Connections() ([]tracked, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reads++
-	return append([]conntrack.Flow(nil), f.flows...), f.err
+	return trackAll(f.flows), f.err
 }
 
 func (f *fakeSource) Neighbors() (map[netip.Addr]live.MAC, error) {
@@ -266,7 +266,7 @@ func TestSamplerCountsTheLastTrafficOfClosedConnections(t *testing.T) {
 
 	// The connection carries 500 more bytes down and closes before the next
 	// sample, which therefore doesn't find it any more.
-	s.destroyed(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1500, 100))
+	s.destroyed(track(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1500, 100)))
 	source.set()
 	mustSample(t, s, t0.Add(time.Second))
 
@@ -280,7 +280,7 @@ func TestSamplerCountsConnectionsThatOpenedAndClosedBetweenSamples(t *testing.T)
 
 	mustSample(t, s, t0)
 
-	s.destroyed(conn(9, "192.168.1.23", "1.1.1.1", 50001, 53, 120, 60))
+	s.destroyed(track(conn(9, "192.168.1.23", "1.1.1.1", 50001, 53, 120, 60)))
 	mustSample(t, s, t0.Add(time.Second))
 
 	if got := latest(t, meter)[laptopMAC]; got.Download != 120 || got.Upload != 60 {
@@ -299,7 +299,7 @@ func TestSamplerCountsAClosedConnectionOnlyOnce(t *testing.T) {
 	grown := conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1200, 100)
 	source.set(grown)
 	mustSample(t, s, t0.Add(time.Second))
-	s.destroyed(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1250, 100))
+	s.destroyed(track(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1250, 100)))
 	source.set()
 	mustSample(t, s, t0.Add(2*time.Second))
 
@@ -322,7 +322,7 @@ func TestSamplerCountsAClosedConnectionOnlyOnce(t *testing.T) {
 func TestSamplerIgnoresClosedConnectionsWhileIdle(t *testing.T) {
 	s, meter, source := newSampler()
 
-	s.destroyed(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 100))
+	s.destroyed(track(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 100)))
 	mustSample(t, s, t0)
 	source.set()
 	mustSample(t, s, t0.Add(time.Second))

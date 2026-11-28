@@ -50,23 +50,38 @@ func natConn(id uint32, src, dst string, sport, dport uint16, to string, toPort 
 
 func noMAC(netip.Addr) *common.MACAddress { return nil }
 
-func TestFlowDelta(t *testing.T) {
-	first := conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 200)
+func TestCarriedSince(t *testing.T) {
+	first := track(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 200)).counters
 
-	if in, _, out, _ := flowDelta(first, conntrack.Flow{}, false); in != 1000 || out != 200 {
-		t.Errorf("new connection: in %d out %d, want its full counters 1000/200", in, out)
+	if got := first.since(carried{}, false); got.inBytes != 1000 || got.outBytes != 200 {
+		t.Errorf("new connection: %+v, want its full counters 1000/200", got)
 	}
 
-	later := conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1500, 300)
-	if in, inP, out, outP := flowDelta(later, first, true); in != 500 || out != 100 || inP != 5 || outP != 1 {
-		t.Errorf("continued connection: %d/%d bytes %d/%d packets, want 500/100 bytes 5/1 packets", in, out, inP, outP)
+	later := track(conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1500, 300)).counters
+	if got := later.since(first, true); got != (carried{inBytes: 500, inPackets: 5, outBytes: 100, outPackets: 1}) {
+		t.Errorf("continued connection: %+v, want 500/100 bytes 5/1 packets", got)
 	}
 
 	// The ID was reused by a new, smaller connection.
-	reused := conn(1, "192.168.1.23", "1.1.1.1", 50001, 53, 80, 60)
-	if in, _, out, _ := flowDelta(reused, later, true); in != 80 || out != 60 {
-		t.Errorf("reused ID: in %d out %d, want the new connection's counters 80/60", in, out)
+	reused := track(conn(1, "192.168.1.23", "1.1.1.1", 50001, 53, 80, 60)).counters
+	if got := reused.since(later, true); got.inBytes != 80 || got.outBytes != 60 {
+		t.Errorf("reused ID: %+v, want the new connection's counters 80/60", got)
 	}
+}
+
+// closedOf returns a set of closed connections.
+func closedOf(flows ...conntrack.Flow) closedSet {
+	closed := newClosedSet(maxClosedConnections)
+	for _, flow := range flows {
+		t := track(flow)
+		closed.keep(t.id, t.connection)
+	}
+	return closed
+}
+
+// baselineOf returns the baseline after a dump that found flows.
+func baselineOf(flows ...conntrack.Flow) baseline {
+	return baseline{}.next(trackAll(flows), nil)
 }
 
 func TestBuildSnapshotsGroupsAndSkipsIdleFlows(t *testing.T) {
@@ -80,16 +95,14 @@ func TestBuildSnapshotsGroupsAndSkipsIdleFlows(t *testing.T) {
 	}
 
 	idle := conn(3, "192.168.1.23", "17.253.53.207", 50010, 5223, 400, 40)
-	previous := map[uint32]conntrack.Flow{idle.ID: idle}
-	current := []conntrack.Flow{
+	previous := baselineOf(idle)
+	current := trackAll([]conntrack.Flow{
 		// Two connections to the same service form one flow.
 		conn(1, "192.168.1.23", "140.82.121.4", 50000, 443, 1000, 100),
 		conn(2, "192.168.1.23", "140.82.121.4", 50001, 443, 3000, 300),
 		idle,
-	}
-	closed := map[uint32]conntrack.Flow{
-		4: conn(4, "192.168.1.23", "1.1.1.1", 50020, 53, 90, 70),
-	}
+	})
+	closed := closedOf(conn(4, "192.168.1.23", "1.1.1.1", 50020, 53, 90, 70))
 
 	snapshots := buildSnapshots(closed, current, previous, macOf, nil)
 
@@ -118,21 +131,16 @@ func TestBuildSnapshotsGroupsAndSkipsIdleFlows(t *testing.T) {
 // Over several dumps, a long-lived connection must add up to its real total
 // rather than having its cumulative counters stored again every minute.
 func TestRepeatedDumpsCountTrafficOnce(t *testing.T) {
-	previous := map[uint32]conntrack.Flow{}
+	previous := baseline{}
 	var stored uint64
 
 	for _, in := range []uint64{100, 250, 400} {
-		current := []conntrack.Flow{conn(7, "192.168.1.23", "23.246.18.164", 50100, 443, in, 0)}
+		current := trackAll([]conntrack.Flow{conn(7, "192.168.1.23", "23.246.18.164", 50100, 443, in, 0)})
 
-		for _, snapshot := range buildSnapshots(nil, current, previous, noMAC, nil) {
+		for _, snapshot := range buildSnapshots(closedOf(), current, previous, noMAC, nil) {
 			stored += snapshot.inBytes
 		}
-
-		// What dumpFlows does after a successful insert.
-		previous = map[uint32]conntrack.Flow{}
-		for _, flow := range current {
-			previous[flow.ID] = flow
-		}
+		previous = previous.next(current, nil)
 	}
 
 	if stored != 400 {
@@ -141,15 +149,15 @@ func TestRepeatedDumpsCountTrafficOnce(t *testing.T) {
 }
 
 func TestBuildSnapshotsLeavesOutIgnoredFlows(t *testing.T) {
-	current := []conntrack.Flow{
+	current := trackAll([]conntrack.Flow{
 		conn(1, "192.168.1.23", "192.168.1.5", 50000, 445, 9000, 900),
 		conn(2, "192.168.1.23", "140.82.121.4", 50001, 443, 3000, 300),
-	}
+	})
 	ignore := func(src, dst netip.Addr) bool {
 		return src.IsPrivate() && dst.IsPrivate()
 	}
 
-	snapshots := buildSnapshots(nil, current, map[uint32]conntrack.Flow{}, noMAC, ignore)
+	snapshots := buildSnapshots(closedOf(), current, baseline{}, noMAC, ignore)
 
 	if len(snapshots) != 1 {
 		t.Fatalf("got %d snapshots, want only the one to the internet: %+v", len(snapshots), snapshots)
@@ -216,7 +224,7 @@ func TestBuildSnapshotsFollowsPortForwards(t *testing.T) {
 		return nil
 	}
 
-	current := []conntrack.Flow{
+	current := trackAll([]conntrack.Flow{
 		// Someone on the internet connects to port 8443 of the router's WAN
 		// address, which is forwarded to port 443 of a server at home.
 		natConn(1, "203.0.113.7", "198.51.100.2", 51000, 8443, "192.168.1.10", 443, 5000, 800),
@@ -226,9 +234,9 @@ func TestBuildSnapshotsFollowsPortForwards(t *testing.T) {
 		// An ordinary connection out through the router's NAT, whose replies
 		// come from where it went.
 		natConn(3, "192.168.1.23", "140.82.121.4", 50001, 443, "140.82.121.4", 443, 3000, 300),
-	}
+	})
 
-	snapshots := buildSnapshots(nil, current, map[uint32]conntrack.Flow{}, macOf, nil)
+	snapshots := buildSnapshots(closedOf(), current, baseline{}, macOf, nil)
 
 	want := map[FlowSnapshotKey]bool{
 		{srcIP: netip.MustParseAddr("203.0.113.7"), dstIP: netip.MustParseAddr("192.168.1.10"), proto: 6, port: 443}:  true,
@@ -263,13 +271,13 @@ func (k *fakeKernel) set(flows ...conntrack.Flow) {
 	k.flows = flows
 }
 
-func (k *fakeKernel) dump() ([]conntrack.Flow, error) {
+func (k *fakeKernel) dump() ([]tracked, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.err != nil {
 		return nil, k.err
 	}
-	return append([]conntrack.Flow(nil), k.flows...), nil
+	return trackAll(k.flows), nil
 }
 
 func (k *fakeKernel) neighbors() (map[netip.Addr]live.MAC, error) {
@@ -353,9 +361,9 @@ func TestRecordCountsConnectionsWhoseEventComesLate(t *testing.T) {
 func TestBaselineForgetsConnectionsWhoseEventWasLost(t *testing.T) {
 	download := conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100)
 
-	b := baseline{}.next([]conntrack.Flow{download}, nil)
+	b := baselineOf(download)
 	b = b.next(nil, nil)
-	if _, ok := b.vanished[download.ID]; !ok {
+	if _, ok := b.vanished[track(download).id]; !ok {
 		t.Fatal("a connection missing from the dump isn't kept until its event comes")
 	}
 
@@ -474,7 +482,11 @@ func waitForClosed(t *testing.T, n *netfilterCollector, ids ...uint32) {
 		n.mu.Lock()
 		missing := 0
 		for _, id := range ids {
-			if _, ok := n.closed[id]; !ok {
+			found := false
+			for closed := range n.closed.first {
+				found = found || closed.id == id
+			}
+			if !found {
 				missing++
 			}
 		}
@@ -557,24 +569,182 @@ func TestShutdownRecordsTheLastRound(t *testing.T) {
 
 func TestRecordBoundsTheClosedConnectionsItKeeps(t *testing.T) {
 	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+	n.opts.Health = NewHealth()
+	n.closed.limit = 3
+
+	kernel.err = errors.New("dump failed")
+	for id := range uint32(3) {
+		n.destroyed(conn(id, laptopIP.String(), "1.1.1.1", uint16(50000+id), 53, 90, 70))
+	}
+	if _, err := n.record(); err == nil {
+		t.Fatal("recording with a failing dump succeeded")
+	}
+
+	// Two more close while the dump fails, and one takes the place of a
+	// connection it has already, which is no more of them.
+	n.destroyed(conn(3, laptopIP.String(), "1.1.1.1", 50003, 53, 90, 70))
+	n.destroyed(conn(4, laptopIP.String(), "1.1.1.1", 50004, 53, 90, 70))
+	n.destroyed(conn(0, laptopIP.String(), "1.1.1.1", 50000, 53, 100, 80))
+	if len(n.closed.first) != 3 || n.closed.dropped != 2 {
+		t.Fatalf("kept %d closed connections and dropped %d, want 3 and 2", len(n.closed.first), n.closed.dropped)
+	}
+
+	kernel.err = nil
+	mustRecord(t, n)
+	if got := n.opts.Health.Status().DroppedConnections; got != 2 {
+		t.Errorf("health counts %d dropped connections, want 2", got)
+	}
+	if got := downloaded(t, db); got != 3*90+100 {
+		t.Errorf("recorded %d bytes downloaded, want %d: the kept connections' and the one in place of one", got, 3*90+100)
+	}
+}
+
+// A busy router closes far more connections in a minute than are kept while
+// rounds fail, and every one of them counts.
+func TestRecordKeepsEveryConnectionClosedInARound(t *testing.T) {
+	db := newTestDB(t)
 	n, _ := newTestCollector(db)
 	n.opts.Health = NewHealth()
 
-	for id := range uint32(maxClosedConnections + 5) {
-		n.destroyed(conn(id, laptopIP.String(), "1.1.1.1", uint16(id), 53, 90, 70))
+	const closing = 100_000
+	for id := range uint32(closing) {
+		n.destroyed(conn(id, laptopIP.String(), "1.1.1.1", uint16(id), 53, 1, 1))
 	}
-	// A connection it has already is no more of them.
-	n.destroyed(conn(0, laptopIP.String(), "1.1.1.1", 0, 53, 100, 80))
-	if len(n.closed) != maxClosedConnections || n.dropped != 5 {
-		t.Fatalf("kept %d closed connections and dropped %d, want %d and 5", len(n.closed), n.dropped, maxClosedConnections)
+	mustRecord(t, n)
+
+	if got := downloaded(t, db); got != closing {
+		t.Errorf("recorded %d bytes downloaded, want %d, one for each connection", got, closing)
+	}
+	if got := n.opts.Health.Status().DroppedConnections; got != 0 {
+		t.Errorf("health counts %d dropped connections, want none", got)
+	}
+}
+
+// The kernel gives a connection that takes the place of one that just ended
+// between the same ports the same ID, as when a client reuses its port.
+func TestRecordCountsConnectionsWithAReusedID(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+
+	first := conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100)
+	kernel.set(first)
+	mustRecord(t, n)
+
+	// It closes, another takes its place and closes too, and a third
+	// takes theirs.
+	n.destroyed(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1200, 120))
+	n.destroyed(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 700, 70))
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1500, 150))
+	mustRecord(t, n)
+
+	if got := downloaded(t, db); got != 1200+700+1500 {
+		t.Errorf("recorded %d bytes downloaded, want %d: all three connections'", got, 1200+700+1500)
 	}
 
+	// The third goes on, and only its new traffic counts.
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1800, 180))
 	mustRecord(t, n)
-	if got := n.opts.Health.Status().DroppedConnections; got != 5 {
-		t.Errorf("health counts %d dropped connections, want 5", got)
+	if got := downloaded(t, db); got != 1200+700+1800 {
+		t.Errorf("recorded %d bytes downloaded, want %d", got, 1200+700+1800)
 	}
-	if n.dropped != 0 {
-		t.Errorf("%d dropped connections left after reporting them, want none", n.dropped)
+}
+
+// Connections that share an ID by chance are told apart by their ports, and
+// those between the same ports by when conntrack started tracking them, where
+// it records that.
+func TestRecordTellsConnectionsWithTheSameIDApart(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+
+	started := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	stamped := func(flow conntrack.Flow, start time.Time) conntrack.Flow {
+		flow.Timestamp.Start = start
+		return flow
+	}
+
+	web := conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100)
+	dns := conn(1, laptopIP.String(), "1.1.1.1", 50001, 53, 90, 70)
+	video := stamped(conn(2, laptopIP.String(), "23.246.18.164", 50002, 443, 5000, 500), started)
+	kernel.set(web, dns, video)
+	mustRecord(t, n)
+	if got := downloaded(t, db); got != 1000+90+5000 {
+		t.Fatalf("recorded %d bytes downloaded, want %d", got, 1000+90+5000)
+	}
+
+	// The video's connection closes, and another between the same ports
+	// replaces it, larger already. Their start times tell them apart.
+	n.destroyed(stamped(conn(2, laptopIP.String(), "23.246.18.164", 50002, 443, 5200, 520), started))
+	kernel.set(web, dns, stamped(conn(2, laptopIP.String(), "23.246.18.164", 50002, 443, 6000, 600), started.Add(time.Minute)))
+	mustRecord(t, n)
+	if got := downloaded(t, db); got != 1000+90+5200+6000 {
+		t.Errorf("recorded %d bytes downloaded, want %d", got, 1000+90+5200+6000)
+	}
+}
+
+// A connection being destroyed can still be in the dump, while the event
+// saying so came already.
+func TestRecordLeavesOutDyingConnections(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100))
+	mustRecord(t, n)
+
+	final := conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1200, 120)
+	n.destroyed(final)
+	final.Status = conntrack.StatusDying | conntrack.StatusAssured
+	kernel.set(final)
+	mustRecord(t, n)
+	kernel.set()
+	mustRecord(t, n)
+
+	if got := downloaded(t, db); got != 1200 {
+		t.Errorf("recorded %d bytes downloaded, want the connection's 1200", got)
+	}
+}
+
+func TestRecordBoundsTheTrafficItCouldNotWrite(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+	n.opts.Health = NewHealth()
+	n.pendingLimit = 2
+
+	broken, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = broken.Close()
+	n.db = broken
+
+	// Two flows fail to be written, then a third comes along, which there
+	// is no room for, and more traffic of the first.
+	kernel.set(
+		conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1000, 100),
+		conn(2, laptopIP.String(), "1.1.1.1", 50001, 53, 90, 70),
+	)
+	if _, err := n.record(); err == nil {
+		t.Fatal("recording to a closed database succeeded")
+	}
+	kernel.set(
+		conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 1500, 150),
+		conn(3, laptopIP.String(), "23.246.18.164", 50002, 443, 5000, 500),
+	)
+	if _, err := n.record(); err == nil {
+		t.Fatal("recording to a closed database succeeded")
+	}
+	if got := n.opts.Health.Status().DroppedFlows; got != 1 {
+		t.Errorf("health counts %d dropped flows, want 1", got)
+	}
+
+	n.db = db
+	kernel.set()
+	mustRecord(t, n)
+	if got := downloaded(t, db); got != 1500+90 {
+		t.Errorf("recorded %d bytes downloaded, want %d: the two flows it kept", got, 1500+90)
+	}
+	if n.pending != nil {
+		t.Errorf("still holds %d flows after writing them", len(n.pending))
 	}
 }
 
@@ -636,5 +806,41 @@ func TestRecordAddsUpTheTrafficOfDevices(t *testing.T) {
 	}
 	if got := devices[net.HardwareAddr(phoneMAC[:]).String()]; got != (DeviceTotal{Received: 4000, Sent: 300}) {
 		t.Errorf("phone = %+v, want 4000 received and 300 sent", got)
+	}
+}
+
+// A connection's event can come only after a dump that found the connection
+// that took its place: that one's traffic isn't counted twice.
+func TestRecordDoesNotCountAReplacementTwiceWhenTheEventComesLate(t *testing.T) {
+	db := newTestDB(t)
+	n, kernel := newTestCollector(db)
+
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 100, 10))
+	mustRecord(t, n)
+
+	// It closes, and another takes its place, which the next dump finds
+	// before the event about the first comes.
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 3000, 300))
+	mustRecord(t, n)
+	n.destroyed(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 150, 15))
+	kernel.set(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 3500, 350))
+	mustRecord(t, n)
+
+	// What the first carried after the first dump is lost, as the second
+	// counted from the first's counters.
+	if got := downloaded(t, db); got != 3500 {
+		t.Errorf("recorded %d bytes downloaded, want 3500", got)
+	}
+}
+
+func TestUniqueLeavesOutRepeatedConnections(t *testing.T) {
+	web := track(conn(1, laptopIP.String(), "140.82.121.4", 50000, 443, 100, 10))
+	dns := track(conn(2, laptopIP.String(), "1.1.1.1", 50001, 53, 90, 70))
+	// The same ID by chance, between other ports.
+	other := track(conn(1, laptopIP.String(), "23.246.18.164", 50002, 443, 5000, 500))
+
+	got, repeated := unique([]tracked{web, dns, web, other})
+	if repeated != 1 || len(got) != 3 || got[0].id != web.id || got[1].id != dns.id || got[2].id != other.id {
+		t.Errorf("unique = %d connections, %d repeated, want web, dns and other, and 1", len(got), repeated)
 	}
 }

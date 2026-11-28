@@ -1,9 +1,11 @@
 # netmon with Docker Compose: docker compose up -d
 #
 # netmon reads the host's connection tracking, so it shares the host's
-# network and needs CAP_NET_ADMIN. Turn accounting on on the host first:
+# network and needs CAP_NET_ADMIN. Turn accounting, and timestamps, on on the
+# host first:
 #
 #   sudo sysctl -w net.netfilter.nf_conntrack_acct=1
+#   sudo sysctl -w net.netfilter.nf_conntrack_timestamp=1
 services:
   netmon:
     image: ghcr.io/duxet/netmon:latest

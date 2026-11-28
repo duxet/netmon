@@ -27,6 +27,9 @@ start_service() {
 	# accounting is on, and those counters are what netmon reads.
 	sysctl -w net.netfilter.nf_conntrack_acct=1 > /dev/null ||
 		logger -t netmon "could not enable conntrack accounting, traffic will not be counted"
+	# With timestamps, connections that reuse the ports of one that just
+	# closed, which the kernel gives the same ID, are told apart.
+	sysctl -w net.netfilter.nf_conntrack_timestamp=1 > /dev/null || true
 
 	# netmon keeps its database and looks for the GeoIP databases in its
 	# working directory, which procd can't set, so change into it first.
