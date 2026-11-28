@@ -170,10 +170,10 @@ jobs:
           path: release/*.tar.gz
           if-no-files-found: error
 
-  # Packages the Linux binaries for OpenWrt, one per package architecture and
-  # OpenWrt release series, because the series decide the format: opkg's .ipk
-  # up to 24.10, apk's .apk from 25.12. See openwrt/netmon/Makefile for why this
-  # packages the binary instead of building it.
+  # Packages the Linux binaries for OpenWrt, one per package architecture, for
+  # the latest OpenWrt release series only (25.12, whose packages are apk's
+  # .apk). See openwrt/netmon/Makefile for why this packages the binary instead
+  # of building it.
   openwrt:
     name: OpenWrt ${{ matrix.release }} ${{ matrix.arch }}
     needs: build
@@ -181,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: [openwrt-24.10, openwrt-25.12]
+        release: [openwrt-25.12]
         arch:
           - x86_64
           - aarch64_generic
