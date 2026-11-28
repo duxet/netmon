@@ -315,6 +315,14 @@ function FileOnlyCard({ settings }: { settings: ConfigSetting[] }) {
           </p>
         </div>
         <div className="flex flex-col">
+          <h3 className="text-sm font-medium">AdGuard Home</h3>
+          <div className="divide-y">{rows(["adguard_url", "adguard_username", "adguard_password"])}</div>
+          <p className="text-xs text-muted-foreground">
+            The names clients look up, from AdGuard Home's query log, to tell what the addresses they talk to are
+            for. {reason("adguard_url")}
+          </p>
+        </div>
+        <div className="flex flex-col">
           <h3 className="text-sm font-medium">Single sign-on</h3>
           <div className="divide-y">{rows(["oidc_issuer", "oidc_client_id", "oidc_client_secret"])}</div>
           <p className="text-xs text-muted-foreground">{reason("oidc_issuer")}</p>

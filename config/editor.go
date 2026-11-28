@@ -27,6 +27,9 @@ const ssoLocked = "Single sign-on decides who can use netmon, so it is only set 
 const unifiLocked = "netmon sends the API key or password to this controller, so the UniFi settings are only set " +
 	"in the file, where nobody can send them elsewhere from the web UI."
 
+const adguardLocked = "netmon sends the password to this address, so the AdGuard Home settings are only set " +
+	"in the file, where nobody can send it elsewhere from the web UI."
+
 // infos has an entry for every setting.
 var infos = map[string]info{
 	"listen":                {locked: "netmon would have to start again on the new address, which could leave the web UI out of reach."},
@@ -55,6 +58,9 @@ var infos = map[string]info{
 	"threads":               {live: true},
 	"allowed_hosts":         {live: true},
 	"dns_log":               {},
+	"adguard_url":           {locked: adguardLocked},
+	"adguard_username":      {locked: adguardLocked},
+	"adguard_password":      {locked: adguardLocked, secret: true},
 	"mqtt_broker":           {},
 	"mqtt_username":         {},
 	"mqtt_password":         {secret: true, locked: "Keep the password out of the web UI: set it in the file, or in NETMON_MQTT_PASSWORD."},

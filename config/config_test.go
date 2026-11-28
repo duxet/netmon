@@ -257,6 +257,9 @@ func TestLoadErrors(t *testing.T) {
 		{name: "unifi password without url", env: map[string]string{"NETMON_UNIFI_PASSWORD": "pw"}, want: "have no effect without unifi_url"},
 		{name: "unifi username without password", file: "unifi_url: https://192.168.1.1\nunifi_username: netmon\n", want: "unifi_password is required"},
 		{name: "unifi password without username", file: "unifi_url: https://192.168.1.1\nunifi_password: pw\n", want: "unifi_username is required"},
+		{name: "adguard password without url", env: map[string]string{"NETMON_ADGUARD_PASSWORD": "pw"}, want: "have no effect without adguard_url"},
+		{name: "adguard url not http", file: "adguard_url: 127.0.0.1:3000\n", want: "adguard_url must be"},
+		{name: "adguard password without username", file: "adguard_url: http://127.0.0.1:3000\nadguard_password: pw\n", want: "adguard_username is required"},
 		{name: "unifi key and password", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k\nunifi_username: netmon\nunifi_password: pw\n", want: "not both"},
 		{name: "unifi url over http", file: "unifi_url: http://192.168.1.1\nunifi_api_key: k3y\n", want: "unifi_url must be an https://"},
 		{name: "unifi bad fingerprint", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k3y\nunifi_fingerprint: abc\n", want: "SHA-256 fingerprint"},
@@ -393,7 +396,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log adguard_url adguard_username adguard_password mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

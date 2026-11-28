@@ -141,6 +141,14 @@ type Config struct {
 	// macOS, where they come from the packets captured).
 	DNSLog string `koanf:"dns_log"`
 
+	// AdGuardURL is where AdGuard Home's web UI is, such as
+	// http://127.0.0.1:3000, to learn the names clients look up from its
+	// query log, as from DNSLog. AdGuardUsername and AdGuardPassword sign in,
+	// when it has users.
+	AdGuardURL      string `koanf:"adguard_url"`
+	AdGuardUsername string `koanf:"adguard_username"`
+	AdGuardPassword string `koanf:"adguard_password"`
+
 	// MQTTBroker turns on publishing devices to Home Assistant over MQTT:
 	// the broker, such as tcp://homeassistant.lan:1883 or ssl://broker:8883.
 	// MQTTUsername and MQTTPassword log in to it.
@@ -272,6 +280,25 @@ func (c Config) validateUniFi() error {
 		if _, err := unifi.ParseFingerprint(c.UniFiFingerprint); err != nil {
 			return keyErrorf("unifi_fingerprint", "%w", err)
 		}
+	}
+	return nil
+}
+
+// validateAdGuard checks the AdGuard Home settings.
+func (c Config) validateAdGuard() error {
+	if c.AdGuardURL == "" {
+		if c.AdGuardUsername != "" || c.AdGuardPassword != "" {
+			return keyErrorf("adguard_url", "adguard_username and adguard_password have no effect without adguard_url: "+
+				"set the URL to learn names from AdGuard Home, or remove them")
+		}
+		return nil
+	}
+	u, err := url.Parse(c.AdGuardURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+		return keyErrorf("adguard_url", "adguard_url must be the http:// or https:// address of AdGuard Home's web UI, such as http://127.0.0.1:3000: %q", c.AdGuardURL)
+	}
+	if c.AdGuardPassword != "" && c.AdGuardUsername == "" {
+		return keyErrorf("adguard_username", "adguard_username is required with adguard_password")
 	}
 	return nil
 }
@@ -421,6 +448,9 @@ func (c Config) validate() error {
 		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)
 	}
 	if err := c.validateUniFi(); err != nil {
+		return err
+	}
+	if err := c.validateAdGuard(); err != nil {
 		return err
 	}
 	return c.validateOIDC()

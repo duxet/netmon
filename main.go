@@ -137,7 +137,8 @@ func main() {
 	classifier := apps.NewClassifierWithASNs(apps.Known, asns)
 
 	// The names clients look up tell what the addresses they then talk to
-	// are for, from dnsmasq's log or, on macOS, the packets captured.
+	// are for, from dnsmasq's log, AdGuard Home's query log or, on macOS, the
+	// packets captured.
 	names := domains.New()
 	if err := names.Load(db, time.Now().Add(-domains.Retention)); err != nil {
 		slog.Error("Failed to load the names of addresses", "err", err)
@@ -145,6 +146,10 @@ func main() {
 	classifier.SetNames(names.Names)
 	if cfg.DNSLog != "" {
 		go domains.Follow(ctx, cfg.DNSLog, names)
+	}
+	if cfg.AdGuardURL != "" {
+		adguard := &domains.AdGuard{URL: cfg.AdGuardURL, Username: cfg.AdGuardUsername, Password: cfg.AdGuardPassword}
+		go adguard.Follow(ctx, names)
 	}
 	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
 

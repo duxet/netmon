@@ -139,7 +139,9 @@ in notifications. The image's health check runs `netmon -healthcheck` (see
 [Monitoring netmon](#monitoring-netmon)), and `docker compose exec netmon netmon -backup
 backup.db` writes a [backup](#backups) to `./data/backup.db`. To
 [learn names](#names-clients-look-up) from dnsmasq's query log, mount the log file into
-the container and set `NETMON_DNS_LOG` to its path; `logread` isn't in the image.
+the container and set `NETMON_DNS_LOG` to its path; `logread` isn't in the image. With
+AdGuard Home on the same host, `NETMON_ADGUARD_URL=http://127.0.0.1:3000` reaches it
+when both use the host's network.
 
 The image only works on a Linux host: Docker Desktop on macOS and Windows runs
 containers in a virtual machine, whose traffic is all that netmon would see. To build it
@@ -247,12 +249,30 @@ counts as the app whose domains its name is in (`nflxvideo.net` is Netflix's).
 - **Other routers running dnsmasq, or Pi-hole**: set `dns_log` to the file dnsmasq logs
   queries to (`log-queries` and `log-facility=/var/log/dnsmasq.log`, or Pi-hole's
   `/var/log/pihole/pihole.log`). netmon follows it as `tail -F` does.
+- **AdGuard Home**: set `adguard_url` to the address of its web UI, and
+  `adguard_username` and `adguard_password` to an account of it, if it has any (they are
+  in `AdGuardHome.yaml` under `users`):
+
+  ```yaml
+  adguard_url: http://127.0.0.1:3000
+  adguard_username: admin
+  adguard_password: secret
+  ```
+
+  netmon reads the query log over AdGuard Home's API every 5 seconds, and when it starts
+  catches up on the last day of it. The query log has to be on (**Settings → General
+  settings → Logs**, as it is by default); netmon warns when it isn't. Queries AdGuard
+  Home blocked are left out, as their answers aren't the addresses clients talk to. The
+  settings can only be changed in the file, so that nobody can send the password
+  elsewhere from the web UI.
 - **macOS**: netmon reads the DNS answers among the packets it captures, without
   setting anything.
 
 The names are kept for 30 days after they were last seen, in `flows.db`. A name is the
 latest an address answered for, so an address shared by many sites shows whichever was
-looked up last.
+looked up last. Lookups that don't go through the DNS server netmon reads, such as a
+browser's DNS over HTTPS or Android's Private DNS, aren't seen; turn those off on the
+clients, or have the router send all DNS traffic to the server.
 
 ## Networks
 
@@ -631,6 +651,9 @@ a typo doesn't go unnoticed.
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
 | `dns_log`              | `NETMON_DNS_LOG`              | none                     | dnsmasq's query log, a file or `logread`, to [learn names](#names-clients-look-up) |
+| `adguard_url`          | `NETMON_ADGUARD_URL`          | none                     | Address of AdGuard Home's web UI, to [learn names](#names-clients-look-up) from its query log |
+| `adguard_username`     | `NETMON_ADGUARD_USERNAME`     | none                     | AdGuard Home account to sign in with, if it has any                |
+| `adguard_password`     | `NETMON_ADGUARD_PASSWORD`     | none                     | Its password                                                       |
 | `mqtt_broker`          | `NETMON_MQTT_BROKER`          | none                     | MQTT broker to publish devices to [Home Assistant](#home-assistant) on |
 | `mqtt_username`        | `NETMON_MQTT_USERNAME`        | none                     | User name at the broker                                            |
 | `mqtt_password`        | `NETMON_MQTT_PASSWORD`        | none                     | Password at the broker; only in the file or the environment        |
