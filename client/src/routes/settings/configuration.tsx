@@ -467,7 +467,8 @@ function ConfigurationForm({ config }: { config: Configuration }) {
         title="Hostnames"
         description={
           <>
-            Reverse DNS names the devices on your network and the hosts they talk to. Write a server as{" "}
+            Devices are named by what they asked the DHCP server for or announce over mDNS, and else by reverse
+            DNS, which also names the hosts they talk to. Write a server as{" "}
             <code>host</code> or <code>host:port</code>, or <code>system</code> for this machine's resolver.
           </>
         }
@@ -485,6 +486,19 @@ function ConfigurationForm({ config }: { config: Configuration }) {
             </>
           ),
           placeholder: "None",
+        })}
+        {field("dhcp_leases", {
+          description: (
+            <>
+              The DHCP server's lease files, of dnsmasq, ISC dhcpd, Kea or macOS, separated by commas:{" "}
+              <code>auto</code> finds the usual ones, such as OpenWrt's <code>/tmp/dhcp.leases</code>, and{" "}
+              <code>off</code> reads none. Applies after a restart.
+            </>
+          ),
+        })}
+        {field("mdns", {
+          description:
+            "Name devices by the names they announce over multicast DNS, such as Johns-MacBook.local, asking them to every 15 minutes. Applies after a restart.",
         })}
       </Section>
 

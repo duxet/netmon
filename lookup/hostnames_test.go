@@ -215,3 +215,28 @@ func TestSetServersForgetsNames(t *testing.T) {
 		t.Errorf("cache = %v after the servers changed, want it empty", r.cache)
 	}
 }
+
+func TestLookupAsksLocalNamesFirst(t *testing.T) {
+	dns := &fakeDNS{calls: map[string]int{}, answer: func(string) ([]string, error) { return []string{"from-dns.lan."}, nil }}
+	r := newHostnames(dns.lookup, dns.lookup)
+	nas := netip.MustParseAddr("192.168.1.10")
+	r.SetLocalNames(func(addr netip.Addr) string {
+		if addr == nas {
+			return "nas"
+		}
+		return ""
+	})
+
+	if got := r.Lookup(context.Background(), netip.MustParseAddr("::ffff:192.168.1.10")); got == nil || *got != "nas." {
+		t.Errorf("Lookup = %v, want the local name with a dot at the end", got)
+	}
+	if got, ok := r.Cached(nas); !ok || *got != "nas." {
+		t.Errorf("Cached = %v, %v, want the local name", got, ok)
+	}
+	if dns.calls["192.168.1.10"] != 0 {
+		t.Error("DNS was asked about an address with a local name")
+	}
+	if got := r.Lookup(context.Background(), netip.MustParseAddr("192.168.1.11")); got == nil || *got != "from-dns.lan." {
+		t.Errorf("Lookup = %v, want the DNS name for an address without a local name", got)
+	}
+}

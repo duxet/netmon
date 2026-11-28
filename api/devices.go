@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/duxet/netmon/common"
+	"github.com/duxet/netmon/localnames"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/unifi"
@@ -78,7 +79,7 @@ func nonNil(s []string) []string {
 
 // registerDeviceRoutes adds the endpoints for listing devices, naming them,
 // picking their icons, merging and forgetting them.
-func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames, source *unifi.Source) {
+func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames, local *localnames.Names, source *unifi.Source) {
 	// Forgets a device, and with ?traffic=true deletes its traffic too.
 	app.Delete("/api/devices/:mac", func(c fiber.Ctx) error {
 		mac, err := parseDeviceMAC(c)
@@ -154,9 +155,11 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 			return err
 		}
 
+		// A device's local name goes with its MAC address, so it has one when
+		// its address changed or it is offline; the others are looked up.
 		addrs := make([]netip.Addr, 0, len(records))
 		for _, record := range records {
-			if record.IPAddress.Addr != nil {
+			if record.IPAddress.Addr != nil && local.ByMAC(record.MACAddress.HardwareAddr) == "" {
 				addrs = append(addrs, *record.IPAddress.Addr)
 			}
 		}
@@ -174,7 +177,10 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 		devices := make([]DeviceDTO, 0, len(records))
 		for _, record := range records {
 			var hostname *string
-			if record.IPAddress.Addr != nil {
+			if name := local.ByMAC(record.MACAddress.HardwareAddr); name != "" {
+				name += "."
+				hostname = &name
+			} else if record.IPAddress.Addr != nil {
 				hostname = names[record.IPAddress.Unmap()]
 			}
 

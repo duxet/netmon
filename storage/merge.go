@@ -27,6 +27,7 @@ func ForgetDevice(db *sql.DB, mac net.HardwareAddr, traffic bool) error {
 		`DELETE FROM devices WHERE mac = ?`,
 		`DELETE FROM device_names WHERE mac = ?`,
 		`DELETE FROM device_icons WHERE mac = ?`,
+		`DELETE FROM device_hostnames WHERE mac = ?`,
 		`DELETE FROM device_aliases WHERE mac = ?`,
 	}
 	if traffic {
@@ -53,7 +54,7 @@ func ForgetDevice(db *sql.DB, mac net.HardwareAddr, traffic bool) error {
 // MergeDevices makes the devices with the MAC addresses aliases one device
 // with mac. Their traffic counts as its, the traffic recorded so far as well
 // as the traffic to come, and alert rules about them are about it. It keeps
-// mac's name and icon, or takes an alias's when it has none. It can't be
+// mac's name, icon and hostname, or takes an alias's when it has none. It can't be
 // undone.
 func MergeDevices(db *sql.DB, mac net.HardwareAddr, aliases []net.HardwareAddr, now time.Time) error {
 	tx, err := db.Begin()
@@ -90,6 +91,8 @@ func MergeDevices(db *sql.DB, mac net.HardwareAddr, aliases []net.HardwareAddr, 
 			{`DELETE FROM device_names WHERE mac = ?`, []any{a}},
 			{`INSERT INTO device_icons SELECT ?, icon, updated_at FROM device_icons WHERE mac = ? ON CONFLICT (mac) DO NOTHING`, []any{device, a}},
 			{`DELETE FROM device_icons WHERE mac = ?`, []any{a}},
+			{`INSERT INTO device_hostnames SELECT ?, name, source, updated_at FROM device_hostnames WHERE mac = ? ON CONFLICT (mac) DO NOTHING`, []any{device, a}},
+			{`DELETE FROM device_hostnames WHERE mac = ?`, []any{a}},
 		}
 		for _, table := range flowTables {
 			statements = append(statements,

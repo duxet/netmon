@@ -18,6 +18,7 @@ import (
 	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/homeassistant"
 	"github.com/duxet/netmon/live"
+	"github.com/duxet/netmon/localnames"
 	"github.com/duxet/netmon/logging"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/networks"
@@ -148,6 +149,25 @@ func main() {
 	}
 	hostnames := lookup.NewHostnames(cfg.LocalDNS, cfg.PublicDNS)
 
+	// Local devices are named by the names they asked the DHCP server for,
+	// or announce over mDNS, before reverse DNS is asked. They are kept per
+	// MAC address, so a device keeps its name when its lease is gone.
+	localNames := localnames.New()
+	if err := localNames.Load(db); err != nil {
+		slog.Error("Failed to load the names of devices", "err", err)
+	}
+	hostnames.SetLocalNames(localNames.ByIP)
+	if paths := localnames.LeaseFiles(cfg.DHCPLeases); len(paths) > 0 {
+		go localnames.WatchLeases(ctx, paths, strings.TrimSpace(cfg.DHCPLeases) == localnames.Auto, localNames)
+	}
+	if cfg.MDNS {
+		go func() {
+			if err := localnames.ListenMDNS(ctx, localNames, true); err != nil {
+				slog.Warn("Can't listen for mDNS, so devices aren't named by the names they announce", "err", err)
+			}
+		}()
+	}
+
 	// Alert rules are evaluated after every collection round, which also
 	// brings the devices up to date, and the notifications they raise are
 	// sent in the background.
@@ -237,6 +257,9 @@ func main() {
 				if err := names.Flush(db, at); err != nil {
 					slog.Error("Failed to save the names of addresses", "err", err)
 				}
+				if err := localNames.Flush(db); err != nil {
+					slog.Error("Failed to save the names of devices", "err", err)
+				}
 			}()
 			if publisher != nil {
 				go publisher.Publish(at)
@@ -302,7 +325,8 @@ func main() {
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
 		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database, Blocklists: lists,
-		Domains: names,
+		Domains:    names,
+		LocalNames: localNames,
 		Hosts: func() api.HostRules {
 			running := editor.Running()
 			return api.HostRules{PublicURL: running.BaseURL(), Allowed: running.AllowedHostList()}
@@ -325,6 +349,9 @@ func main() {
 		}
 		if err := names.Flush(db, time.Now()); err != nil {
 			slog.Error("Failed to save the names of addresses", "err", err)
+		}
+		if err := localNames.Flush(db); err != nil {
+			slog.Error("Failed to save the names of devices", "err", err)
 		}
 
 		_ = app.ShutdownWithContext(context.Background())

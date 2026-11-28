@@ -21,6 +21,9 @@ func TestMergeDevices(t *testing.T) {
 	if err := SetDeviceName(db, mustMAC(t, phoneA), "Ada's phone"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO device_hostnames VALUES (?, 'Adas-iPhone', 'dhcp', ?)`, mustMAC(t, phoneA), seedAt); err != nil {
+		t.Fatal(err)
+	}
 	rule, err := CreateRule(db, RuleRecord{Name: "Phones", Type: "device_inactive", Params: `{"inactive_s":3600,"macs":["` + phoneA + `","` + laptopMAC + `"]}`,
 		Severity: "info", Enabled: true}, seedAt)
 	if err != nil {
@@ -43,6 +46,14 @@ func TestMergeDevices(t *testing.T) {
 	if _, stillThere := byMAC[phoneA]; stillThere || !ok || !b.FirstSeen.Equal(seedAt) || !b.LastSeen.Equal(seedAt.Add(time.Hour)) ||
 		b.Name == nil || *b.Name != "Ada's phone" || b.IPAddress.String() != "192.168.20.50" {
 		t.Fatalf("devices = %+v, want one phone, seen since the first one was, with its name and the last address", byMAC)
+	}
+
+	var hostname string
+	if err := db.QueryRow(`SELECT name FROM device_hostnames WHERE mac = ?`, mustMAC(t, phoneB)).Scan(&hostname); err != nil || hostname != "Adas-iPhone" {
+		t.Errorf("hostname = %q (%v), want the merged phone's", hostname, err)
+	}
+	if n := count(t, db, "device_hostnames"); n != 1 {
+		t.Errorf("%d hostnames, want the merged one only", n)
 	}
 
 	clients, err := GetClients(db, FlowsFilter{MAC: mac(t, phoneB)})
@@ -101,6 +112,9 @@ func TestForgetDevice(t *testing.T) {
 	if err := SetDeviceName(db, mustMAC(t, nasMAC), "NAS"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO device_hostnames VALUES (?, 'nas', 'dhcp', ?)`, mustMAC(t, nasMAC), seedAt); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := ForgetDevice(db, mustMAC(t, nasMAC), false); err != nil {
 		t.Fatal(err)
@@ -109,6 +123,9 @@ func TestForgetDevice(t *testing.T) {
 	names, _ := GetDeviceNames(db)
 	if len(devices) != 1 || len(names) != 0 {
 		t.Errorf("devices %+v and names %v, want the NAS gone", devices, names)
+	}
+	if n := count(t, db, "device_hostnames"); n != 0 {
+		t.Errorf("%d hostnames, want the NAS's gone", n)
 	}
 	if n := count(t, db, "flows"); n != 3 {
 		t.Errorf("%d flows, want all 3 kept", n)

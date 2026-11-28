@@ -19,6 +19,7 @@ import (
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/domains"
 	"github.com/duxet/netmon/live"
+	"github.com/duxet/netmon/localnames"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
 	"github.com/duxet/netmon/unifi"
@@ -78,6 +79,10 @@ type Options struct {
 	// Domains are the names addresses answered for when looked up. Without
 	// them, remote hosts only have reverse DNS names.
 	Domains *domains.Names
+	// LocalNames are the names devices go by on the local network, from
+	// DHCP leases and mDNS, which name devices by their MAC addresses.
+	// Without them, devices are named by reverse DNS of their addresses.
+	LocalNames *localnames.Names
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -443,7 +448,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		deliveries:   options.Deliveries,
 		databasePath: options.DatabasePath,
 	})
-	registerDeviceRoutes(app, db, hostnames, options.UniFi)
+	registerDeviceRoutes(app, db, hostnames, options.LocalNames, options.UniFi)
 	registerUniFiRoutes(app, options.UniFi)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {

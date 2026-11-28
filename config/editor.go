@@ -55,6 +55,8 @@ var infos = map[string]info{
 	"threads":               {live: true},
 	"allowed_hosts":         {live: true},
 	"dns_log":               {},
+	"dhcp_leases":           {},
+	"mdns":                  {},
 	"mqtt_broker":           {},
 	"mqtt_username":         {},
 	"mqtt_password":         {secret: true, locked: "Keep the password out of the web UI: set it in the file, or in NETMON_MQTT_PASSWORD."},

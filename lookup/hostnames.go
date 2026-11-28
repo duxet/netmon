@@ -64,6 +64,9 @@ type Hostnames struct {
 	// servers counts the changes of servers, so that an answer from a server
 	// that was replaced while it was asked isn't cached.
 	servers uint64
+	// localNames names devices by their addresses before DNS is asked, such
+	// as from DHCP leases or mDNS.
+	localNames func(netip.Addr) string
 }
 
 // NewHostnames returns a resolver that asks localDNS about local addresses
@@ -102,14 +105,43 @@ func (r *Hostnames) SetServers(localDNS, publicDNS string) {
 	r.servers++
 }
 
+// SetLocalNames makes lookups ask names first, which returns the name a local
+// device with an address goes by, without the dot at the end, or empty when
+// it knows none. Its names don't expire, and aren't cached.
+func (r *Hostnames) SetLocalNames(names func(netip.Addr) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.localNames = names
+}
+
+// localName returns the name localNames knows addr by, with a dot at the
+// end as from DNS, or nil.
+func (r *Hostnames) localName(addr netip.Addr) *string {
+	r.mu.Lock()
+	names := r.localNames
+	r.mu.Unlock()
+	if names == nil {
+		return nil
+	}
+	if name := names(addr); name != "" {
+		name += "."
+		return &name
+	}
+	return nil
+}
+
 func isLocalAddress(addr netip.Addr) bool {
 	return addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()
 }
 
-// Lookup returns the first PTR name for addr, or nil if it has none or the
+// Lookup returns the name a local device with addr goes by, when it is
+// known, or else the first PTR name for addr, or nil if it has none or the
 // lookup failed.
 func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 	addr = addr.Unmap()
+	if name := r.localName(addr); name != nil {
+		return name
+	}
 
 	r.mu.Lock()
 	entry, ok := r.cache[addr]
@@ -148,6 +180,9 @@ func (r *Hostnames) Lookup(ctx context.Context, addr netip.Addr) *string {
 // Cached returns the name of addr if it was looked up a while ago and is
 // still cached, without asking for it: ok is false when it would have to be.
 func (r *Hostnames) Cached(addr netip.Addr) (name *string, ok bool) {
+	if name := r.localName(addr.Unmap()); name != nil {
+		return name, true
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.cache[addr.Unmap()]

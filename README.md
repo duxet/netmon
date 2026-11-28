@@ -139,7 +139,10 @@ in notifications. The image's health check runs `netmon -healthcheck` (see
 [Monitoring netmon](#monitoring-netmon)), and `docker compose exec netmon netmon -backup
 backup.db` writes a [backup](#backups) to `./data/backup.db`. To
 [learn names](#names-clients-look-up) from dnsmasq's query log, mount the log file into
-the container and set `NETMON_DNS_LOG` to its path; `logread` isn't in the image.
+the container and set `NETMON_DNS_LOG` to its path; `logread` isn't in the image. To
+[name devices](#names-of-devices) by their DHCP leases, mount the lease file into the
+container (`- /var/lib/misc/dnsmasq.leases:/var/lib/misc/dnsmasq.leases:ro`), where
+`auto` finds it.
 
 The image only works on a Linux host: Docker Desktop on macOS and Windows runs
 containers in a virtual machine, whose traffic is all that netmon would see. To build it
@@ -197,6 +200,8 @@ Things to know:
   30 days of a busy network fail or are slow.
 - There are no packages for 32-bit targets (ARM, MIPS), as the DuckDB libraries
   netmon uses are only built for 64-bit platforms.
+- Devices are [named](#names-of-devices) by dnsmasq's leases in `/tmp/dhcp.leases`,
+  without setting anything.
 - netmon has no authentication unless you turn on [single sign-on](#single-sign-on).
   The default firewall keeps the WAN away from port 2137; don't open it there.
   The service starts in `data_dir`, so put the single sign-on and [UniFi](#unifi) settings
@@ -252,6 +257,32 @@ counts as the app whose domains its name is in (`nflxvideo.net` is Netflix's).
 The names are kept for 30 days after they were last seen, in `flows.db`. A name is the
 latest an address answered for, so an address shared by many sites shows whichever was
 looked up last.
+
+### Names of devices
+
+Devices are named by the name they asked the DHCP server for, such as `Johns-iPhone`,
+or else the one they announce over multicast DNS (mDNS, Bonjour), such as
+`Living-Room-TV.local`, and only when netmon knows neither by reverse DNS of their
+address. The names are kept per MAC address in `flows.db`, so a device keeps its name
+when its lease is gone, it got another address or it is offline. A name you give a
+device in the web UI, or one from [UniFi](#unifi), is shown in their place.
+
+- **DHCP leases**: with `dhcp_leases: auto`, netmon reads the first of these there
+  is, and again whenever it changes: dnsmasq's (`/tmp/dhcp.leases` on OpenWrt,
+  `/var/lib/misc/dnsmasq.leases`, Pi-hole's `/etc/pihole/dhcp.leases`), ISC dhcpd's
+  (`/var/lib/dhcp/dhcpd.leases`, `/var/db/dhcpd.leases`), Kea's
+  (`/var/lib/kea/kea-leases4.csv`) and macOS's for Internet Sharing
+  (`/var/db/dhcpd_leases`). Set it to the paths of other files, separated by
+  commas, or to `off`. When netmon doesn't run on the DHCP server, copy or mount its
+  lease file over, or rely on mDNS and reverse DNS.
+- **mDNS**: netmon listens on every interface with a private IPv4 address for what
+  devices announce, and asks them every 15 minutes for the services phones,
+  computers, TVs, speakers, printers and smart home devices offer, which they answer
+  with their names. Names that are random identifiers, as Chromecasts' are, are
+  skipped. It shares port 5353 with Avahi and macOS's mDNSResponder; set `mdns:
+  false` to turn it off.
+
+Forgetting a device forgets its name too, until netmon learns it again.
 
 ## Networks
 
@@ -630,6 +661,8 @@ a typo doesn't go unnoticed.
 | `interface`            | `NETMON_INTERFACE`            | the default route's      | Interface to capture on, macOS only                                |
 | `ignore_local_traffic` | `NETMON_IGNORE_LOCAL_TRAFFIC` | `true`                   | Leave out [traffic between local addresses](#local-traffic)        |
 | `dns_log`              | `NETMON_DNS_LOG`              | none                     | dnsmasq's query log, a file or `logread`, to [learn names](#names-clients-look-up) |
+| `dhcp_leases`          | `NETMON_DHCP_LEASES`          | `auto`                   | DHCP lease files to [name devices](#names-of-devices) by, separated by commas; `auto` finds the usual ones, `off` reads none |
+| `mdns`                 | `NETMON_MDNS`                 | `true`                   | [Name devices](#names-of-devices) by the names they announce over mDNS |
 | `mqtt_broker`          | `NETMON_MQTT_BROKER`          | none                     | MQTT broker to publish devices to [Home Assistant](#home-assistant) on |
 | `mqtt_username`        | `NETMON_MQTT_USERNAME`        | none                     | User name at the broker                                            |
 | `mqtt_password`        | `NETMON_MQTT_PASSWORD`        | none                     | Password at the broker; only in the file or the environment        |
@@ -979,7 +1012,7 @@ minute). `POST /api/tokens` answers with the `Token` too, which isn't shown agai
 - [x] Let users rename devices, stored in the database
 - [x] Let users pick an icon for each device (desktop, laptop, smartphone, TV, gaming console, access point, IP camera, ...)
 - [x] Show the device manufacturer from an offline MAC vendor (OUI) database
-- [ ] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
+- [x] Get local hostnames from the DNS server, DHCP leases or mDNS, and persist resolved names
 
 ### Features
 - [x] Live view of current bandwidth per device

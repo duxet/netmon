@@ -393,7 +393,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
+	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log dhcp_leases mdns mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

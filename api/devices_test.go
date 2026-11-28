@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/duxet/netmon/localnames"
 	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
@@ -231,6 +234,39 @@ func TestListDevices(t *testing.T) {
 	}
 	if status, body := do(t, app, "GET", "/api/devices", ""); status != fiber.StatusInternalServerError {
 		t.Errorf("GET /api/devices without the table = %d %s, want 500", status, body)
+	}
+}
+
+func TestDevicesHaveLocalNames(t *testing.T) {
+	local := localnames.New()
+	nas, _ := net.ParseMAC(testNASMAC)
+	// The NAS asked for its name with another address than it has now.
+	local.Learn(localnames.Observation{MAC: nas, Addr: netip.MustParseAddr("192.168.1.99"), Name: "diskstation", Source: localnames.DHCP})
+	local.Learn(localnames.Observation{Addr: netip.MustParseAddr("192.168.1.10"), Name: "DiskStation.local", Source: localnames.MDNS})
+	hostnames := noHostnames()
+	hostnames.SetLocalNames(local.ByIP)
+	app, db := newTestAppWith(t, Options{LocalNames: local, Hostnames: hostnames})
+	if err := storage.SyncDevices(db, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	var devices []struct{ Hostname *string }
+	if status, _ := get(t, app, "/api/devices", &devices); status != fiber.StatusOK || len(devices) != 1 {
+		t.Fatalf("GET /api/devices = %d %+v", status, devices)
+	}
+	if h := devices[0].Hostname; h == nil || *h != "diskstation." {
+		t.Errorf("hostname = %v, want the DHCP name of the NAS's MAC address", h)
+	}
+
+	var clients []struct {
+		Hostname *string
+		Endpoint struct{ MACAddress string }
+	}
+	if status, _ := get(t, app, "/api/clients", &clients); status != fiber.StatusOK || len(clients) != 1 {
+		t.Fatalf("GET /api/clients = %d %+v", status, clients)
+	}
+	if h := clients[0].Hostname; h == nil || *h != "DiskStation.local." {
+		t.Errorf("client hostname = %v, want the mDNS name of its address", h)
 	}
 }
 

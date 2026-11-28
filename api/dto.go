@@ -39,7 +39,8 @@ type ClientDTO struct {
 	// Icon is the icon the user picked for the device, one of DeviceIcons,
 	// if any.
 	Icon *string
-	// Hostname is from reverse DNS, with the trailing dot.
+	// Hostname is the name the device goes by on the local network, from
+	// DHCP leases or mDNS, or else from reverse DNS, with the trailing dot.
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
 	Vendor *string
@@ -62,7 +63,9 @@ type DeviceDTO struct {
 	// Icon is the icon the user picked for the device, one of DeviceIcons,
 	// if any.
 	Icon *string
-	// Hostname is from reverse DNS of IPAddress, with the trailing dot.
+	// Hostname is the name the device goes by on the local network, from
+	// DHCP leases or mDNS, or else from reverse DNS of IPAddress, with the
+	// trailing dot.
 	Hostname *string
 	// Vendor is the manufacturer the MAC address was assigned to, if known.
 	Vendor *string

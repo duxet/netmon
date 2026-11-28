@@ -28,6 +28,8 @@ export const SETTING_LABELS: Record<string, string> = {
   threads: "Threads",
   allowed_hosts: "Allowed hosts",
   dns_log: "DNS log",
+  dhcp_leases: "DHCP leases",
+  mdns: "mDNS",
   mqtt_broker: "MQTT broker",
   mqtt_username: "Username",
   mqtt_password: "Password",
@@ -43,7 +45,7 @@ export const NUMBER_SETTINGS = new Set(["retention_days", "alert_retention_days"
 const RETENTION_SETTINGS = ["retention_days", "alert_retention_days"]
 
 /** Settings that are on or off. */
-export const BOOLEAN_SETTINGS = new Set(["ignore_local_traffic", "mqtt_all_devices"])
+export const BOOLEAN_SETTINGS = new Set(["ignore_local_traffic", "mdns", "mqtt_all_devices"])
 
 /** Settings that are one of a few values, with what each means. */
 export const CHOICE_SETTINGS: Record<string, { value: string; label: string }[]> = {

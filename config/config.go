@@ -141,6 +141,16 @@ type Config struct {
 	// macOS, where they come from the packets captured).
 	DNSLog string `koanf:"dns_log"`
 
+	// DHCPLeases are the lease files of the DHCP server, of dnsmasq, ISC
+	// dhcpd, Kea or macOS, to name devices by the names they asked for:
+	// paths separated by commas, "auto" for the first of the usual places
+	// there is, or empty (or "off") for none.
+	DHCPLeases string `koanf:"dhcp_leases"`
+
+	// MDNS names devices by the names they announce over multicast DNS, such
+	// as Johns-MacBook.local, asking them now and then to.
+	MDNS bool `koanf:"mdns"`
+
 	// MQTTBroker turns on publishing devices to Home Assistant over MQTT:
 	// the broker, such as tcp://homeassistant.lan:1883 or ssl://broker:8883.
 	// MQTTUsername and MQTTPassword log in to it.
@@ -177,6 +187,8 @@ func Defaults() Config {
 		AlertRetentionDays:  30,
 		HourlyDays:          90,
 		IgnoreLocalTraffic:  true,
+		DHCPLeases:          "auto",
+		MDNS:                true,
 		LogLevel:            "info",
 		MQTTTopic:           "netmon",
 		MQTTDiscoveryPrefix: "homeassistant",
