@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AlertsRouteRouteImport } from './routes/alerts/route'
+import { Route as AppsRouteImport } from './routes/apps'
 import { Route as ClientsRouteRouteImport } from './routes/clients/route'
+import { Route as HoursRouteImport } from './routes/hours'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as NetworksRouteRouteImport } from './routes/networks/route'
+import { Route as TrafficRouteImport } from './routes/traffic'
 import { Route as AlertsIndexRouteImport } from './routes/alerts/index'
 import { Route as AlertsAlertIdRouteImport } from './routes/alerts/$alertId'
 import { Route as ClientsIndexRouteImport } from './routes/clients/index'
@@ -34,9 +37,19 @@ const AlertsRouteRoute = AlertsRouteRouteImport.update({
   path: '/alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsRoute = AppsRouteImport.update({
+  id: '/apps',
+  path: '/apps',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClientsRouteRoute = ClientsRouteRouteImport.update({
   id: '/clients',
   path: '/clients',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HoursRoute = HoursRouteImport.update({
+  id: '/hours',
+  path: '/hours',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LiveRoute = LiveRouteImport.update({
@@ -47,6 +60,11 @@ const LiveRoute = LiveRouteImport.update({
 const NetworksRouteRoute = NetworksRouteRouteImport.update({
   id: '/networks',
   path: '/networks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrafficRoute = TrafficRouteImport.update({
+  id: '/traffic',
+  path: '/traffic',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AlertsIndexRoute = AlertsIndexRouteImport.update({
@@ -100,7 +118,10 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof AlertsRouteRouteWithChildren
   '/clients': typeof ClientsRouteRouteWithChildren
   '/networks': typeof NetworksRouteRouteWithChildren
+  '/apps': typeof AppsRoute
+  '/hours': typeof HoursRoute
   '/live': typeof LiveRoute
+  '/traffic': typeof TrafficRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
@@ -113,7 +134,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/apps': typeof AppsRoute
+  '/hours': typeof HoursRoute
   '/live': typeof LiveRoute
+  '/traffic': typeof TrafficRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
@@ -130,7 +154,10 @@ export interface FileRoutesById {
   '/alerts': typeof AlertsRouteRouteWithChildren
   '/clients': typeof ClientsRouteRouteWithChildren
   '/networks': typeof NetworksRouteRouteWithChildren
+  '/apps': typeof AppsRoute
+  '/hours': typeof HoursRoute
   '/live': typeof LiveRoute
+  '/traffic': typeof TrafficRoute
   '/alerts/$alertId': typeof AlertsAlertIdRoute
   '/clients/$clientId': typeof ClientsClientIdRoute
   '/networks/$networkId': typeof NetworksNetworkIdRoute
@@ -148,7 +175,10 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/clients'
     | '/networks'
+    | '/apps'
+    | '/hours'
     | '/live'
+    | '/traffic'
     | '/alerts/$alertId'
     | '/clients/$clientId'
     | '/networks/$networkId'
@@ -161,7 +191,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/apps'
+    | '/hours'
     | '/live'
+    | '/traffic'
     | '/alerts/$alertId'
     | '/clients/$clientId'
     | '/networks/$networkId'
@@ -177,7 +210,10 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/clients'
     | '/networks'
+    | '/apps'
+    | '/hours'
     | '/live'
+    | '/traffic'
     | '/alerts/$alertId'
     | '/clients/$clientId'
     | '/networks/$networkId'
@@ -194,7 +230,10 @@ export interface RootRouteChildren {
   AlertsRouteRoute: typeof AlertsRouteRouteWithChildren
   ClientsRouteRoute: typeof ClientsRouteRouteWithChildren
   NetworksRouteRoute: typeof NetworksRouteRouteWithChildren
+  AppsRoute: typeof AppsRoute
+  HoursRoute: typeof HoursRoute
   LiveRoute: typeof LiveRoute
+  TrafficRoute: typeof TrafficRoute
   SettingsAlertRulesRoute: typeof SettingsAlertRulesRoute
   SettingsConfigurationRoute: typeof SettingsConfigurationRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
@@ -216,11 +255,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AlertsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps': {
+      id: '/apps'
+      path: '/apps'
+      fullPath: '/apps'
+      preLoaderRoute: typeof AppsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/clients': {
       id: '/clients'
       path: '/clients'
       fullPath: '/clients'
       preLoaderRoute: typeof ClientsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hours': {
+      id: '/hours'
+      path: '/hours'
+      fullPath: '/hours'
+      preLoaderRoute: typeof HoursRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/live': {
@@ -235,6 +288,13 @@ declare module '@tanstack/react-router' {
       path: '/networks'
       fullPath: '/networks'
       preLoaderRoute: typeof NetworksRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/traffic': {
+      id: '/traffic'
+      path: '/traffic'
+      fullPath: '/traffic'
+      preLoaderRoute: typeof TrafficRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/alerts/': {
@@ -350,7 +410,10 @@ const rootRouteChildren: RootRouteChildren = {
   AlertsRouteRoute: AlertsRouteRouteWithChildren,
   ClientsRouteRoute: ClientsRouteRouteWithChildren,
   NetworksRouteRoute: NetworksRouteRouteWithChildren,
+  AppsRoute: AppsRoute,
+  HoursRoute: HoursRoute,
   LiveRoute: LiveRoute,
+  TrafficRoute: TrafficRoute,
   SettingsAlertRulesRoute: SettingsAlertRulesRoute,
   SettingsConfigurationRoute: SettingsConfigurationRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
