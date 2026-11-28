@@ -14,7 +14,7 @@ platform, which holds the `netmon` binary (the web UI is built in), and a
 | Linux, arm64          | `netmon_<version>_linux_arm64.tar.gz`  |
 | macOS, Intel          | `netmon_<version>_darwin_amd64.tar.gz` |
 | macOS, Apple silicon  | `netmon_<version>_darwin_arm64.tar.gz` |
-| OpenWrt               | a `.ipk` or `.apk` package, see [below](#running-on-openwrt) |
+| OpenWrt               | an `.apk` package, see [below](#running-on-openwrt) |
 | Docker                | `ghcr.io/duxet/netmon`, see [below](#running-in-docker) |
 
 By default netmon keeps its database (`flows.db`) in the directory it is started
@@ -152,14 +152,13 @@ docker buildx build --platform linux/arm64 --build-arg VERSION=v1.2.3 -t netmon 
 ## Running on OpenWrt
 
 Packages for 64-bit targets (`x86_64` and `aarch64`) are attached to each
-release, as `netmon_<version>_openwrt-<series>_<architecture>.<ipk|apk>`.
-OpenWrt 24.10 uses `.ipk` packages and 25.12 `.apk` ones. Find your
+release, as `netmon_<version>_openwrt-25.12_<architecture>.apk`, built for
+OpenWrt 25.12 (older releases, which use `.ipk` packages, aren't built). Find your
 architecture with `grep DISTRIB_ARCH /etc/openwrt_release`, copy the matching
 package to the router and install it:
 
 ```sh
-opkg install ./netmon_<version>_openwrt-24.10_<architecture>.ipk              # OpenWrt 24.10
-apk add --allow-untrusted ./netmon_<version>_openwrt-25.12_<architecture>.apk  # OpenWrt 25.12
+apk add --allow-untrusted ./netmon_<version>_openwrt-25.12_<architecture>.apk
 ```
 
 This installs the `kmod-nf-conntrack-netlink` kernel module package, enables
