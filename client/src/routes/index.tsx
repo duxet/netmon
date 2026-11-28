@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ActivityIcon, ArrowRightIcon, GaugeIcon, MonitorSmartphoneIcon, NetworkIcon } from "lucide-react"
+import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { ActivityIcon, GaugeIcon, MonitorSmartphoneIcon, NetworkIcon } from "lucide-react"
 import * as React from "react"
 
 import { AppTrafficCard } from "@/components/app-traffic"
@@ -12,7 +12,6 @@ import { Page, PageHeader } from "@/components/page-header"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import { RangeFilter } from "@/components/range-filter"
 import { StatCard } from "@/components/stat-card"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRange } from "@/hooks/use-range"
 import { useZoom } from "@/hooks/use-zoom"
@@ -63,6 +62,7 @@ function NetworkTrafficCard({ className }: { className?: string }) {
   return (
     <ChartCard
       className={className}
+      to="/networks"
       title="Traffic by network"
       description={`Counted from each network's side · ${rangePhrase(range)}`}
       table={rows.length > 0 && <RankedTable rows={rows} labelHeader="Network" />}
@@ -72,18 +72,10 @@ function NetworkTrafficCard({ className }: { className?: string }) {
       ) : summary.isPending || networks.isPending ? (
         <Skeleton className="h-56 w-full" />
       ) : rows.some((row) => row.total > 0) ? (
-        <div className="flex flex-col gap-2">
-          <RankedBarChart
-            rows={rows}
-            onSelect={(row) => void navigate({ to: "/networks/$networkId", params: { networkId: row.key } })}
-          />
-          <Button variant="ghost" size="sm" className="self-end" asChild>
-            <Link to="/networks">
-              All networks
-              <ArrowRightIcon data-icon="inline-end" />
-            </Link>
-          </Button>
-        </div>
+        <RankedBarChart
+          rows={rows}
+          onSelect={(row) => void navigate({ to: "/networks/$networkId", params: { networkId: row.key } })}
+        />
       ) : (
         <EmptyChart icon={<NetworkIcon />} title="No traffic in any network in this period" />
       )}
@@ -182,6 +174,7 @@ function Dashboard() {
       </div>
 
       <ChartCard
+        to="/traffic"
         title="Traffic"
         description={
           series
@@ -203,7 +196,7 @@ function Dashboard() {
             buckets={series.buckets}
             granularity={series.granularity}
             spansDays={series.spansDays}
-              onZoom={zoom}
+            onZoom={zoom}
           />
         ) : (
           <EmptyChart
@@ -218,6 +211,7 @@ function Dashboard() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <ChartCard
           className="lg:col-span-3"
+          to="/clients"
           title="Top clients"
           description={`By total traffic · ${rangePhrase(range)}`}
           table={topDevices.length > 0 && <RankedTable rows={topDevices} labelHeader="Client" />}
@@ -227,20 +221,12 @@ function Dashboard() {
           ) : devices.isPending ? (
             <Skeleton className="h-72 w-full" />
           ) : topDevices.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <RankedBarChart
-                rows={topDevices}
-                onSelect={(row) =>
-                  void navigate({ to: "/clients/$clientId", params: { clientId: row.key } })
-                }
-              />
-              <Button variant="ghost" size="sm" className="self-end" asChild>
-                <Link to="/clients">
-                  All clients
-                  <ArrowRightIcon data-icon="inline-end" />
-                </Link>
-              </Button>
-            </div>
+            <RankedBarChart
+              rows={topDevices}
+              onSelect={(row) =>
+                void navigate({ to: "/clients/$clientId", params: { clientId: row.key } })
+              }
+            />
           ) : (
             <EmptyChart icon={<MonitorSmartphoneIcon />} title="No clients active in this period" />
           )}
@@ -248,6 +234,7 @@ function Dashboard() {
 
         <ChartCard
           className="lg:col-span-2"
+          to="/hours"
           title="Busiest hours"
           description={
             peakHour && peakHour.average > 0
@@ -271,10 +258,10 @@ function Dashboard() {
       {networks.list.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <NetworkTrafficCard />
-          <AppTrafficCard />
+          <AppTrafficCard to="/apps" />
         </div>
       ) : (
-        <AppTrafficCard />
+        <AppTrafficCard to="/apps" />
       )}
     </Page>
   )

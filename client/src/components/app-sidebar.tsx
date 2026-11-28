@@ -36,6 +36,9 @@ import { formatBytes } from "@/lib/format"
 import { deviceLabel } from "@/lib/network"
 import { alertsQuery, devicesQuery, networksQuery, statusQuery } from "@/lib/queries"
 
+/** The dashboard and its widgets' own pages. */
+const DASHBOARD_PATHS = new Set(["/", "/traffic", "/hours", "/apps"])
+
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const range = useRange()
@@ -48,7 +51,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const closeOnMobile = () => isMobile && setOpenMobile(false)
 
   const nav = [
-    { to: "/", label: "Dashboard", icon: LayoutDashboardIcon, active: pathname === "/" },
+    { to: "/", label: "Dashboard", icon: LayoutDashboardIcon, active: DASHBOARD_PATHS.has(pathname) },
     { to: "/live", label: "Live", icon: RadioIcon, active: pathname === "/live" },
     {
       to: "/clients",

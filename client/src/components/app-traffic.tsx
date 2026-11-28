@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
+import type { LinkProps } from "@tanstack/react-router"
 import { AppWindowIcon } from "lucide-react"
 import * as React from "react"
 
 import { ChartCard } from "@/components/chart-card"
-import { RankedBarChart, RankedTable, type RankedRow } from "@/components/charts/ranked-bar-chart"
+import { RankedBarChart, RankedTable } from "@/components/charts/ranked-bar-chart"
 import { TrafficChart } from "@/components/charts/traffic-chart"
 import { EmptyChart, ErrorState } from "@/components/query-state"
 import {
@@ -15,15 +16,13 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRange } from "@/hooks/use-range"
-import { OTHER_APP } from "@/lib/api"
+import { useAppRows } from "@/lib/apps"
 import { formatBytes, formatPercent } from "@/lib/format"
-import { appsQuery, trafficQuery, type ClientFilter } from "@/lib/queries"
+import { trafficQuery, type ClientFilter } from "@/lib/queries"
 import { buildTrafficSeries, rangePhrase } from "@/lib/timeseries"
 
-const OTHER_LABEL = "Other / unrecognized"
-
 /** One app's traffic over the page's time range. */
-function AppTrafficSheet({
+export function AppTrafficSheet({
   app,
   client,
   scope,
@@ -84,30 +83,18 @@ export function AppTrafficCard({
   client = {},
   scope = "Whole network",
   className,
+  to,
 }: {
   client?: ClientFilter
   /** Who the traffic is for, e.g. "Whole network" or a client's name. */
   scope?: string
   className?: string
+  /** A page listing every app. */
+  to?: LinkProps["to"]
 }) {
   const range = useRange()
-  const query = useQuery(appsQuery(range, client))
+  const { query, apps, other, total } = useAppRows(client)
   const [selected, setSelected] = React.useState<string | null>(null)
-
-  const { apps, other, total } = React.useMemo(() => {
-    const rows: RankedRow[] = (query.data ?? []).map((app) => ({
-      key: app.Name,
-      label: app.Name === OTHER_APP ? OTHER_LABEL : app.Name,
-      download: app.Traffic.InBytes,
-      upload: app.Traffic.OutBytes,
-      total: app.Traffic.InBytes + app.Traffic.OutBytes,
-    }))
-    return {
-      apps: rows.filter((row) => row.key !== OTHER_APP),
-      other: rows.find((row) => row.key === OTHER_APP),
-      total: rows.reduce((sum, row) => sum + row.total, 0),
-    }
-  }, [query.data])
 
   const tableRows = other ? [...apps, other] : apps
 
@@ -115,6 +102,7 @@ export function AppTrafficCard({
     <>
       <ChartCard
         className={className}
+        to={to}
         title="Traffic by app"
         description={`Internet traffic by service, matched on the remote address · ${rangePhrase(range)}`}
         table={tableRows.length > 0 && <RankedTable rows={tableRows} labelHeader="App" />}

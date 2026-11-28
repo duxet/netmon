@@ -1,4 +1,5 @@
-import { ChartColumnIcon, TableIcon } from "lucide-react"
+import { Link, type LinkProps } from "@tanstack/react-router"
+import { ChartColumnIcon, MaximizeIcon, TableIcon } from "lucide-react"
 import * as React from "react"
 
 import {
@@ -9,6 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { cn } from "@/lib/utils"
 
@@ -20,6 +23,8 @@ interface ChartCardProps {
   children: React.ReactNode
   className?: string
   contentClassName?: string
+  /** The widget's own page, with the full list of results. */
+  to?: LinkProps["to"]
 }
 
 /** A card holding a chart, with a toggle to read the same data as a table. */
@@ -30,16 +35,26 @@ export function ChartCard({
   children,
   className,
   contentClassName,
+  to,
 }: ChartCardProps) {
   const [view, setView] = React.useState<"chart" | "table">("chart")
 
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle>
+          {to ? (
+            <Link to={to} className="hover:underline">
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+        </CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
-        {table && (
-          <CardAction>
+        {(table || to) && (
+          <CardAction className="flex items-center gap-1">
+            {table && (
             <ToggleGroup
               type="single"
               size="sm"
@@ -55,6 +70,19 @@ export function ChartCard({
                 <TableIcon />
               </ToggleGroupItem>
             </ToggleGroup>
+            )}
+            {to && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" asChild>
+                    <Link to={to} aria-label="Show all">
+                      <MaximizeIcon />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Show all</TooltipContent>
+              </Tooltip>
+            )}
           </CardAction>
         )}
       </CardHeader>
