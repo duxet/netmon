@@ -45,8 +45,11 @@ type ClientDTO struct {
 	Vendor *string
 	// NetworkID is the network the client's IP address belongs to, if any.
 	NetworkID *int64
-	Endpoint  EndpointDTO
-	Traffic   TrafficDTO
+	// UniFi is what the UniFi Network Application knows about the device,
+	// when it is configured and knows it.
+	UniFi    *UniFiClientDTO
+	Endpoint EndpointDTO
+	Traffic  TrafficDTO
 }
 
 // DeviceDTO is a device seen on the network, identified by its MAC address.
@@ -65,6 +68,9 @@ type DeviceDTO struct {
 	Vendor *string
 	// NetworkID is the network IPAddress belongs to, if any.
 	NetworkID *int64
+	// UniFi is what the UniFi Network Application knows about the device,
+	// when it is configured and knows it.
+	UniFi *UniFiClientDTO
 	// FirstSeen and LastSeen are when the device was first and last seen in
 	// flows, on either side of a connection.
 	FirstSeen time.Time

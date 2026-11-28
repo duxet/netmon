@@ -15,6 +15,7 @@ import (
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/unifi"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
 )
@@ -77,7 +78,7 @@ func nonNil(s []string) []string {
 
 // registerDeviceRoutes adds the endpoints for listing devices, naming them,
 // picking their icons, merging and forgetting them.
-func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames) {
+func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostnames, source *unifi.Source) {
 	// Forgets a device, and with ?traffic=true deletes its traffic too.
 	app.Delete("/api/devices/:mac", func(c fiber.Ctx) error {
 		mac, err := parseDeviceMAC(c)
@@ -190,6 +191,7 @@ func registerDeviceRoutes(app *fiber.App, db *sql.DB, hostnames *lookup.Hostname
 				Hostname:   hostname,
 				Vendor:     vendor,
 				NetworkID:  networkIDOf(matcher, record.IPAddress),
+				UniFi:      unifiClientOf(source, record.MACAddress),
 				FirstSeen:  record.FirstSeen,
 				LastSeen:   record.LastSeen,
 				Aliases:    nonNil(aliases[record.MACAddress.String()]),

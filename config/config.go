@@ -30,6 +30,8 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/v2"
+
+	"github.com/duxet/netmon/unifi"
 )
 
 const (
@@ -92,6 +94,22 @@ type Config struct {
 	OIDCIssuer       string `koanf:"oidc_issuer"`
 	OIDCClientID     string `koanf:"oidc_client_id"`
 	OIDCClientSecret string `koanf:"oidc_client_secret"`
+
+	// UniFiURL turns on reading clients from a UniFi Network Application: the
+	// address of the console or of the self-hosted application, such as
+	// https://192.168.1.1. It needs UniFiAPIKey, made in UniFi Network under
+	// Settings, Control Plane, Integrations, for the Integration API, or else
+	// UniFiUsername and UniFiPassword of a local account, to sign in as the
+	// web UI does, which works with every Network Application. UniFiSite is
+	// the site's name or internal reference. UniFiFingerprint is the SHA-256
+	// fingerprint of the controller's certificate, to trust a self-signed one,
+	// as UniFi's are.
+	UniFiURL         string `koanf:"unifi_url"`
+	UniFiAPIKey      string `koanf:"unifi_api_key"`
+	UniFiUsername    string `koanf:"unifi_username"`
+	UniFiPassword    string `koanf:"unifi_password"`
+	UniFiSite        string `koanf:"unifi_site"`
+	UniFiFingerprint string `koanf:"unifi_fingerprint"`
 
 	// Interface is the network interface to capture on, on macOS. By default
 	// it is the one the default route goes through. Linux doesn't capture
@@ -162,6 +180,7 @@ func Defaults() Config {
 		LogLevel:            "info",
 		MQTTTopic:           "netmon",
 		MQTTDiscoveryPrefix: "homeassistant",
+		UniFiSite:           "default",
 	}
 }
 
@@ -214,6 +233,47 @@ func (c Config) AllowedHostList() []string {
 // provider.
 func (c Config) OIDCEnabled() bool {
 	return c.OIDCIssuer != ""
+}
+
+// UniFiEnabled reports whether clients are read from a UniFi Network
+// Application.
+func (c Config) UniFiEnabled() bool {
+	return c.UniFiURL != ""
+}
+
+// validateUniFi checks the UniFi settings.
+func (c Config) validateUniFi() error {
+	if !c.UniFiEnabled() {
+		if c.UniFiAPIKey != "" || c.UniFiUsername != "" || c.UniFiPassword != "" || c.UniFiFingerprint != "" {
+			return keyErrorf("unifi_url", "unifi_api_key, unifi_username, unifi_password and unifi_fingerprint "+
+				"have no effect without unifi_url: set the URL to read clients from UniFi, or remove them")
+		}
+		return nil
+	}
+	if _, err := unifi.ParseURL(c.UniFiURL); err != nil {
+		return keyErrorf("unifi_url", "unifi_url must be an https:// URL, such as https://192.168.1.1: %q", c.UniFiURL)
+	}
+	login := c.UniFiUsername != "" || c.UniFiPassword != ""
+	switch {
+	case c.UniFiAPIKey != "" && login:
+		return keyErrorf("unifi_api_key", "use either unifi_api_key, or unifi_username and unifi_password, not both")
+	case login && c.UniFiUsername == "":
+		return keyErrorf("unifi_username", "unifi_username is required with unifi_password")
+	case login && c.UniFiPassword == "":
+		return keyErrorf("unifi_password", "unifi_password is required with unifi_username")
+	case !login && c.UniFiAPIKey == "":
+		return keyErrorf("unifi_username", "unifi_url needs unifi_username and unifi_password of a local UniFi account, "+
+			"or unifi_api_key, made in UniFi Network under Settings, Control Plane, Integrations")
+	}
+	if c.UniFiSite == "" {
+		return keyErrorf("unifi_site", "unifi_site must be the name of a site, such as default")
+	}
+	if c.UniFiFingerprint != "" {
+		if _, err := unifi.ParseFingerprint(c.UniFiFingerprint); err != nil {
+			return keyErrorf("unifi_fingerprint", "%w", err)
+		}
+	}
+	return nil
 }
 
 // validateOIDC checks the single sign-on settings. A half-configured setup is
@@ -359,6 +419,9 @@ func (c Config) validate() error {
 	}
 	if _, ok := logging.Parse(c.LogLevel); !ok {
 		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)
+	}
+	if err := c.validateUniFi(); err != nil {
+		return err
 	}
 	return c.validateOIDC()
 }

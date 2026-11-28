@@ -21,6 +21,7 @@ import (
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
+	"github.com/duxet/netmon/unifi"
 	"github.com/duxet/netmon/vendors"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/static"
@@ -50,6 +51,9 @@ type Options struct {
 	// Auth signs people in. With it, the API and the web UI need a session;
 	// without it, anyone who can reach netmon can use all of it.
 	Auth *auth.Authenticator
+	// UniFi has what the UniFi Network Application knows about devices.
+	// Without it, devices have no UniFi details.
+	UniFi *unifi.Source
 	// Config saves settings to the YAML file. Without it, /api/config
 	// isn't served.
 	Config *config.Editor
@@ -404,6 +408,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 				Hostname:  hostname,
 				Vendor:    vendor,
 				NetworkID: networkIDOf(matcher, record.IPAddress),
+				UniFi:     unifiClientOf(options.UniFi, record.MACAddress),
 				Endpoint: EndpointDTO{
 					MACAddress: record.MACAddress,
 					IPAddress:  record.IPAddress,
@@ -438,7 +443,8 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 		deliveries:   options.Deliveries,
 		databasePath: options.DatabasePath,
 	})
-	registerDeviceRoutes(app, db, hostnames)
+	registerDeviceRoutes(app, db, hostnames, options.UniFi)
+	registerUniFiRoutes(app, options.UniFi)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {
 		registerConfigRoutes(app, options.Config)

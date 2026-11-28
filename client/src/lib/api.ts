@@ -52,6 +52,35 @@ export const DEVICE_ICONS = [
 ] as const
 export type DeviceIconName = (typeof DEVICE_ICONS)[number]
 
+/** What the UniFi Network Application knows about a device. */
+export interface UniFiClient {
+  /** The alias given in UniFi, or the hostname the device gave over DHCP; may be empty. */
+  Name: string
+  /** "WIRED", "WIRELESS" or "VPN". */
+  Connection: string
+  /** The access point or switch the device is connected to; may be empty. */
+  Uplink: string
+  /** Whether it was connected when UniFi was last asked. */
+  Connected: boolean
+  ConnectedAt: string | null
+  /** When UniFi last saw it connected, if it knows. */
+  LastSeen: string | null
+}
+
+/** How reading clients from UniFi goes, from /api/unifi. */
+export interface UniFiStatus {
+  Enabled: boolean
+  Site: string
+  LastSync: string | null
+  LastError: string
+  /** Clients connected at the last sync. */
+  Connected: number
+}
+
+export function fetchUniFiStatus() {
+  return request<UniFiStatus>("/api/unifi")
+}
+
 export interface Client {
   /** The name the user gave the device, if any. */
   Name: string | null
@@ -63,6 +92,8 @@ export interface Client {
   Vendor: string | null
   /** The network the client's IP address belongs to, if any. */
   NetworkID: number | null
+  /** What UniFi knows about the device, when it is configured and knows it. */
+  UniFi?: UniFiClient | null
   Endpoint: Endpoint
   Traffic: Traffic
 }
@@ -465,6 +496,8 @@ export interface KnownDevice {
   Vendor: string | null
   /** The network IPAddress belongs to, if any. */
   NetworkID: number | null
+  /** What UniFi knows about the device, when it is configured and knows it. */
+  UniFi?: UniFiClient | null
   FirstSeen: string
   LastSeen: string
   /** MAC addresses merged into the device, whose traffic counts as its. */
