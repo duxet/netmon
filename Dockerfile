@@ -13,7 +13,9 @@ RUN npm ci --no-audit --no-fund
 COPY client/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.27-bookworm AS go
+# Debian 13 rather than 12: 12's arm64 libc.a overflows its GOT when linked
+# statically with DuckDB ("relocation truncated to fit: R_AARCH64_LD64_GOTPAGE_LO15").
+FROM --platform=$BUILDPLATFORM golang:1.27-trixie AS go
 ARG TARGETARCH
 # A release's tag, such as v1.2.3, which netmon -version and the web UI show.
 ARG VERSION=dev
