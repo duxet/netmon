@@ -66,6 +66,9 @@ type NewDeviceParams struct {
 	// IgnoreRandomMACs skips locally administered MAC addresses, which
 	// phones use as private Wi-Fi addresses and may change.
 	IgnoreRandomMACs bool `json:"ignore_random_macs"`
+	// Networks limits the rule to devices that show up in these networks,
+	// by ID; empty is every network.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // Directions of traffic, from the device's side.
@@ -97,6 +100,9 @@ type TrafficParams struct {
 	App string `json:"app,omitempty"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 	// Network counts the internet traffic of all these devices together,
 	// as one alert about the whole network, instead of each on its own.
 	// Traffic between local devices doesn't count then.
@@ -106,8 +112,10 @@ type TrafficParams struct {
 // InactiveParams are the settings of a device_inactive rule.
 type InactiveParams struct {
 	InactiveSeconds int64 `json:"inactive_s"`
-	// MACs are the devices to watch; at least one.
+	// MACs are the devices to watch; at least one, or a network.
 	MACs []string `json:"macs"`
+	// Networks are networks, by ID, whose devices are watched too.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // Bounds of device_inactive rules, in seconds.
@@ -133,6 +141,9 @@ type PortParams struct {
 	Protocol string `json:"protocol"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // Modes of destination_country rules.
@@ -151,6 +162,9 @@ type CountryParams struct {
 	Countries []string `json:"countries"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // OnlineParams are the settings of a device_online rule.
@@ -159,6 +173,9 @@ type OnlineParams struct {
 	InactiveSeconds int64 `json:"inactive_s"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // What new_destination rules look at.
@@ -183,6 +200,9 @@ type DestinationParams struct {
 	BaselineDays int `json:"baseline_days"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // BlocklistParams are the settings of a blocklist rule.
@@ -192,6 +212,9 @@ type BlocklistParams struct {
 	Lists []string `json:"lists,omitempty"`
 	// MACs limits the rule to these devices; empty is every device.
 	MACs []string `json:"macs,omitempty"`
+	// Networks limits the rule to the devices in these networks, by ID,
+	// along with those in MACs; with neither, it is about every device.
+	Networks []int64 `json:"networks,omitempty"`
 }
 
 // lists returns the lists a rule checks.
@@ -245,6 +268,11 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if err := decodeStrict(raw, &p); err != nil {
 			return "", err
 		}
+		networks, err := normalizeNetworks(p.Networks)
+		if err != nil {
+			return "", err
+		}
+		p.Networks = networks
 		params = p
 
 	case TrafficThreshold:
@@ -299,7 +327,11 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		p.MACs = macs
+		networks, err := normalizeNetworks(p.Networks)
+		if err != nil {
+			return "", err
+		}
+		p.MACs, p.Networks = macs, networks
 		params = p
 
 	case Blocklist:
@@ -318,7 +350,11 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		p.MACs = macs
+		networks, err := normalizeNetworks(p.Networks)
+		if err != nil {
+			return "", err
+		}
+		p.MACs, p.Networks = macs, networks
 		params = p
 
 	case NewDestination:
@@ -339,7 +375,11 @@ func ValidateParams(ruleType string, raw json.RawMessage) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		p.MACs = macs
+		networks, err := normalizeNetworks(p.Networks)
+		if err != nil {
+			return "", err
+		}
+		p.MACs, p.Networks = macs, networks
 		params = p
 
 	default:
@@ -366,23 +406,19 @@ func (p *TrafficParams) validate() error {
 	if p.App != "" && !isApp(p.App) {
 		return invalid("unknown app %q", p.App)
 	}
-	macs, err := normalizeMACs(p.MACs)
-	p.MACs = macs
-	return err
+	return normalizeScope(&p.MACs, &p.Networks)
 }
 
 func (p *InactiveParams) validate() error {
 	if p.InactiveSeconds < MinInactiveSeconds || p.InactiveSeconds > MaxInactiveSeconds {
 		return invalid("inactive_s must be between %d and %d seconds", MinInactiveSeconds, MaxInactiveSeconds)
 	}
-	macs, err := normalizeMACs(p.MACs)
-	if err != nil {
+	if err := normalizeScope(&p.MACs, &p.Networks); err != nil {
 		return err
 	}
-	if len(macs) == 0 {
-		return invalid("macs must name at least one device to watch")
+	if len(p.MACs) == 0 && len(p.Networks) == 0 {
+		return invalid("macs or networks must name at least one device or network to watch")
 	}
-	p.MACs = macs
 	return nil
 }
 
@@ -401,9 +437,7 @@ func (p *PortParams) validate() error {
 	slices.Sort(p.Ports)
 	p.Ports = slices.Compact(p.Ports)
 
-	macs, err := normalizeMACs(p.MACs)
-	p.MACs = macs
-	return err
+	return normalizeScope(&p.MACs, &p.Networks)
 }
 
 func (p *CountryParams) validate() error {
@@ -424,9 +458,7 @@ func (p *CountryParams) validate() error {
 	slices.Sort(countries)
 	p.Countries = slices.Compact(countries)
 
-	macs, err := normalizeMACs(p.MACs)
-	p.MACs = macs
-	return err
+	return normalizeScope(&p.MACs, &p.Networks)
 }
 
 // normalizeMACs parses MAC addresses into canonical form, sorted and
@@ -445,6 +477,70 @@ func normalizeMACs(list []string) ([]string, error) {
 	}
 	slices.Sort(macs)
 	return slices.Compact(macs), nil
+}
+
+// maxScopedNetworks bounds the networks a rule can be limited to.
+const maxScopedNetworks = 64
+
+// normalizeNetworks checks network IDs, and sorts them without duplicates.
+// Whether the networks exist is for the caller to check, who has them.
+func normalizeNetworks(list []int64) ([]int64, error) {
+	if len(list) > maxScopedNetworks {
+		return nil, invalid("a rule can be limited to at most %d networks", maxScopedNetworks)
+	}
+	for _, id := range list {
+		if id <= 0 {
+			return nil, invalid("invalid network %d", id)
+		}
+	}
+	networks := slices.Clone(list)
+	slices.Sort(networks)
+	return slices.Compact(networks), nil
+}
+
+// normalizeScope normalizes the devices and networks a rule is limited to.
+func normalizeScope(macs *[]string, networks *[]int64) error {
+	m, err := normalizeMACs(*macs)
+	if err != nil {
+		return err
+	}
+	n, err := normalizeNetworks(*networks)
+	if err != nil {
+		return err
+	}
+	*macs, *networks = m, n
+	return nil
+}
+
+// ParamNetworks returns the networks normalized params limit a rule to.
+func ParamNetworks(params string) []int64 {
+	var p struct {
+		Networks []int64 `json:"networks"`
+	}
+	_ = json.Unmarshal([]byte(params), &p)
+	return p.Networks
+}
+
+// WithNetworks returns normalized params with their networks replaced, or
+// left out when there are none.
+func WithNetworks(params string, networks []int64) (string, error) {
+	var p map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(params), &p); err != nil {
+		return "", fmt.Errorf("invalid params: %w", err)
+	}
+	if p == nil {
+		p = map[string]json.RawMessage{}
+	}
+	delete(p, "networks")
+	if len(networks) > 0 {
+		ids, err := json.Marshal(networks)
+		if err != nil {
+			return "", err
+		}
+		p["networks"] = ids
+	}
+	data, err := json.Marshal(p)
+	return string(data), err
 }
 
 func isApp(name string) bool {

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/duxet/netmon/alerting"
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/networks"
 	"github.com/duxet/netmon/storage"
@@ -323,6 +325,27 @@ func registerNetworkRoutes(app *fiber.App, db *sql.DB) {
 		id, err := parseNetworkID(c)
 		if err != nil {
 			return err
+		}
+
+		// A rule limited to the network would be about no device, or about
+		// every one, without it: neither is what it was made for.
+		rules, err := storage.ListRules(db)
+		if err != nil {
+			return err
+		}
+		var using []string
+		for _, rule := range rules {
+			if slices.Contains(alerting.ParamNetworks(rule.Params), id) {
+				using = append(using, "“"+rule.Name+"”")
+			}
+		}
+		switch {
+		case len(using) == 1:
+			return fiber.NewError(fiber.StatusConflict, "the alert rule "+using[0]+
+				" is limited to this network: change it before removing the network")
+		case len(using) > 1:
+			return fiber.NewError(fiber.StatusConflict, "the alert rules "+strings.Join(using, ", ")+
+				" are limited to this network: change them before removing the network")
 		}
 
 		if err := storage.DeleteNetwork(db, id); err != nil {

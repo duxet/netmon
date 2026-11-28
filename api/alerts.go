@@ -77,6 +77,18 @@ func parseRule(db *sql.DB, body *ruleBody) (storage.RuleRecord, error) {
 		return storage.RuleRecord{}, badRequest(err.Error())
 	}
 
+	if ids := alerting.ParamNetworks(params); len(ids) > 0 {
+		known, err := storage.ListNetworks(db)
+		if err != nil {
+			return storage.RuleRecord{}, err
+		}
+		for _, id := range ids {
+			if !slices.ContainsFunc(known, func(n storage.NetworkRecord) bool { return n.ID == id }) {
+				return storage.RuleRecord{}, badRequest(fmt.Sprintf("unknown network %d", id))
+			}
+		}
+	}
+
 	severity := body.Severity
 	if severity == "" {
 		severity = "warning"

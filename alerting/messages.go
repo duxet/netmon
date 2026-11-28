@@ -20,7 +20,12 @@ type device struct {
 	vendor    string
 	firstSeen time.Time
 	lastSeen  time.Time
-	network   bool
+	// networkID and networkName are of the network the device's address is
+	// in, if any; for the whole network, networkName names the networks a
+	// rule is limited to.
+	networkID   int64
+	networkName string
+	network     bool
 }
 
 // theNetwork stands for all devices together.
@@ -29,18 +34,24 @@ var theNetwork = device{network: true}
 // deviceFromLabels is the device an alert's labels describe.
 func deviceFromLabels(labels map[string]string) device {
 	if labels["scope"] == "network" {
-		return theNetwork
+		d := theNetwork
+		d.networkName = labels["network"]
+		return d
 	}
-	return device{
+	d := device{
 		mac: labels["mac"], ip: labels["ip"], name: labels["device_name"],
-		hostname: labels["hostname"], vendor: labels["vendor"],
+		hostname: labels["hostname"], vendor: labels["vendor"], networkName: labels["network"],
 	}
+	d.networkID, _ = strconv.ParseInt(labels["network_id"], 10, 64)
+	return d
 }
 
 // label is how messages call a device: the name the user gave it, else its
 // hostname, else who made it, else its MAC address.
 func (d device) label() string {
 	switch {
+	case d.network && d.networkName != "":
+		return "the " + d.networkName + " network"
 	case d.network:
 		return "the network"
 	case d.name != "":
@@ -67,8 +78,13 @@ func (d device) details() string {
 	if d.label() != d.mac {
 		parts = append(parts, d.mac)
 	}
-	if d.ip != "" {
+	switch {
+	case d.ip != "" && d.networkName != "":
+		parts = append(parts, d.ip+" on "+d.networkName)
+	case d.ip != "":
 		parts = append(parts, d.ip)
+	case d.networkName != "":
+		parts = append(parts, "on "+d.networkName)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -84,7 +100,8 @@ func (d device) labelled() string {
 // subject is labelled, to start a sentence with.
 func (d device) subject() string {
 	if d.network {
-		return "The network"
+		label := d.label()
+		return strings.ToUpper(label[:1]) + label[1:]
 	}
 	return d.labelled()
 }
@@ -92,17 +109,32 @@ func (d device) subject() string {
 // labels describe a device in an alert record and webhook payloads.
 func (d device) labels() map[string]string {
 	if d.network {
-		return map[string]string{"scope": "network"}
+		labels := map[string]string{"scope": "network"}
+		if d.networkName != "" {
+			labels["network"] = d.networkName
+		}
+		return labels
 	}
 	labels := map[string]string{"mac": d.mac}
+	if d.networkID != 0 {
+		labels["network_id"] = strconv.FormatInt(d.networkID, 10)
+	}
 	for key, value := range map[string]string{
-		"ip": d.ip, "device_name": d.name, "hostname": d.hostname, "vendor": d.vendor,
+		"ip": d.ip, "device_name": d.name, "hostname": d.hostname, "vendor": d.vendor, "network": d.networkName,
 	} {
 		if value != "" {
 			labels[key] = value
 		}
 	}
 	return labels
+}
+
+// joinAnd joins words as a sentence lists them: "a", "a and b", "a, b and c".
+func joinAnd(words []string) string {
+	if len(words) <= 1 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
 }
 
 // formatBytes formats a number of bytes with decimal units and three
@@ -180,7 +212,11 @@ func clock(t time.Time) string {
 
 func newDeviceText(d device) (title, body string) {
 	title = "New device: " + d.label()
-	body = fmt.Sprintf("%s joined the network, first seen at %s.", d.labelled(), clock(d.firstSeen))
+	joined := "the network"
+	if d.networkName != "" {
+		joined = "the " + d.networkName + " network"
+	}
+	body = fmt.Sprintf("%s joined %s, first seen at %s.", d.labelled(), joined, clock(d.firstSeen))
 	return title, body
 }
 
@@ -234,7 +270,7 @@ func trafficResolvedText(p TrafficParams, d device, lasted time.Duration) (title
 	title = "Resolved: " + trafficTitle(p, d)
 	label := d.label()
 	if d.network {
-		label = "The network"
+		label = d.subject()
 	}
 	body = fmt.Sprintf("%s is back under %s in %s, after %s.",
 		label, formatBytes(float64(p.ThresholdBytes)), lastWindow(p.WindowSeconds), formatDuration(lasted))

@@ -119,36 +119,57 @@ export function knownDeviceLabel(device: KnownDevice): string {
   )
 }
 
+/** Who a rule is about, in words: "every device", "2 devices", "IoT", "1 device and IoT". */
+export function describeScope(
+  macs: string[] | undefined,
+  networks: number[] | undefined,
+  networkNames: Map<number, string> = new Map()
+): string {
+  const parts: string[] = []
+  const m = macs?.length ?? 0
+  if (m > 0) parts.push(m === 1 ? "1 device" : `${m} devices`)
+  const n = networks ?? []
+  if (n.length > 0) {
+    const names = n.map((id) => networkNames.get(id))
+    if (n.length <= 2 && names.every(Boolean)) parts.push(...(names as string[]))
+    else parts.push(n.length === 1 ? "1 network" : `${n.length} networks`)
+  }
+  return parts.length === 0 ? "every device" : parts.join(" and ")
+}
+
 /** What a rule checks, in a line: "Download over 5 GB in 1 hour, YouTube, 2 devices". */
-export function describeRule(rule: AlertRule): string {
+export function describeRule(rule: AlertRule, networkNames?: Map<number, string>): string {
   const p = rule.Params
-  const devices = (n: number) => (n === 0 ? "every device" : n === 1 ? "1 device" : `${n} devices`)
+  const devices = () => describeScope(p.macs, p.networks, networkNames)
 
   switch (rule.Type) {
     case "new_device":
-      return p.ignore_random_macs ? "Any new device, except private Wi-Fi addresses" : "Any new device"
+      return (
+        (p.ignore_random_macs ? "Any new device, except private Wi-Fi addresses" : "Any new device") +
+        (p.networks?.length ? `, on ${describeScope(undefined, p.networks, networkNames)}` : "")
+      )
     case "device_inactive":
-      return `No traffic for ${durationLabel(p.inactive_s ?? 0)}, ${devices(p.macs?.length ?? 0)}`
+      return `No traffic for ${durationLabel(p.inactive_s ?? 0)}, ${devices()}`
     case "destination_port": {
       const protocol = PROTOCOLS.find((x) => x.value === p.protocol)
       const ports = (p.ports ?? []).join(", ")
-      return `Connections to port${p.ports?.length === 1 ? "" : "s"} ${ports}${protocol && p.protocol !== "any" ? `/${protocol.label}` : ""}, ${devices(p.macs?.length ?? 0)}`
+      return `Connections to port${p.ports?.length === 1 ? "" : "s"} ${ports}${protocol && p.protocol !== "any" ? `/${protocol.label}` : ""}, ${devices()}`
     }
     case "destination_country": {
       const countries = (p.countries ?? []).join(", ")
-      return `${p.mode === "allow" ? "Traffic outside" : "Traffic with"} ${countries}, ${devices(p.macs?.length ?? 0)}`
+      return `${p.mode === "allow" ? "Traffic outside" : "Traffic with"} ${countries}, ${devices()}`
     }
     case "device_online":
-      return `Back after ${durationLabel(p.inactive_s ?? 0)} or more without traffic, ${devices(p.macs?.length ?? 0)}`
+      return `Back after ${durationLabel(p.inactive_s ?? 0)} or more without traffic, ${devices()}`
     case "new_destination":
-      return `First traffic with a ${p.kind === "asn" ? "network" : "country"} it hadn't in ${p.baseline_days ?? 30} days, ${devices(p.macs?.length ?? 0)}`
+      return `First traffic with a ${p.kind === "asn" ? "network" : "country"} it hadn't in ${p.baseline_days ?? 30} days, ${devices()}`
     case "blocklist":
-      return `Traffic with addresses on ${p.lists?.length ? `${p.lists.length} blocklist${p.lists.length === 1 ? "" : "s"}` : "every blocklist"}, ${devices(p.macs?.length ?? 0)}`
+      return `Traffic with addresses on ${p.lists?.length ? `${p.lists.length} blocklist${p.lists.length === 1 ? "" : "s"}` : "every blocklist"}, ${devices()}`
     default: {
       const direction = DIRECTIONS.find((d) => d.value === p.direction)?.label ?? "Traffic"
       const parts = [`${direction} over ${formatBytes(p.threshold_bytes ?? 0)} in ${windowLabel(p.window_s ?? 0)}`]
       if (p.app) parts.push(p.app)
-      parts.push(p.network ? "whole network" : devices(p.macs?.length ?? 0))
+      parts.push(p.network ? "whole network" : devices())
       return parts.join(", ")
     }
   }
@@ -175,6 +196,8 @@ export interface RuleForm {
   app: string
   network: boolean
   macs: string[]
+  /** The networks the rule is limited to, along with macs, by ID. */
+  networks: number[]
   inactiveSeconds: number
   /** Ports as typed, e.g. "23, 2323". */
   ports: string
@@ -207,6 +230,7 @@ export const DEFAULT_FORM: RuleForm = {
   app: "",
   network: false,
   macs: [],
+  networks: [],
   inactiveSeconds: 30 * 60,
   ports: "",
   protocol: "tcp",
@@ -257,6 +281,7 @@ export function ruleToForm(rule: AlertRule): RuleForm {
     app: p.app ?? "",
     network: p.network ?? false,
     macs: p.macs ?? [],
+    networks: p.networks ?? [],
     inactiveSeconds: p.inactive_s ?? DEFAULT_FORM.inactiveSeconds,
     ports: (p.ports ?? []).join(", "),
     protocol: p.protocol ?? "tcp",
@@ -307,7 +332,7 @@ export function formProblem(form: RuleForm): string | null {
     case "traffic_threshold":
       return Number.isFinite(thresholdBytes(form)) ? null : "Enter the threshold as a number."
     case "device_inactive":
-      return form.macs.length > 0 ? null : "Pick at least one device to watch."
+      return form.macs.length > 0 || form.networks.length > 0 ? null : "Pick at least one device or network to watch."
     case "destination_port": {
       const ports = parsePorts(form.ports)
       if (ports.length === 0) return "Enter at least one port."
@@ -324,12 +349,13 @@ export function formProblem(form: RuleForm): string | null {
 }
 
 function paramsOf(form: RuleForm): AlertRuleInput["params"] {
-  const macs = form.macs.length > 0 ? { macs: form.macs } : {}
+  const networks = form.networks.length > 0 ? { networks: form.networks } : {}
+  const macs = { ...(form.macs.length > 0 ? { macs: form.macs } : {}), ...networks }
   switch (form.type) {
     case "new_device":
-      return { ignore_random_macs: form.ignoreRandomMacs }
+      return { ignore_random_macs: form.ignoreRandomMacs, ...networks }
     case "device_inactive":
-      return { inactive_s: form.inactiveSeconds, macs: form.macs }
+      return { inactive_s: form.inactiveSeconds, macs: form.macs, ...networks }
     case "destination_port":
       return { ports: parsePorts(form.ports), protocol: form.protocol, ...macs }
     case "destination_country":
@@ -375,7 +401,7 @@ export function alertDevice(alert: Alert): string | undefined {
 /** How an alert's subject is called: as in its title, else by its labels. */
 export function alertSubjectLabel(alert: Alert): string {
   const l = alert.Labels
-  if (l.scope === "network") return "The whole network"
+  if (l.scope === "network") return l.network ? `The ${l.network} network` : "The whole network"
   return l.device_name ?? cleanHostname(l.hostname) ?? (l.vendor ? `${l.vendor} device` : (l.mac ?? alert.Subject))
 }
 
@@ -386,6 +412,7 @@ export const LABELS: { key: string; label: string }[] = [
   { key: "vendor", label: "Made by" },
   { key: "mac", label: "MAC address" },
   { key: "ip", label: "IP address" },
+  { key: "network", label: "Local network" },
   { key: "first_seen", label: "First seen" },
   { key: "port", label: "Port" },
   { key: "protocol", label: "Protocol" },

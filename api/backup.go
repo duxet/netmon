@@ -50,11 +50,13 @@ type channelSettings struct {
 }
 
 // alertRuleSetting is a rule as POST /api/alert-rules takes it, with the
-// names of its channels rather than their IDs, which differ elsewhere.
+// names of its channels and of the networks it is limited to rather than
+// their IDs, which differ elsewhere.
 type alertRuleSetting struct {
 	ruleBody
 	ChannelIDs []int64  `json:"-"`
 	Channels   []string `json:"channels"`
+	Networks   []string `json:"networks,omitempty"`
 }
 
 // ImportCountDTO counts what an import created and changed of one kind.
@@ -158,7 +160,9 @@ func exportSettings(db *sql.DB, secrets bool) (SettingsDTO, error) {
 	if err != nil {
 		return settings, err
 	}
+	networkNames := map[int64]string{}
 	for _, n := range nets {
+		networkNames[n.ID] = n.Name
 		dto := toNetworkDTO(n)
 		settings.Networks = append(settings.Networks, networkBody{Name: &dto.Name, VLAN: dto.VLAN, Color: &dto.Color, Prefixes: dto.Prefixes})
 	}
@@ -209,9 +213,18 @@ func exportSettings(db *sql.DB, secrets bool) (SettingsDTO, error) {
 	}
 	for _, r := range rules {
 		notifyOnResolve, enabled := r.NotifyOnResolve, r.Enabled
+		params, err := alerting.WithNetworks(r.Params, nil)
+		if err != nil {
+			return settings, err
+		}
+		var ruleNetworks []string
+		for _, id := range alerting.ParamNetworks(r.Params) {
+			ruleNetworks = append(ruleNetworks, networkNames[id])
+		}
 		rule := alertRuleSetting{
+			Networks: ruleNetworks,
 			ruleBody: ruleBody{
-				Name: r.Name, Type: r.Type, Params: json.RawMessage(r.Params), Severity: r.Severity,
+				Name: r.Name, Type: r.Type, Params: json.RawMessage(params), Severity: r.Severity,
 				RepeatIntervalSeconds: r.RepeatIntervalSeconds, NotifyOnResolve: &notifyOnResolve, Enabled: &enabled,
 			},
 			Channels: []string{},
@@ -374,6 +387,12 @@ func importSettings(db *sql.DB, settings SettingsDTO) (ImportResultDTO, error) {
 		if err := alerting.ValidateRepeat(rule.RepeatIntervalSeconds); err != nil {
 			return result, importError("alert_rules", i, badRequest(err.Error()))
 		}
+		for _, network := range rule.Networks {
+			known := slices.ContainsFunc(planned, func(n storage.NetworkRecord) bool { return strings.EqualFold(n.Name, strings.TrimSpace(network)) })
+			if !known {
+				return result, importError("alert_rules", i, badRequest(fmt.Sprintf("unknown network “%s”", network)))
+			}
+		}
 		for _, channel := range rule.Channels {
 			known := importedChannels[strings.ToLower(channel)] ||
 				slices.ContainsFunc(existingChannels, func(c storage.ChannelRecord) bool { return strings.EqualFold(c.Name, channel) })
@@ -430,8 +449,31 @@ func importSettings(db *sql.DB, settings SettingsDTO) (ImportResultDTO, error) {
 	if err != nil {
 		return result, err
 	}
+	nets, err := storage.ListNetworks(db)
+	if err != nil {
+		return result, err
+	}
 	for i, rule := range settings.AlertRules {
 		body := rule.ruleBody
+		if len(rule.Networks) > 0 {
+			normalized, err := alerting.ValidateParams(body.Type, body.Params)
+			if err != nil {
+				return result, importError("alert_rules", i, badRequest(err.Error()))
+			}
+			var ids []int64
+			for _, name := range rule.Networks {
+				for _, n := range nets {
+					if strings.EqualFold(n.Name, strings.TrimSpace(name)) {
+						ids = append(ids, n.ID)
+					}
+				}
+			}
+			params, err := alerting.WithNetworks(normalized, ids)
+			if err != nil {
+				return result, err
+			}
+			body.Params = json.RawMessage(params)
+		}
 		body.ChannelIDs = nil
 		for _, name := range rule.Channels {
 			for _, ch := range channels {

@@ -540,6 +540,8 @@ export type TrafficDirection = "download" | "upload" | "total"
 export interface NewDeviceParams {
   /** Skips the private, changing Wi-Fi addresses of phones. */
   ignore_random_macs: boolean
+  /** Limits the rule to devices that show up in these networks, by ID. */
+  networks?: number[]
 }
 
 export interface TrafficParams {
@@ -550,20 +552,26 @@ export interface TrafficParams {
   app?: string
   /** Limits the rule to these devices; absent or empty for every device. */
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
   /** Counts the internet traffic of all devices together, as one alert. */
   network?: boolean
 }
 
 export interface InactiveParams {
   inactive_s: number
-  /** The devices to watch; at least one. */
+  /** The devices to watch; at least one, or a network. */
   macs: string[]
+  /** Networks, by ID, whose devices are watched too. */
+  networks?: number[]
 }
 
 export interface PortParams {
   ports: number[]
   protocol: "tcp" | "udp" | "any"
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
 }
 
 export interface CountryParams {
@@ -572,12 +580,16 @@ export interface CountryParams {
   /** ISO 3166-1 alpha-2 codes, e.g. "DE". */
   countries: string[]
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
 }
 
 export interface OnlineParams {
   /** How long a device has to have been quiet. */
   inactive_s: number
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
 }
 
 export interface DestinationParams {
@@ -586,12 +598,16 @@ export interface DestinationParams {
   /** How far back a device's traffic tells what it usually talks to. */
   baseline_days: number
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
 }
 
 export interface BlocklistParams {
   /** The lists to check; absent or empty for all of them. */
   lists?: string[]
   macs?: string[]
+  /** Limits the rule to the devices in these networks, by ID, along with those in macs. */
+  networks?: number[]
 }
 
 export type AlertRuleParams =

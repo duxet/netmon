@@ -43,6 +43,7 @@ import {
   formProblem,
   formToInput,
   BASELINES,
+  describeScope,
   INACTIVE_DURATIONS,
   isEventRule,
   knownDeviceLabel,
@@ -65,13 +66,16 @@ import {
   type AlertRulePreview,
   type AlertRuleType,
   type KnownDevice,
+  type Network,
   type PortParams,
   type Severity,
   type TrafficDirection,
 } from "@/lib/api"
+import { NetworkDot } from "@/components/network-badge"
 import { deviceIconInfo, isDeviceIcon } from "@/lib/device-icons"
 import { formatBytes } from "@/lib/format"
 import { countryName } from "@/lib/network"
+import { describeNetwork, useNetworks } from "@/lib/networks"
 import {
   alertRuleOptionsQuery,
   knownDevicesQuery,
@@ -127,6 +131,45 @@ function DevicePicker({
               <KnownDeviceIcon icon={device.Icon} />
               <span className="truncate">{knownDeviceLabel(device)}</span>
               <span className="shrink-0 font-mono text-xs text-muted-foreground">{device.MACAddress}</span>
+            </FieldLabel>
+          </Field>
+        ))}
+      </div>
+    </FieldSet>
+  )
+}
+
+function NetworkPicker({
+  id,
+  networks,
+  selected,
+  onToggle,
+  description,
+}: {
+  id: string
+  networks: Network[]
+  selected: number[]
+  onToggle: (id: number, on: boolean) => void
+  description: string
+}) {
+  return (
+    <FieldSet>
+      <FieldLegend variant="label">Networks</FieldLegend>
+      <FieldDescription>{description}</FieldDescription>
+      <div className="max-h-32 overflow-y-auto rounded-lg border p-2">
+        {networks.map((network) => (
+          <Field key={network.ID} orientation="horizontal" className="rounded-md p-1 hover:bg-muted/50">
+            <Checkbox
+              id={`${id}-network-${network.ID}`}
+              checked={selected.includes(network.ID)}
+              onCheckedChange={(checked) => onToggle(network.ID, checked === true)}
+            />
+            <FieldLabel htmlFor={`${id}-network-${network.ID}`} className="min-w-0 font-normal">
+              <NetworkDot color={network.Color} />
+              <span className="truncate">{network.Name}</span>
+              <span className="shrink-0 truncate font-mono text-xs text-muted-foreground">
+                {describeNetwork(network)}
+              </span>
             </FieldLabel>
           </Field>
         ))}
@@ -374,6 +417,7 @@ function RuleFormBody({
   const queryClient = useQueryClient()
   const options = useQuery(alertRuleOptionsQuery())
   const devices = useQuery(knownDevicesQuery())
+  const { list: networkList } = useNetworks()
   const channels = useQuery(notificationChannelsQuery())
   const [form, setForm] = React.useState<RuleForm>(() => (rule ? ruleToForm(rule) : { ...DEFAULT_FORM, ...preset }))
 
@@ -398,12 +442,16 @@ function RuleFormBody({
     setForm((current) => ({ ...current, [key]: value }))
     resetPreview()
   }
-  const toggle = <K extends "macs" | "channelIds" | "lists">(key: K, item: RuleForm[K][number], on: boolean) => {
+  const toggle = <K extends "macs" | "networks" | "channelIds" | "lists">(
+    key: K,
+    item: RuleForm[K][number],
+    on: boolean
+  ) => {
     setForm((current) => {
       const list = current[key] as (typeof item)[]
       return { ...current, [key]: on ? [...list, item] : list.filter((x) => x !== item) }
     })
-    if (key === "macs" || key === "lists") resetPreview()
+    if (key !== "channelIds") resetPreview()
   }
 
   const id = React.useId()
@@ -414,24 +462,33 @@ function RuleFormBody({
   const deviceList = devices.data ?? []
   const channelList = channels.data ?? []
 
-  const deviceDescription = {
-    new_device: "",
-    traffic_threshold: form.network
-      ? form.macs.length === 0
-        ? "Every device's internet traffic counts. Pick some to count only theirs."
-        : `The internet traffic of ${form.macs.length} picked counts.`
-      : form.macs.length === 0
-        ? "Every device, each on its own. Pick some to watch only those."
-        : `${form.macs.length} picked.`,
-    device_inactive:
-      form.macs.length === 0 ? "Pick the devices that should always have some traffic." : `${form.macs.length} picked.`,
-    destination_port: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
-    destination_country:
-      form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
-    device_online: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
-    new_destination: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
-    blocklist: form.macs.length === 0 ? "Every device. Pick some to watch only those." : `${form.macs.length} picked.`,
-  }[form.type]
+  // Who the rule is about: the devices picked, and those in the networks picked.
+  const picked = describeScope(
+    form.macs,
+    form.networks,
+    new Map(networkList.map((n) => [n.ID, n.Name]))
+  )
+  const nothingPicked = form.macs.length === 0 && form.networks.length === 0
+  const deviceDescription =
+    form.type === "traffic_threshold" && form.network
+      ? nothingPicked
+        ? "Every device's internet traffic counts. Pick devices or networks to count only theirs."
+        : `The internet traffic of ${picked} counts.`
+      : form.type === "device_inactive"
+        ? nothingPicked
+          ? "Pick the devices, or the networks, that should always have some traffic."
+          : `Watching ${picked}.`
+        : nothingPicked
+          ? form.type === "traffic_threshold"
+            ? "Every device, each on its own. Pick devices or networks to watch only those."
+            : "Every device. Pick devices or networks to watch only those."
+          : `Watching ${picked}.`
+  const networkDescription =
+    form.type === "new_device"
+      ? form.networks.length === 0
+        ? "Every network. Pick some to hear only of the devices that show up in those."
+        : `Devices that show up in ${picked}.`
+      : "Devices whose address is in one of these, along with the devices picked below."
 
   return (
     <form
@@ -636,6 +693,16 @@ function RuleFormBody({
 
           {form.type === "destination_country" && (
             <CountryFields id={id} form={form} set={set} geoIP={options.data?.GeoIP ?? true} />
+          )}
+
+          {networkList.length > 0 && (
+            <NetworkPicker
+              id={id}
+              networks={networkList}
+              selected={form.networks}
+              onToggle={(network, on) => toggle("networks", network, on)}
+              description={networkDescription}
+            />
           )}
 
           {form.type !== "new_device" && (

@@ -485,6 +485,15 @@ port or country, and only about traffic after the rule was created:
   rule checks once a day, into a `blocklists` directory next to the database, and keeps
   using the last ones when a download fails; the rule form shows how each is doing.
 
+Every rule can be limited to some devices, to the devices in some
+[networks](#networks), or to both: a rule about the IoT network is about every device
+whose address is in it, including ones that join later, along with the devices picked. A
+new-device rule can be limited to networks only. Alerts name the network a device is
+in, as "Smart plug (…, 192.168.20.14 on IoT)", and a **Whole network** traffic rule
+limited to networks adds up theirs: "Large download on the IoT network". A network an
+alert rule is limited to can't be removed until the rule no longer is. Settings
+exports name a rule's networks rather than give their IDs, so they import elsewhere.
+
 Every rule can have **quiet hours**, such as 22:00 to 07:00 in netmon's time zone (`TZ`),
 and can be **snoozed** for an hour to a week with the bell on the rules page: alerts are
 still recorded then, but their notifications aren't sent, which the alert's page shows. A
@@ -922,8 +931,9 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   (default) or `critical`; `repeat_interval_s` is at least 900, or null to notify once.
   Changing what a rule checks, or turning it off, resolves its firing alerts without a
   notification. `type` and its `params` are one of these (`macs` limits a rule to some
-  devices, and is optional but for `device_inactive`):
-  - `new_device`: `{"ignore_random_macs": false}`
+  devices and `networks` to the devices in some networks, by ID; both are optional,
+  but `device_inactive` needs one of them):
+  - `new_device`: `{"ignore_random_macs": false, "networks": [...]}`
   - `traffic_threshold`: `{"direction": "download" | "upload" | "total",
     "threshold_bytes", "window_s" (300 to 86400), "app", "macs": [...], "network": false}`,
     where `app` is optional and a name from `/api/alert-rule-options`
@@ -1019,7 +1029,7 @@ minute). `POST /api/tokens` answers with the `Token` too, which isn't shown agai
 - [x] Alerts (new device joined, usage over a threshold) via webhook, ntfy or Telegram
 - [x] Single sign-on with OpenID Connect, such as Pocket ID
 - [x] Networks (VLANs, subnets) to group devices by address, with a summary for each
-- [ ] Limit alert rules to a network, and name the network in alerts
+- [x] Limit alert rules to a network, and name the network in alerts
 - [ ] Monthly usage per device, for ISP data caps
 - [ ] CSV export
 

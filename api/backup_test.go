@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/duxet/netmon/alerting"
+	"github.com/duxet/netmon/storage"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -55,7 +58,7 @@ func setUp(t *testing.T, app *fiber.App) {
 		{"PUT", "/api/devices/" + testLaptopMAC + "/name", `{"name": "Laptop"}`},
 		{"PUT", "/api/devices/" + testTVMAC + "/icon", `{"icon": "tv"}`},
 		{"POST", "/api/notification-channels", `{"name": "Phone", "url": "telegram://123456:secret-token@telegram?chats=42"}`},
-		{"POST", "/api/alert-rules", `{"name": "New devices", "type": "new_device", "severity": "info", "channel_ids": [1]}`},
+		{"POST", "/api/alert-rules", `{"name": "New devices", "type": "new_device", "severity": "info", "channel_ids": [1], "params": {"networks": [1]}}`},
 	} {
 		if status, body := do(t, app, r.method, r.path, r.body); status >= 300 {
 			t.Fatalf("%s %s = %d %s", r.method, r.path, status, body)
@@ -117,6 +120,42 @@ func TestSettingsExportAndImport(t *testing.T) {
 	if result := imported(t, to, settings); result.Networks.Updated != 1 || result.Channels.Updated != 1 || result.AlertRules.Updated != 1 ||
 		result.Networks.Created+result.Channels.Created+result.AlertRules.Created != 0 {
 		t.Errorf("second import = %+v, want everything updated", result)
+	}
+}
+
+func TestSettingsImportMapsNetworksByName(t *testing.T) {
+	from, _ := newTestApp(t)
+	setUp(t, from)
+	settings := exported(t, from, "")
+	if rule := settings.AlertRules[0]; !slices.Equal(rule.Networks, []string{"IoT"}) || strings.Contains(string(rule.Params), "networks") {
+		t.Fatalf("rule = %+v %s, want its network by name, not ID", rule, rule.Params)
+	}
+
+	// Elsewhere, IoT gets another ID.
+	to, db := newTestApp(t)
+	createNetwork(t, to, `{"name": "Guests", "prefixes": ["10.0.30.0/24"]}`)
+	imported(t, to, settings)
+	rules, err := storage.ListRules(db)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("rules = %+v, %v", rules, err)
+	}
+	nets, _ := storage.ListNetworks(db)
+	var iot int64
+	for _, n := range nets {
+		if n.Name == "IoT" {
+			iot = n.ID
+		}
+	}
+	if got := alerting.ParamNetworks(rules[0].Params); iot == 0 || !slices.Equal(got, []int64{iot}) {
+		t.Errorf("rule networks = %v, want IoT's ID %d", got, iot)
+	}
+
+	// A rule limited to a network the import doesn't have is refused.
+	settings.Networks = nil
+	settings.AlertRules[0].Networks = []string{"Cameras"}
+	data, _ := json.Marshal(settings)
+	if status, body := do(t, to, "POST", "/api/settings-import", string(data)); status != fiber.StatusBadRequest || !strings.Contains(body, "Cameras") {
+		t.Errorf("import with an unknown network = %d %s, want 400", status, body)
 	}
 }
 

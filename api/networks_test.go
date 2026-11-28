@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -266,5 +267,29 @@ func TestNetworkSuggestions(t *testing.T) {
 	get(t, app, "/api/networks/suggestions", &suggestions)
 	if len(suggestions) != 1 || suggestions[0].Prefix != "192.168.20.0/24" || suggestions[0].Devices != 1 {
 		t.Errorf("suggestions = %+v, want only the TV's /24", suggestions)
+	}
+}
+
+func TestAlertRulesOfNetworks(t *testing.T) {
+	app, _ := newTestApp(t)
+	iot := createNetwork(t, app, `{"name": "IoT", "prefixes": ["192.168.20.0/24"]}`)
+
+	if status, body := do(t, app, "POST", "/api/alert-rules", `{"name": "Ports", "type": "destination_port",
+		"params": {"ports": [22], "protocol": "tcp", "networks": [999]}}`); status != fiber.StatusBadRequest || !strings.Contains(body, "unknown network 999") {
+		t.Errorf("a rule of a network that isn't = %d %s, want 400", status, body)
+	}
+	status, body := do(t, app, "POST", "/api/alert-rules", fmt.Sprintf(`{"name": "IoT ports", "type": "destination_port",
+		"params": {"ports": [22], "protocol": "tcp", "networks": [%d]}}`, iot.ID))
+	if status != fiber.StatusCreated {
+		t.Fatalf("POST rule = %d %s", status, body)
+	}
+
+	path := fmt.Sprintf("/api/networks/%d", iot.ID)
+	if status, body := do(t, app, "DELETE", path, ""); status != fiber.StatusConflict || !strings.Contains(body, "“IoT ports”") {
+		t.Errorf("DELETE a network a rule is limited to = %d %s, want 409 naming the rule", status, body)
+	}
+	do(t, app, "DELETE", "/api/alert-rules/1", "")
+	if status, body := do(t, app, "DELETE", path, ""); status != fiber.StatusNoContent {
+		t.Errorf("DELETE the network without rules = %d %s, want 204", status, body)
 	}
 }

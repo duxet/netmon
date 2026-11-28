@@ -32,6 +32,7 @@ import { Switch } from "@/components/ui/switch"
 import { SnoozeRuleButton } from "@/components/snooze-rule"
 import { describeRule, isSnoozed, PRESETS } from "@/lib/alerts"
 import { formatDayTime } from "@/lib/format"
+import { useNetworks } from "@/lib/networks"
 import {
   deleteAlertRule,
   errorText,
@@ -98,6 +99,8 @@ function channelNames(rule: AlertRule, channels: NotificationChannel[]): string 
 
 function RuleRow({ rule, channels }: { rule: AlertRule; channels: NotificationChannel[] }) {
   const invalidate = useInvalidateRules()
+  const { list: networks } = useNetworks()
+  const networkNames = new Map(networks.map((n) => [n.ID, n.Name]))
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => setAlertRuleEnabled(rule.ID, enabled),
     onSettled: invalidate,
@@ -124,7 +127,7 @@ function RuleRow({ rule, channels }: { rule: AlertRule; channels: NotificationCh
             </Badge>
           )}
         </div>
-        <p className="text-sm text-muted-foreground">{describeRule(rule)}</p>
+        <p className="text-sm text-muted-foreground">{describeRule(rule, networkNames)}</p>
         <p className="text-xs text-muted-foreground">{channelNames(rule, channels)}</p>
         {toggle.isError && (
           <p className="text-sm text-destructive" role="alert">

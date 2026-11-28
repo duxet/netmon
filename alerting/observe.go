@@ -99,14 +99,57 @@ func isRandomMAC(mac string) bool {
 	return err == nil && len(hw) > 0 && hw[0]&0x02 != 0
 }
 
-func inScope(macs []string, mac string) bool {
-	return len(macs) == 0 || slices.Contains(macs, mac)
+// scope is who a rule is about: the devices with the MAC addresses, and
+// those in the networks; with neither, every device.
+type scope struct {
+	macs     []string
+	networks []int64
+}
+
+func (s scope) all() bool {
+	return len(s.macs) == 0 && len(s.networks) == 0
+}
+
+// has reports whether the device with a MAC address is in the scope. A
+// device is in the network its last address is in.
+func (s scope) has(devices map[string]device, mac string) bool {
+	if s.all() || slices.Contains(s.macs, mac) {
+		return true
+	}
+	d, ok := devices[mac]
+	return ok && d.networkID != 0 && slices.Contains(s.networks, d.networkID)
+}
+
+// networkNames names the networks of a scope, for messages: "IoT", "IoT
+// and Guests". It is empty when the scope also has devices, or a network
+// that is gone.
+func (s scope) networkNames(devices map[string]device) string {
+	if len(s.macs) > 0 || len(s.networks) == 0 {
+		return ""
+	}
+	names := map[int64]string{}
+	for _, d := range devices {
+		if d.networkID != 0 {
+			names[d.networkID] = d.networkName
+		}
+	}
+	var list []string
+	for _, id := range s.networks {
+		name, ok := names[id]
+		if !ok {
+			return ""
+		}
+		list = append(list, name)
+	}
+	slices.Sort(list)
+	return joinAnd(list)
 }
 
 func (e *Engine) observeNewDevices(ctx context.Context, p NewDeviceParams, devices map[string]device, since time.Time) []candidate {
 	var fresh []string
+	in := scope{networks: p.Networks}
 	for mac, d := range devices {
-		if d.firstSeen.Before(since) || (p.IgnoreRandomMACs && isRandomMAC(mac)) {
+		if d.firstSeen.Before(since) || (p.IgnoreRandomMACs && isRandomMAC(mac)) || !in.has(devices, mac) {
 			continue
 		}
 		fresh = append(fresh, mac)
@@ -129,16 +172,17 @@ func (e *Engine) observeNewDevices(ctx context.Context, p NewDeviceParams, devic
 
 // trafficUsage sums the traffic in a rule's window: per device, or with
 // Network the internet traffic of all of them together.
-func (e *Engine) trafficUsage(p TrafficParams, now time.Time) (map[string]float64, error) {
+func (e *Engine) trafficUsage(p TrafficParams, devices map[string]device, now time.Time) (map[string]float64, error) {
 	records, err := storage.GetDeviceTraffic(e.db, now.Add(-time.Duration(p.WindowSeconds)*time.Second))
 	if err != nil {
 		return nil, err
 	}
 
 	usage := map[string]float64{}
+	in := scope{p.MACs, p.Networks}
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		if !inScope(p.MACs, mac) {
+		if !in.has(devices, mac) {
 			continue
 		}
 		public := r.Peer.Addr != nil && apps.IsPublic(*r.Peer.Addr)
@@ -169,7 +213,7 @@ func (e *Engine) trafficUsage(p TrafficParams, now time.Time) (map[string]float6
 }
 
 func (e *Engine) observeTraffic(ctx context.Context, rule storage.RuleRecord, p TrafficParams, devices map[string]device, now time.Time, open map[string]storage.AlertRecord) ([]candidate, error) {
-	usage, err := e.trafficUsage(p, now)
+	usage, err := e.trafficUsage(p, devices, now)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +233,7 @@ func (e *Engine) observeTraffic(ctx context.Context, rule storage.RuleRecord, p 
 		d := named[subject]
 		if subject == networkSubject {
 			d = theNetwork
+			d.networkName = scope{p.MACs, p.Networks}.networkNames(devices)
 		}
 		_, isOpen := open[subject]
 
@@ -208,11 +253,13 @@ func (e *Engine) observeTraffic(ctx context.Context, rule storage.RuleRecord, p 
 func (e *Engine) observeInactive(ctx context.Context, rule storage.RuleRecord, p InactiveParams, devices map[string]device, now time.Time) []candidate {
 	// Devices never seen can't be told to be quiet: there is nothing to go by.
 	var known []string
-	for _, mac := range p.MACs {
-		if _, ok := devices[mac]; ok {
+	in := scope{p.MACs, p.Networks}
+	for mac := range devices {
+		if in.has(devices, mac) {
 			known = append(known, mac)
 		}
 	}
+	slices.Sort(known)
 	named := e.withHostnames(ctx, devices, known)
 
 	found := make([]candidate, 0, len(known))
@@ -289,7 +336,7 @@ func (e *Engine) observePorts(ctx context.Context, rule storage.RuleRecord, p Po
 	portOf := map[string]string{}
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		if !inScope(p.MACs, mac) {
+		if !(scope{p.MACs, p.Networks}).has(devices, mac) {
 			continue
 		}
 		port := strconv.Itoa(int(r.Port)) + "/" + protocolName(r.IPProto)
@@ -325,7 +372,7 @@ func (e *Engine) observeCountries(ctx context.Context, rule storage.RuleRecord, 
 	names := map[string]string{}
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		if !inScope(p.MACs, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
+		if !(scope{p.MACs, p.Networks}).has(devices, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
 			continue
 		}
 		code, name, ok := e.opts.Countries.Lookup(*r.Peer.Addr)

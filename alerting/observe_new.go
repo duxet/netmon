@@ -23,7 +23,7 @@ func (e *Engine) observeOnline(ctx context.Context, rule storage.RuleRecord, p O
 		mac := c.MACAddress.String()
 		d, known := devices[mac]
 		// A device first seen while it would have been quiet is new, not back.
-		if !inScope(p.MACs, mac) || !known || !d.firstSeen.Before(since.Add(-quiet)) {
+		if !(scope{p.MACs, p.Networks}).has(devices, mac) || !known || !d.firstSeen.Before(since.Add(-quiet)) {
 			continue
 		}
 		back[mac] = c
@@ -153,7 +153,7 @@ func (e *Engine) observeDestinations(ctx context.Context, rule storage.RuleRecor
 	var learnt [][2]string
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		if !inScope(p.MACs, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
+		if !(scope{p.MACs, p.Networks}).has(devices, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
 			continue
 		}
 		key, name, ok := keyOf(r)
@@ -213,7 +213,7 @@ func (e *Engine) observeBlocklists(ctx context.Context, rule storage.RuleRecord,
 	events := map[string]*destinations{}
 	for _, r := range records {
 		mac := r.MACAddress.String()
-		if !inScope(p.MACs, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
+		if !(scope{p.MACs, p.Networks}).has(devices, mac) || r.Peer.Addr == nil || !apps.IsPublic(*r.Peer.Addr) {
 			continue
 		}
 		for _, id := range e.opts.Blocklists.Match(*r.Peer.Addr, lists) {

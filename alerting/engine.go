@@ -329,9 +329,14 @@ func (e *Engine) eventWindow(rule storage.RuleRecord, now time.Time) (since, coo
 	return since, now.Add(-EventCooldown)
 }
 
-// devices returns what is known about every device, by MAC address.
+// devices returns what is known about every device, by MAC address, with
+// the network its last address is in.
 func (e *Engine) devices() (map[string]device, error) {
 	records, err := storage.GetDevices(e.db)
+	if err != nil {
+		return nil, err
+	}
+	matcher, err := storage.NetworkMatcher(e.db)
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +350,11 @@ func (e *Engine) devices() (map[string]device, error) {
 		}
 		if r.Name != nil {
 			d.name = *r.Name
+		}
+		if r.IPAddress.Addr != nil {
+			if n := matcher.Match(*r.IPAddress.Addr); n != nil {
+				d.networkID, d.networkName = n.ID, n.Name
+			}
 		}
 		devices[mac] = d
 	}
