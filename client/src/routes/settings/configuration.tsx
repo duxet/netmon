@@ -43,7 +43,7 @@ import {
   switchedText,
   type Drafts,
 } from "@/lib/configuration"
-import { configQuery, unifiStatusQuery } from "@/lib/queries"
+import { configQuery, geoipStatusQuery, unifiStatusQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/settings/configuration")({
   staticData: { breadcrumb: "Configuration" },
@@ -320,6 +320,11 @@ function FileOnlyCard({ settings }: { settings: ConfigSetting[] }) {
           <p className="text-xs text-muted-foreground">{reason("oidc_issuer")}</p>
         </div>
         <div className="flex flex-col">
+          <h3 className="text-sm font-medium">GeoIP updates</h3>
+          <div className="divide-y">{rows(["maxmind_license_key"])}</div>
+          <p className="text-xs text-muted-foreground">{reason("maxmind_license_key")}</p>
+        </div>
+        <div className="flex flex-col">
           <h3 className="text-sm font-medium">Home Assistant</h3>
           <div className="divide-y">{rows(["mqtt_password"])}</div>
           <p className="text-xs text-muted-foreground">{reason("mqtt_password")}</p>
@@ -344,6 +349,37 @@ function UniFiStatusLine() {
       {data.Connected === 1 ? "1 client" : `${data.Connected} clients`} connected to {data.Site || "the site"}, read{" "}
       {new Date(data.LastSync).toLocaleTimeString()}.
     </p>
+  )
+}
+
+/** How the GeoIP databases and their updates are doing. */
+function GeoIPStatusLines() {
+  const status = useQuery(geoipStatusQuery())
+  const data = status.data
+  if (!data || data.Databases.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1">
+      {data.Databases.map((db) => {
+        const failed = db.Error !== "" || !db.Available
+        let detail = ""
+        if (db.Error) detail = `; updating failed: ${db.Error}`
+        else if (db.CheckedAt) detail = `, checked for updates ${new Date(db.CheckedAt).toLocaleString()}`
+        else if (data.Updates && !db.Available) detail = ", downloading…"
+        return (
+          <p
+            key={db.Edition}
+            className={`flex items-start gap-1.5 text-sm break-words ${failed ? "text-destructive" : "text-muted-foreground"}`}
+          >
+            {!failed && <CheckIcon className="mt-0.5 size-4 shrink-0 text-chart-3" />}
+            <span className="min-w-0">
+              <code>{db.Edition}</code> {db.Available ? "is loaded" : "isn't loaded"}
+              {db.Built && `, built ${new Date(db.Built).toLocaleDateString()}`}
+              {detail}
+            </span>
+          </p>
+        )
+      })}
+    </div>
   )
 }
 
@@ -605,8 +641,15 @@ function ConfigurationForm({ config }: { config: Configuration }) {
       <Section
         title="GeoIP and capture"
         badge={<Badge variant="outline">Applies after a restart</Badge>}
-        description="netmon opens these when it starts, so changes take effect the next time it does."
+        description={
+          <>
+            netmon opens these when it starts, so changes take effect the next time it does. With the account ID and
+            license key of a free MaxMind GeoLite account, netmon downloads the databases and keeps them up to date by
+            itself; the license key is only set in the file, or in <code>NETMON_MAXMIND_LICENSE_KEY</code>.
+          </>
+        }
       >
+        <GeoIPStatusLines />
         {field("geoip_country", {
           description: (
             <>
@@ -622,6 +665,16 @@ function ConfigurationForm({ config }: { config: Configuration }) {
               recognize apps; relative paths start in netmon's working directory.
             </>
           ),
+        })}
+        {field("maxmind_account_id", {
+          description: (
+            <>
+              With the license key, netmon downloads <code>GeoLite2-Country</code> and <code>GeoLite2-ASN</code> to the
+              paths above when they are missing, and every day looks for a newer release, which it uses without a
+              restart.
+            </>
+          ),
+          placeholder: "None: the databases aren't updated",
         })}
         {config.OS === "darwin" &&
           field("interface", {

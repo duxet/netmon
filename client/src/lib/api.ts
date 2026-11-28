@@ -81,6 +81,30 @@ export function fetchUniFiStatus() {
   return request<UniFiStatus>("/api/unifi")
 }
 
+export interface GeoIPDatabase {
+  /** MaxMind's name of the database, such as GeoLite2-Country. */
+  Edition: string
+  Path: string
+  /** Whether it is loaded, so lookups can succeed. */
+  Available: boolean
+  /** When the database was built; null when unknown, or without updates. */
+  Built: string | null
+  /** When a newer release was last looked for; null before, and without updates. */
+  CheckedAt: string | null
+  /** Why the last update failed, empty when it didn't. */
+  Error: string
+}
+
+export interface GeoIPStatus {
+  /** Whether netmon keeps the databases up to date. */
+  Updates: boolean
+  Databases: GeoIPDatabase[]
+}
+
+export function fetchGeoIPStatus() {
+  return request<GeoIPStatus>("/api/geoip")
+}
+
 export interface Client {
   /** The name the user gave the device, if any. */
   Name: string | null

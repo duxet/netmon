@@ -303,7 +303,7 @@ function CountryFields({ id, form, set, geoIP }: { id: string; form: RuleForm; s
         {!geoIP && (
           <FieldError>
             netmon has no GeoIP database yet: put GeoLite2-Country.mmdb next to the binary and restart it,
-            or this rule finds nothing.
+            or set a MaxMind license key for netmon to download it. Until then this rule finds nothing.
           </FieldError>
         )}
       </Field>
@@ -567,13 +567,13 @@ function RuleFormBody({
                 {form.destinationKind === "country" && !(options.data?.GeoIP ?? true) && (
                   <FieldError>
                     netmon has no GeoIP database yet: put GeoLite2-Country.mmdb next to the binary and restart it, or
-                    this rule finds nothing.
+                    set a MaxMind license key for netmon to download it. Until then this rule finds nothing.
                   </FieldError>
                 )}
                 {form.destinationKind === "asn" && !(options.data?.ASNs ?? true) && (
                   <FieldError>
-                    netmon has no ASN database yet: put GeoLite2-ASN.mmdb next to the binary and restart it, or this
-                    rule finds nothing.
+                    netmon has no ASN database yet: put GeoLite2-ASN.mmdb next to the binary and restart it, or set a
+                    MaxMind license key for netmon to download it. Until then this rule finds nothing.
                   </FieldError>
                 )}
               </Field>

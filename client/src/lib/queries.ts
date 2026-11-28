@@ -12,6 +12,7 @@ import {
   fetchFlowSummary,
   fetchHostnames,
   fetchUniFiStatus,
+  fetchGeoIPStatus,
   fetchKnownDevices,
   fetchNetworks,
   fetchNetworkSuggestions,
@@ -226,6 +227,10 @@ export function networkSuggestionsQuery() {
 /** How reading clients from UniFi goes, for the configuration page. */
 export function unifiStatusQuery() {
   return queryOptions({ queryKey: ["unifi"], queryFn: fetchUniFiStatus })
+}
+
+export function geoipStatusQuery() {
+  return queryOptions({ queryKey: ["geoip"], queryFn: fetchGeoIPStatus })
 }
 
 export function configQuery() {

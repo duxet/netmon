@@ -33,6 +33,8 @@ var infos = map[string]info{
 	"database":              {locked: "A new path would start netmon with an empty database."},
 	"geoip_country":         {},
 	"geoip_asn":             {},
+	"maxmind_account_id":    {},
+	"maxmind_license_key":   {secret: true, locked: "Keep the license key out of the web UI: set it in the file, or in NETMON_MAXMIND_LICENSE_KEY."},
 	"local_dns":             {live: true},
 	"public_dns":            {live: true},
 	"retention_days":        {live: true},

@@ -16,6 +16,7 @@ import (
 	"github.com/duxet/netmon/collector"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/domains"
+	"github.com/duxet/netmon/geoipupdate"
 	"github.com/duxet/netmon/homeassistant"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/logging"
@@ -135,6 +136,17 @@ func main() {
 	asns := lookup.OpenASNs(cfg.GeoIPASN)
 	defer asns.Close()
 	classifier := apps.NewClassifierWithASNs(apps.Known, asns)
+	// With a MaxMind license key, missing databases are downloaded and newer
+	// releases replace the files, which are then opened again.
+	var geoipUpdates *geoipupdate.Updater
+	if cfg.GeoIPUpdatesEnabled() {
+		geoipUpdates = geoipupdate.New(geoipupdate.Options{AccountID: cfg.MaxMindAccountID, LicenseKey: cfg.MaxMindLicenseKey},
+			geoipupdate.Database{Edition: "GeoLite2-Country", Path: cfg.GeoIPCountry, Reload: countries.Reload},
+			geoipupdate.Database{Edition: "GeoLite2-ASN", Path: cfg.GeoIPASN, Reload: asns.Reload},
+		)
+		slog.Info("Keeping the GeoIP databases up to date", "account", cfg.MaxMindAccountID)
+		go geoipUpdates.Run(ctx)
+	}
 
 	// The names clients look up tell what the addresses they then talk to
 	// are for, from dnsmasq's log or, on macOS, the packets captured.
@@ -302,7 +314,8 @@ func main() {
 	app := api.CreateHTTPApp(db, assets, api.Options{
 		Countries: countries, ASNs: asns, Classifier: classifier, Hostnames: hostnames, Live: meter, Alerts: engine, Auth: authn, Config: editor,
 		Collector: health, Totals: totals, Deliveries: dispatcher.Deliveries, DatabasePath: cfg.Database, Blocklists: lists,
-		Domains: names,
+		Domains:      names,
+		GeoIPUpdates: geoipUpdates,
 		Hosts: func() api.HostRules {
 			running := editor.Running()
 			return api.HostRules{PublicURL: running.BaseURL(), Allowed: running.AllowedHostList()}

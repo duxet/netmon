@@ -66,6 +66,14 @@ type Config struct {
 	// recognized by their built-in prefixes alone.
 	GeoIPASN string `koanf:"geoip_asn"`
 
+	// MaxMindAccountID and MaxMindLicenseKey turn on keeping the GeoIP
+	// databases up to date: netmon downloads them from MaxMind when they are
+	// missing, and every day looks for a newer release, which it opens
+	// without a restart. A free GeoLite account has them, under Manage
+	// License Keys.
+	MaxMindAccountID  string `koanf:"maxmind_account_id"`
+	MaxMindLicenseKey string `koanf:"maxmind_license_key"`
+
 	// LocalDNS and PublicDNS are the servers that reverse lookups of local and
 	// public addresses go to: "host", "host:port" or "system" for the
 	// operating system's resolver.
@@ -239,6 +247,31 @@ func (c Config) OIDCEnabled() bool {
 // Application.
 func (c Config) UniFiEnabled() bool {
 	return c.UniFiURL != ""
+}
+
+// GeoIPUpdatesEnabled reports whether the GeoIP databases are kept up to date.
+func (c Config) GeoIPUpdatesEnabled() bool {
+	return c.MaxMindLicenseKey != ""
+}
+
+// validateMaxMind checks the settings that keep the GeoIP databases up to
+// date.
+func (c Config) validateMaxMind() error {
+	switch {
+	case c.MaxMindAccountID == "" && c.MaxMindLicenseKey == "":
+		return nil
+	case c.MaxMindLicenseKey == "":
+		return keyErrorf("maxmind_license_key", "maxmind_license_key is required with maxmind_account_id")
+	case c.MaxMindAccountID == "":
+		return keyErrorf("maxmind_account_id", "maxmind_account_id is required with maxmind_license_key")
+	}
+	if _, err := strconv.ParseUint(c.MaxMindAccountID, 10, 64); err != nil {
+		return keyErrorf("maxmind_account_id", "maxmind_account_id must be the number of a MaxMind account, such as 123456: %q", c.MaxMindAccountID)
+	}
+	if c.GeoIPCountry == "" && c.GeoIPASN == "" {
+		return keyErrorf("maxmind_license_key", "the MaxMind settings have no effect with geoip_country and geoip_asn both empty")
+	}
+	return nil
 }
 
 // validateUniFi checks the UniFi settings.
@@ -419,6 +452,9 @@ func (c Config) validate() error {
 	}
 	if _, ok := logging.Parse(c.LogLevel); !ok {
 		return keyErrorf("log_level", "log_level must be one of %s: %q", strings.Join(logging.Levels, ", "), c.LogLevel)
+	}
+	if err := c.validateMaxMind(); err != nil {
+		return err
 	}
 	if err := c.validateUniFi(); err != nil {
 		return err

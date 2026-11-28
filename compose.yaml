@@ -18,4 +18,7 @@ services:
     environment:
       TZ: Europe/Berlin
       # NETMON_LOCAL_DNS: 192.168.1.1:53
+      # Download the GeoLite2 databases and keep them up to date.
+      # NETMON_MAXMIND_ACCOUNT_ID: "123456"
+      # NETMON_MAXMIND_LICENSE_KEY: your-license-key
     restart: unless-stopped

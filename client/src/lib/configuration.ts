@@ -6,6 +6,8 @@ export const SETTING_LABELS: Record<string, string> = {
   database: "Database",
   geoip_country: "GeoIP country database",
   geoip_asn: "GeoIP ASN database",
+  maxmind_account_id: "MaxMind account ID",
+  maxmind_license_key: "MaxMind license key",
   local_dns: "Local DNS server",
   public_dns: "Public DNS server",
   retention_days: "Traffic history",

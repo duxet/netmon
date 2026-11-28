@@ -7,7 +7,7 @@ STOP=10
 PROG=/usr/bin/netmon
 
 start_service() {
-	local enabled data_dir local_dns public_dns retention_days memory_limit threads dns_log
+	local enabled data_dir local_dns public_dns retention_days memory_limit threads dns_log maxmind_account_id maxmind_license_key
 
 	config_load netmon
 	config_get_bool enabled main enabled 1
@@ -20,6 +20,8 @@ start_service() {
 	config_get memory_limit main memory_limit
 	config_get threads main threads
 	config_get dns_log main dns_log logread
+	config_get maxmind_account_id main maxmind_account_id
+	config_get maxmind_license_key main maxmind_license_key
 
 	mkdir -p "$data_dir"
 
@@ -41,7 +43,9 @@ start_service() {
 		NETMON_RETENTION_DAYS="$retention_days" \
 		NETMON_MEMORY_LIMIT="$memory_limit" \
 		NETMON_THREADS="$threads" \
-		NETMON_DNS_LOG="$dns_log"
+		NETMON_DNS_LOG="$dns_log" \
+		NETMON_MAXMIND_ACCOUNT_ID="$maxmind_account_id" \
+		NETMON_MAXMIND_LICENSE_KEY="$maxmind_license_key"
 	procd_set_param respawn
 	procd_set_param stdout 1
 	procd_set_param stderr 1

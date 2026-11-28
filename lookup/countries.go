@@ -11,80 +11,93 @@ import (
 	"github.com/oschwald/geoip2-golang/v2"
 )
 
-// Countries resolves IP addresses to ISO country codes. The database is
-// opened once; without it, and on a nil *Countries, every lookup returns nil.
+// Countries resolves IP addresses to ISO country codes. Without a database,
+// and on a nil *Countries, every lookup returns nil. Reload opens the
+// database again, such as after it was updated.
 type Countries struct {
-	db *geoip2.Reader
+	db *database
 }
 
 // OpenCountries opens the GeoLite2-Country database at path. With an empty
-// path, or a database that can't be opened, lookups return nil.
+// path, or a database that can't be opened, lookups return nil until Reload
+// opens one.
 func OpenCountries(path string) *Countries {
+	l := &Countries{db: &database{path: path}}
 	if path == "" {
-		return &Countries{}
+		return l
 	}
-
-	db, err := geoip2.Open(path)
-	if err != nil {
+	if err := l.db.reload(); err != nil {
 		slog.Warn("GeoIP database not available, countries will not be shown", "path", path, "err", err)
-		return &Countries{}
 	}
+	return l
+}
 
-	return &Countries{db: db}
+// Path is where the database is read from, empty when there is none.
+func (l *Countries) Path() string {
+	if l == nil || l.db == nil {
+		return ""
+	}
+	return l.db.path
+}
+
+// Reload opens the database at Path again, such as after a newer one replaced
+// it. Lookups go on with the database that was open until it succeeds.
+func (l *Countries) Reload() error {
+	if l == nil {
+		return nil
+	}
+	return l.db.reload()
+}
+
+func (l *Countries) lookup(addr netip.Addr) (code, name string, ok bool) {
+	if l == nil {
+		return "", "", false
+	}
+	l.db.with(func(db *geoip2.Reader) {
+		country, err := db.Country(addr.Unmap())
+		if err != nil {
+			slog.Debug("GeoIP lookup failed", "addr", addr, "err", err)
+			return
+		}
+		code, name = country.Country.ISOCode, country.Country.Names.English
+	})
+	if code == "" {
+		return "", "", false
+	}
+	if name == "" {
+		name = code
+	}
+	return code, name, true
 }
 
 // Country returns the ISO 3166-1 alpha-2 code for the address, or nil when
 // it is unknown (no database, a private address, or a failed lookup).
 func (l *Countries) Country(ipAddress common.IPAddress) *string {
-	if l == nil || l.db == nil || ipAddress.Addr == nil {
+	if ipAddress.Addr == nil {
 		return nil
 	}
-
-	country, err := l.db.Country(ipAddress.Unmap())
-	if err != nil {
-		slog.Debug("GeoIP lookup failed", "addr", ipAddress, "err", err)
+	code, _, ok := l.lookup(ipAddress.Unmap())
+	if !ok {
 		return nil
 	}
-
-	if country.Country.ISOCode == "" {
-		return nil
-	}
-
-	return &country.Country.ISOCode
+	return &code
 }
 
 // Available reports whether a database is loaded, so lookups can succeed.
 func (l *Countries) Available() bool {
-	return l != nil && l.db != nil
+	return l != nil && l.db.available()
 }
 
 // Lookup returns the ISO 3166-1 alpha-2 code and the English name of the
 // address's country; ok is false when it is unknown.
 func (l *Countries) Lookup(addr netip.Addr) (code, name string, ok bool) {
-	if !l.Available() {
-		return "", "", false
-	}
-
-	country, err := l.db.Country(addr.Unmap())
-	if err != nil {
-		slog.Debug("GeoIP lookup failed", "addr", addr, "err", err)
-		return "", "", false
-	}
-	if country.Country.ISOCode == "" {
-		return "", "", false
-	}
-
-	name = country.Country.Names.English
-	if name == "" {
-		name = country.Country.ISOCode
-	}
-	return country.Country.ISOCode, name, true
+	return l.lookup(addr)
 }
 
 // Close closes the database.
 func (l *Countries) Close() error {
-	if l == nil || l.db == nil {
+	if l == nil {
 		return nil
 	}
-	return l.db.Close()
+	return l.db.close()
 }

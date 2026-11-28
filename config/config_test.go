@@ -261,6 +261,10 @@ func TestLoadErrors(t *testing.T) {
 		{name: "unifi url over http", file: "unifi_url: http://192.168.1.1\nunifi_api_key: k3y\n", want: "unifi_url must be an https://"},
 		{name: "unifi bad fingerprint", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k3y\nunifi_fingerprint: abc\n", want: "SHA-256 fingerprint"},
 		{name: "unifi empty site", file: "unifi_url: https://192.168.1.1\nunifi_api_key: k3y\nunifi_site: \"\"\n", want: "unifi_site must be"},
+		{name: "maxmind key without account", file: "maxmind_license_key: k3y\n", want: "maxmind_account_id is required"},
+		{name: "maxmind account without key", file: "maxmind_account_id: \"123456\"\n", want: "maxmind_license_key is required"},
+		{name: "maxmind account not a number", file: "maxmind_account_id: me@example.com\nmaxmind_license_key: k3y\n", want: "number of a MaxMind account"},
+		{name: "maxmind without databases", file: "maxmind_account_id: \"123456\"\nmaxmind_license_key: k3y\ngeoip_country: \"\"\ngeoip_asn: \"\"\n", want: "no effect"},
 		{name: "public url with a path", file: "oidc_issuer: https://id.example.com\noidc_client_id: netmon\npublic_url: https://example.com/netmon\n", want: "public_url must be an address without a path"},
 	}
 
@@ -335,6 +339,20 @@ unifi_fingerprint: `+strings.Repeat("AB:", 31)+`AB
 	}
 }
 
+func TestLoadMaxMind(t *testing.T) {
+	dir := isolate(t)
+	path := writeFile(t, filepath.Join(dir, "netmon.yaml"), "maxmind_account_id: 123456\n")
+	t.Setenv("NETMON_MAXMIND_LICENSE_KEY", "k3y")
+
+	cfg := mustLoad(t, path)
+	if !cfg.GeoIPUpdatesEnabled() || cfg.MaxMindAccountID != "123456" || cfg.MaxMindLicenseKey != "k3y" {
+		t.Errorf("got %+v, want GeoIP updates with account 123456", *cfg)
+	}
+	if Defaults().GeoIPUpdatesEnabled() {
+		t.Error("GeoIP updates are on by default")
+	}
+}
+
 func TestLoadOIDCPublicClientAndLocalhost(t *testing.T) {
 	isolate(t)
 	// A public client has no secret, and a provider on this machine may be http.
@@ -393,7 +411,7 @@ func TestBaseURL(t *testing.T) {
 func TestSettings(t *testing.T) {
 	// The tags are what the file and the environment are matched against, so
 	// a renamed one changes what people have configured.
-	want := "listen database geoip_country geoip_asn local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
+	want := "listen database geoip_country geoip_asn maxmind_account_id maxmind_license_key local_dns public_dns retention_days alert_retention_days hourly_days public_url oidc_issuer oidc_client_id oidc_client_secret unifi_url unifi_api_key unifi_username unifi_password unifi_site unifi_fingerprint interface ignore_local_traffic log_level memory_limit threads dns_log mqtt_broker mqtt_username mqtt_password mqtt_topic mqtt_discovery_prefix mqtt_all_devices allowed_hosts"
 	if got := strings.Join(settings(), " "); got != want {
 		t.Errorf("settings are %q, want %q", got, want)
 	}

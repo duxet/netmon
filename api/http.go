@@ -18,6 +18,7 @@ import (
 	"github.com/duxet/netmon/common"
 	"github.com/duxet/netmon/config"
 	"github.com/duxet/netmon/domains"
+	"github.com/duxet/netmon/geoipupdate"
 	"github.com/duxet/netmon/live"
 	"github.com/duxet/netmon/lookup"
 	"github.com/duxet/netmon/storage"
@@ -78,6 +79,9 @@ type Options struct {
 	// Domains are the names addresses answered for when looked up. Without
 	// them, remote hosts only have reverse DNS names.
 	Domains *domains.Names
+	// GeoIPUpdates keeps the GeoIP databases up to date, which /api/geoip
+	// tells about. Without it, they aren't updated.
+	GeoIPUpdates *geoipupdate.Updater
 }
 
 // maxHostnamesPerRequest bounds the work a single /api/hostnames call can cause.
@@ -445,6 +449,7 @@ func CreateHTTPApp(db *sql.DB, assets fs.FS, options Options) *fiber.App {
 	})
 	registerDeviceRoutes(app, db, hostnames, options.UniFi)
 	registerUniFiRoutes(app, options.UniFi)
+	registerGeoIPRoutes(app, countries, asns, options.GeoIPUpdates)
 	registerNetworkRoutes(app, db)
 	if options.Config != nil {
 		registerConfigRoutes(app, options.Config)

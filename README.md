@@ -133,7 +133,8 @@ docker compose up -d
 ```
 
 netmon starts in `/data`, so `flows.db` is kept there, and it reads `netmon.yaml` and
-the GeoLite2 databases from there when you put them in `./data`. Settings can be given
+the GeoLite2 databases from there when you put them in `./data`, or
+[downloads the databases](#geoip-databases) there with a MaxMind license key. Settings can be given
 as environment variables too. Set `TZ` to your time zone for quiet hours and the times
 in notifications. The image's health check runs `netmon -healthcheck` (see
 [Monitoring netmon](#monitoring-netmon)), and `docker compose exec netmon netmon -backup
@@ -178,6 +179,8 @@ It is configured in `/etc/config/netmon`:
 | `memory_limit`   | `256MB`          | `NETMON_MEMORY_LIMIT`, empty for DuckDB's default     |
 | `threads`        | `2`              | `NETMON_THREADS`, empty for one per core              |
 | `dns_log`        | `logread`        | `NETMON_DNS_LOG`, where dnsmasq logs queries          |
+| `maxmind_account_id` | none           | `NETMON_MAXMIND_ACCOUNT_ID`, to [keep the GeoIP databases up to date](#geoip-databases) |
+| `maxmind_license_key` | none          | `NETMON_MAXMIND_LICENSE_KEY`                          |
 
 ```sh
 uci set netmon.main.data_dir=/mnt/sda1/netmon
@@ -214,8 +217,8 @@ The dashboard and client pages show how much traffic went to popular services
 (YouTube/Google, Telegram, X, Meta, Netflix, Apple, TikTok, Spotify, Twitch, Steam).
 Apps are recognized by the remote IP address, using a built-in list of networks
 each service operates. For better coverage, put `GeoLite2-ASN.mmdb` (from MaxMind)
-next to the binary, or point `geoip_asn` at it: addresses will then also be matched
-by the service's ASN.
+next to the binary, point `geoip_asn` at it, or [let netmon download it](#geoip-databases):
+addresses will then also be matched by the service's ASN.
 
 The same database shows who runs each remote host: client and network pages list the
 autonomous system (`AS15169 GOOGLE`) next to a host's country and rank the traffic by
@@ -612,6 +615,8 @@ a typo doesn't go unnoticed.
 | `database`             | `NETMON_DATABASE`             | `flows.db`               | Path of the database file                                          |
 | `geoip_country`        | `NETMON_GEOIP_COUNTRY`        | `GeoLite2-Country.mmdb`  | Path of the GeoIP country database; empty in the file turns countries off |
 | `geoip_asn`            | `NETMON_GEOIP_ASN`            | `GeoLite2-ASN.mmdb`      | Path of the GeoIP ASN database; empty in the file turns networks off, and apps go by their built-in prefixes |
+| `maxmind_account_id`   | `NETMON_MAXMIND_ACCOUNT_ID`   | none                     | MaxMind account ID; with the license key, [keeps the GeoIP databases up to date](#geoip-databases) |
+| `maxmind_license_key`  | `NETMON_MAXMIND_LICENSE_KEY`  | none                     | MaxMind license key; only in the file or the environment           |
 | `local_dns`            | `NETMON_LOCAL_DNS`            | `192.168.1.1:54`         | DNS server for reverse lookups of local addresses                  |
 | `public_dns`           | `NETMON_PUBLIC_DNS`           | `8.8.8.8:53`             | DNS server for reverse lookups of public addresses                 |
 | `retention_days`       | `NETMON_RETENTION_DAYS`       | `0` (keep all)           | Days to keep hourly flow data                                      |
@@ -656,8 +661,8 @@ knows your DHCP names, public addresses on a public resolver. Set either to
 `host`, `host:port` or `system` (the OS resolver). Lookups time out after 2
 seconds and are cached (names for an hour, failures for a minute). Countries
 need the GeoIP database at `geoip_country` (by default `GeoLite2-Country.mmdb`
-in the working directory) when netmon starts, and networks (autonomous systems)
-the one at `geoip_asn` (`GeoLite2-ASN.mmdb`).
+in the working directory), and networks (autonomous systems) the one at
+`geoip_asn` (`GeoLite2-ASN.mmdb`); see [GeoIP databases](#geoip-databases).
 
 Flows are recorded every minute. At startup and then every hour, the minutes
 of complete hours are rolled up into one row per flow and hour, so the
@@ -675,6 +680,38 @@ e.g. `http://router.lan:2137`.
 netmon logs to standard error, one line per message with its details as `key=value`
 pairs. `info` logs what netmon does, such as settings saved or devices renamed, and
 problems; `debug` also logs every request, and lookups that failed.
+
+### GeoIP databases
+
+netmon reads MaxMind's free GeoLite2 databases, `GeoLite2-Country.mmdb` and
+`GeoLite2-ASN.mmdb`, from the paths in `geoip_country` and `geoip_asn`. Without them it
+works, but shows no countries or networks. You can download them yourself and put
+them there before netmon starts, or let netmon download them and keep them up to date:
+
+1. Sign up for a free [GeoLite account](https://www.maxmind.com/en/geolite2/signup).
+2. Under **Manage License Keys**, make a license key.
+3. Give netmon the account ID and the key:
+
+   ```yaml
+   maxmind_account_id: 123456
+   maxmind_license_key: your-license-key
+   ```
+
+   or `NETMON_MAXMIND_ACCOUNT_ID` and `NETMON_MAXMIND_LICENSE_KEY`.
+
+netmon then downloads the databases that are missing when it starts, and looks for a
+newer release every day (MaxMind releases them twice a week), and within the hour
+again when that fails. A new release is checked against MaxMind's SHA-256 checksum,
+written next to the old file and moved over it, and netmon opens it right away, without
+a restart; until then, and when anything fails, it goes on with the database it had. A
+database whose path is empty is neither used nor downloaded. **Settings →
+Configuration** shows whether each database is loaded, when it was built and how the
+last update went, as does `GET /api/geoip`.
+
+netmon needs to reach `download.maxmind.com`, and the storage service it redirects
+downloads to, so a firewall that allows only some hosts needs to allow both. The license
+key is only sent to `download.maxmind.com`, not to the storage it redirects to, and can't
+be seen or set in the web UI.
 
 ### Local traffic
 
@@ -717,8 +754,8 @@ check the file when starting, and nothing is saved when it fails.
 - The DNS servers, the retention of flows and alerts, how long hours are kept, the public URL, the allowed hosts, ignoring local
   traffic, the log level and the database's memory limit and threads apply right away.
   Shortening a retention deletes the older data at once, after asking. The GeoIP
-  database and the capture interface apply when netmon starts again, which the page
-  reminds you of.
+  databases' paths, the MaxMind account ID and the capture interface apply when netmon
+  starts again, which the page reminds you of; updated databases are opened right away.
 - A setting an environment variable sets can't be changed there, as the variable would
   override the file.
 - `listen`, `database` and the single sign-on settings are only shown, with the client
@@ -760,6 +797,7 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
 | `POST /api/devices/:mac/merge` | body `{"macs": ["da:a1:19:00:00:01", ...]}` |
 | `DELETE /api/devices/:mac/aliases/:alias` | |
 | `GET /api/unifi` | |
+| `GET /api/geoip` | |
 | `GET /api/networks` | |
 | `POST /api/networks` | body `{"name": "...", "prefixes": ["192.168.20.0/24", ...], "vlan": 20, "color": "orange"}` |
 | `GET /api/networks/summary` | `from`, `to` |
@@ -860,6 +898,10 @@ day, so ranges are effectively rounded to whole hours, or days for old data.
   "Connection", "Uplink", "Connected", "ConnectedAt", "LastSeen"}`, where `Connection` is
   `WIRED`, `WIRELESS` or `VPN`; it is null for the others. `/api/unifi` tells how reading
   from UniFi goes: `{"Enabled", "Site", "LastSync", "LastError", "Connected"}`.
+- `/api/geoip` tells how the GeoIP databases are doing: `{"Updates", "Databases"}`, where
+  `Updates` is whether netmon [keeps them up to date](#geoip-databases), and each
+  database is `{"Edition", "Path", "Available", "Built", "CheckedAt", "Error"}`, with
+  `Built` and `CheckedAt` null when unknown.
 - A network has an `ID`, `Name`, `VLAN` (null without one), `Color`, `Prefixes`,
   `CreatedAt` and `UpdatedAt`. `prefixes` are 1 to 32 blocks in CIDR notation or single
   addresses, with host bits cleared (`192.168.20.1/24` is `192.168.20.0/24`); `vlan` is
